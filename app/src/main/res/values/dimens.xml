@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_padding">20dp</dimen>
+    <dimen name="album_art_height">240dp</dimen>
+    <dimen name="corner_radius">18dp</dimen>
+    <dimen name="transport_button_size">56dp</dimen>
+    <dimen name="transport_primary_button_size">64dp</dimen>
+    <dimen name="transport_button_gap">14dp</dimen>
+    <dimen name="secondary_control_size">48dp</dimen>
+    <dimen name="secondary_control_gap">10dp</dimen>
+    <dimen name="rating_chip_width">78dp</dimen>
+</resources>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">R4 Poweramp Remote</string>
+    <string name="screen_title">Сейчас играет</string>
+    <string name="api_caption">Poweramp Intent API</string>
+    <string name="status_checking">Проверяю Poweramp…</string>
+    <string name="waiting_title">Нет текущего трека</string>
+    <string name="waiting_artist">Запустите Poweramp и включите музыку</string>
+    <string name="waiting_album">Метаданные появятся автоматически</string>
+    <string name="sync">Синхронизировать</string>
+    <string name="previous_track">Предыдущий трек</string>
+    <string name="play">Воспроизвести</string>
+    <string name="pause">Пауза</string>
+    <string name="next_track">Следующий трек</string>
+    <string name="state_playing_description">Воспроизводится</string>
+    <string name="state_paused_description">На паузе</string>
+    <string name="state_stopped_description">Остановлено</string>
+    <string name="elapsed_placeholder">0:00</string>
+    <string name="duration_placeholder">0:00</string>
+    <string name="status_not_installed">Poweramp не найден</string>
+    <string name="status_waiting">Poweramp найден · жду трек</string>
+    <string name="status_playing">Poweramp · воспроизведение</string>
+    <string name="status_paused">Poweramp · пауза</string>
+    <string name="status_stopped">Poweramp · остановлен</string>
+    <string name="status_connected">Poweramp подключён</string>
+    <string name="error_sync">Не удалось отправить запрос в Poweramp</string>
+    <string name="error_command">Не удалось отправить команду в Poweramp</string>
+    <string name="unknown_title">Без названия</string>
+    <string name="unknown_artist">Неизвестный исполнитель</string>
+    <string name="unknown_album">Неизвестный альбом</string>
+    <string name="album_art_description">Обложка текущего трека</string>
+    <string name="dislike">Не нравится</string>
+    <string name="remove_dislike">Убрать отметку «Не нравится»</string>
+    <string name="like">Нравится</string>
+    <string name="remove_like">Убрать отметку «Нравится»</string>
+    <string name="rating_value">%1$d/5</string>
+    <string name="rating_unknown">—/5</string>
+    <string name="rating_current_description">Рейтинг: %1$d из 5</string>
+    <string name="rating_change">Изменить рейтинг</string>
+    <string name="rating_dialog_title">Оценка трека</string>
+    <string name="cancel">Отмена</string>
+    <string name="shuffle_enable">Включить перемешивание</string>
+    <string name="shuffle_disable">Выключить перемешивание</string>
+    <string name="shuffle_on">Перемешивание включено</string>
+    <string name="shuffle_off">Перемешивание выключено</string>
+
+    <string name="server_title">Локальный API</string>
+    <string name="server_status_running">Сервер запущен</string>
+    <string name="server_status_stopped">Сервер остановлен</string>
+    <string name="server_status_error">Не удалось запустить сервер · порт занят</string>
+    <string name="server_status_generic_error">Не удалось запустить сервер</string>
+    <string name="server_status_token_error">Сервер остановлен · не удалось сохранить токен</string>
+    <string name="server_address_value">http://%1$s:%2$d</string>
+    <string name="server_address_unavailable">IP-адрес локальной сети не найден · порт %1$d</string>
+    <string name="server_clients_value">WebSocket-клиентов: %1$d</string>
+    <string name="server_token">Bearer-токен</string>
+    <string name="server_token_unavailable">Недоступен</string>
+    <string name="server_copy_token">Копировать токен</string>
+    <string name="server_token_copied">Токен скопирован</string>
+
+    <string-array name="rating_options">
+        <item>Без оценки · 0/5</item>
+        <item>Не нравится · 1/5</item>
+        <item>2 звезды · 2/5</item>
+        <item>3 звезды · 3/5</item>
+        <item>4 звезды · 4/5</item>
+        <item>Нравится · 5/5</item>
+    </string-array>
+</resources>
