@@ -315,6 +315,7 @@ final class RemoteApiServer implements AutoCloseable {
     private void configureAndSubmit(Socket socket, int generation) {
         try {
             socket.setTcpNoDelay(true);
+            socket.setKeepAlive(true);
             socket.setSoTimeout(HTTP_TIMEOUT_MILLISECONDS);
             synchronized (lifecycleLock) {
                 if (!desiredRunning || generation != lifecycleGeneration || closed) {
@@ -386,7 +387,7 @@ final class RemoteApiServer implements AutoCloseable {
             }
             routeHttp(request, output, generation, authorization);
         } catch (IOException ignored) {
-            // The remote peer disconnected or the Activity stopped the server.
+            // The remote peer disconnected or the foreground service stopped the server.
         } finally {
             connections.remove(socket);
         }

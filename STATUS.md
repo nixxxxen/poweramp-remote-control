@@ -1,83 +1,105 @@
 # Current project status
 
-Current version: `0.5.0`
+Current version: `0.6.0`
 
 ## Stage
 
-Native foreground-only Android Poweramp client with an authenticated local HTTP/WebSocket API and a small embedded Web UI. There is still no separate phone application or cloud component.
+Native Android Poweramp client with one started-and-bound foreground service, an authenticated
+local HTTP/WebSocket API, and a compact embedded Web UI. There is no separate phone application,
+WebView, or cloud component.
 
-## Implemented in version 0.5.0
+## Implemented in version 0.6.0
 
-- Added public embedded assets at `/`, `/app.css`, and `/app.js`, served by the existing `RemoteApiServer` on TCP `8765`.
-- Added a phone-sized UI for artwork, title, artist, elapsed/duration seekbar, Previous, state-aware Play/Pause, and Next.
-- The page performs one initial REST state request, then consumes complete state snapshots from `/api/v1/events`; there is no steady state polling.
-- Position advances locally between Poweramp events. Artwork uses the existing authenticated `/api/v1/artwork` route.
-- Added control action `{"action":"seek","value":37}`. The value is an absolute integer number of seconds; Poweramp receives public `Commands.SEEK` (`15`) with `pos`, followed by one delayed `POS_SYNC` request.
-- Added `POST /api/v1/session` for token-to-cookie login and `DELETE /api/v1/session` for logout.
-- Added random, process-local, fixed 12-hour browser sessions: 256-bit Base64URL IDs, maximum 16, `HttpOnly`, `SameSite=Strict`, path `/api/v1/`.
-- Protected REST, artwork, and WebSocket routes accept either the existing Bearer token or a valid session cookie. A malformed explicit Bearer header never falls back to a cookie.
-- Cookie-authenticated login/control/logout/WebSocket paths enforce exact `Origin: http://<Host>`. Bearer clients remain compatible without `Origin`.
-- Session expiry, logout, and bounded-store eviction close associated WebSockets. Idle expiry uses a one-shot scheduled deadline, not Poweramp polling.
-- Added CSP, clickjacking protection, no-referrer policy, bounded reconnect backoff, and a one-time auth probe after WebSocket disconnect.
-- Preserved all version `0.4.0` state fields, REST/WebSocket payload format, artwork route, Bearer clients, ratings, shuffle, metadata, and transport controls.
+- Added `RemotePlaybackService`, the single owner of `PowerampClient`, `PlaybackStateStore`,
+  `RemoteArtworkCache`, `RemoteApiServer`, browser sessions, and WebSocket connections.
+- Declared and started it as a `connectedDevice` foreground service with the matching Android
+  permissions and an ongoing low-importance notification. Android 13+ notification permission is
+  requested by the Activity.
+- The service returns `START_STICKY`; repeated starts are idempotent and also retry a failed server
+  bind or Poweramp availability check. A tested generation guard drops commands queued across a
+  stop/restart boundary.
+- `MainActivity` starts the service, binds only while visible, and unbinds without stopping it.
+  Backgrounding the Activity, removing it from recent apps, or locking the screen no longer closes
+  REST/WebSocket sockets or unregisters Poweramp receivers.
+- The notification Stop action immediately stops the network runtime and Poweramp receivers.
+  `onDestroy()` closes server sockets, WebSockets, sessions, executors, artwork state, and receivers.
+- Enabled TCP keepalive on accepted sockets. No partial wakelock, Wi-Fi lock, wake permission, or
+  battery-optimization exemption was added; target-device evidence is required before adding one.
+- Expanded the mobile-first Web UI with album, codec/file type, bit depth, sample rate, bitrate,
+  source category, list position/size, Like, Dislike, rating reset, and Shuffle OFF/ON while
+  retaining artwork, transport controls, seek, and local elapsed-position rendering.
+- Web UI state remains one initial REST snapshot plus complete event-driven WebSocket snapshots.
+  Controls use the existing REST command endpoint and do not poll or create a WebSocket command
+  channel.
 
-## API contract
+## Preserved API and security contract
 
-- Web UI: `http://<R4-IP>:8765/`.
-- External API authentication: `Authorization: Bearer <token>` remains unchanged.
-- Browser login: `POST /api/v1/session`, JSON `{"token":"..."}`, exact same-origin `Origin`; success returns a session cookie.
-- Browser logout: `DELETE /api/v1/session` with cookie and exact same-origin `Origin`.
-- State/events schema: unchanged full flat state JSON from version `0.4.0`; missing optional values are `null`.
-- Seek: `POST /api/v1/control` with `{"action":"seek","value":<seconds>}`; integer range `0…2147483647`.
-- Control success remains HTTP `202`: dispatched, not yet confirmed by Poweramp.
-- Raw `bitRate` and `positionInList` remain unchanged from Poweramp.
-
-The complete schema, route table, and examples are in `PROJECT.md` and `README.md`.
-
-## Lifecycle and security limitations
-
-- The repository still has no Android Service. The server follows the Activity lifecycle and is reachable only while the R4 app is in the foreground (`onStart` through `onStop`).
-- HTTP and `ws://` are plaintext. The initial token login and session cookie must be used only on a trusted LAN; do not forward port `8765` to the internet.
-- Sessions live only in the current app process. They survive `stop()/start()` on the same server object, but process death or token rotation requires entering the token again.
-- Revoked browser WebSockets are closed at TCP level to guarantee non-blocking lifecycle cleanup. The page performs one `/state` auth probe after disconnect, returns to login on `401`, and otherwise reconnects with backoff.
-- Lyrics remain intentionally unimplemented.
+- Port, paths, JSON state schema, command bodies, and HTTP status semantics are unchanged.
+- External `Authorization: Bearer <token>` clients remain compatible.
+- Same-origin browser session login, `HttpOnly; SameSite=Strict` cookie authentication, Origin
+  checks, bounded sessions, logout/expiry/eviction behavior, artwork auth, and CSP remain intact.
+- Raw `bitRate` and raw `positionInList` remain unchanged in REST/WebSocket JSON.
+- HTTP and `ws://` remain plaintext and must be used only on a trusted LAN; do not forward port
+  `8765` to the internet.
+- Sessions remain process-local. Activity recreation/backgrounding keeps them; process death,
+  explicit service stop followed by destruction, or token rotation does not.
 
 ## Verification completed
 
-Final clean verification completed on 2026-08-11:
+Final clean verification completed on 2026-08-12:
 
-- `56/56` JVM tests passed; `0` failures, `0` errors, `0` skipped across 12 suites.
-- Loopback coverage includes public assets, session login/logout, cookie/Bearer precedence, Origin rejection, state/artwork/control, seek routing, browser WebSocket auth, expiry, logout, eviction, and event pushes.
-- `lintDebug` passed with `0` errors and one non-blocking warning that Gradle `8.14.5` is available while the verified wrapper remains `8.14.3`.
-- A clean `assembleDebug` succeeded; APK size is 98,560 bytes.
-- APK reports `versionCode=5`, `versionName=0.5.0`, `minSdk=26`, `targetSdk=36`.
+- `clean testDebugUnitTest lintDebug assembleDebug` succeeded with all `50` Gradle tasks executed.
+- `59/59` JVM tests passed; `0` failures, `0` errors, `0` skipped across `13` suites.
+- Added lifecycle coverage for idempotent start, stale-command invalidation, restart, and final close.
+- Expanded Web UI assertions cover every required metadata field and rating/shuffle command while
+  retaining loopback REST/WebSocket/session/auth regression coverage.
+- Embedded production JavaScript passed a separate Node syntax check; the production assets were
+  also served successfully by a loopback preview on `127.0.0.1`.
+- Automated visual browser interaction could not run because the available browser runtime could
+  not access its local profile (`EPERM`); no visual viewport pass is claimed.
+- `lintDebug` passed with `0` errors and one non-blocking warning that Gradle `8.14.5` is available
+  while the verified wrapper remains `8.14.3`.
+- Fresh debug APK size: `107,770` bytes.
+- APK reports `versionCode=6`, `versionName=0.6.0`, `minSdk=26`, `targetSdk=36`.
+- Merged/APK manifests contain `RemotePlaybackService`, `foregroundServiceType="connectedDevice"`,
+  `stopWithTask="false"`, and the required foreground/notification/network permissions.
 - APK Signature Scheme v2 verification succeeded with one Android debug signer.
-- APK SHA-256: `7966A6C88245CD3A36700C31A1B90DD0BF56083D37E4E95AD101175DC39DB153`.
-- Source ZIP was created from the documented source/configuration set and its contents were enumerated.
-- A real loopback preview fixture successfully served the production server/assets on port `8765`. Automated visual interaction could not be completed because the available in-app browser runtime failed to initialize its own kernel assets (`os error 3`); no visual browser pass is claimed.
+- APK SHA-256: `797876314D7EDAFBD727B917C12A39461CB1D73256A466E327F8F5B104E4C166`.
+- Source search confirms no `WAKE_LOCK`, `WifiLock`, or `CHANGE_WIFI_STATE` declaration/use.
 
-## Device checks still required
+APK: `outputs/R4-Poweramp-Remote-v0.6.0-debug.apk` (delivery copy) and
+`app/build/outputs/apk/debug/app-debug.apk` (standard Gradle output).
 
-- Install the `0.5.0` debug APK on HiBy R4 and open `http://<R4-IP>:8765/` from a phone on the same LAN.
-- Confirm cookie creation in the target phone browser, artwork delivery, Play/Pause state, Previous/Next, seek, and automatic WebSocket updates.
-- Check session reconnect across Wi-Fi interruption, screen lock, leaving the Activity, and returning it to foreground.
-- Compare raw `bitRate` against known files; do not change units before that check.
-- Check first/middle/last raw `posInList`; do not add or subtract one before that check.
+## HiBy R4 device checks still required
+
+- Install the `0.6.0` debug APK, grant notifications, and confirm the ongoing service notification
+  appears with a working Open and Stop path.
+- Open the Web UI from an ordinary phone and confirm the player fits without vertical scrolling,
+  artwork/metadata formatting, all transport/seek/rating/shuffle controls, and session login.
+- Keep `websocat` or the browser connected, then background/remove the Activity and lock/turn off
+  the R4 screen. Verify REST, the existing WebSocket, and direct Poweramp events after 5, 30, and
+  60 minutes, both while music is playing and while paused.
+- Confirm the notification Stop action closes the listening port and WebSockets, then reopening the
+  app starts a clean server and reconnects to current Poweramp state.
+- If the R4 reproducibly suspends network/CPU with the screen off, capture duration, playback state,
+  battery settings, and logs before considering a narrowly scoped lock. Do not add both locks by
+  default.
+- Compare raw `bitRate` against known files and check first/middle/last raw `posInList`; do not
+  change units or offsets before that evidence exists.
 
 ## Regression-sensitive functionality
 
 Do not break:
 
-- metadata and artwork;
-- codec/file type, bit depth, sample rate, raw bitrate;
-- category, raw list position and list size;
-- play/pause/previous/next and absolute seek;
-- rating `0…5`, Like/Dislike;
-- binary shuffle and raw shuffle mode;
+- background foreground-service ownership and clean repeated start/stop;
+- metadata/artwork and audio/source details;
+- play/pause/previous/next, absolute seek, rating `0…5`, Like/Dislike/reset, and shuffle;
 - automatic updates from `TRACK_CHANGED`, `STATUS_CHANGED`, `PLAYING_MODE_CHANGED`, and `TPOS_SYNC`;
 - Bearer-authenticated REST/WebSocket clients;
-- session-authenticated embedded Web UI.
+- session-authenticated embedded Web UI and its exact-origin protections.
 
 ## Next scope
 
-No separate Android phone client was started. TLS/pairing, an always-on foreground service, and lyrics remain separate future work.
+The next required work is the HiBy R4 screen-off/device matrix above. Add a wakelock or Wi-Fi lock
+only if that matrix demonstrates a specific failure that the foreground service alone does not
+solve. TLS/pairing remains future work. A separate phone client and lyrics remain out of scope.

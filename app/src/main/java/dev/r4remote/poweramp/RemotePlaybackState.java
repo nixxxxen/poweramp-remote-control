@@ -1,6 +1,6 @@
 package dev.r4remote.poweramp;
 
-/** Immutable state shared by the foreground UI and the local network API. */
+/** Immutable state shared by the bound UI and the foreground service's network API. */
 final class RemotePlaybackState {
     final long revision;
     final boolean powerampAvailable;

@@ -53,7 +53,13 @@ final class WebUiAssets {
 
                           <div class="track-copy">
                             <h1 id="title">Нет трека</h1>
-                            <p id="artist">—</p>
+                            <p id="artist" class="artist">—</p>
+                            <p id="album" class="album">—</p>
+                          </div>
+
+                          <div class="metadata" aria-label="Сведения о треке">
+                            <p><span class="meta-label">Аудио</span><span id="audioInfo">—</span></p>
+                            <p><span class="meta-label">Источник</span><span id="sourceInfo">—</span></p>
                           </div>
 
                           <div class="timeline">
@@ -69,6 +75,17 @@ final class WebUiAssets {
                             <button id="previous" type="button" aria-label="Предыдущий трек">⏮</button>
                             <button id="playPause" class="primary" type="button" aria-label="Воспроизвести">▶</button>
                             <button id="next" type="button" aria-label="Следующий трек">⏭</button>
+                          </div>
+
+                          <div class="secondary-controls" aria-label="Оценка и перемешивание">
+                            <button id="dislike" class="icon-control" type="button"
+                                    aria-label="Не нравится" aria-pressed="false">👎</button>
+                            <button id="clearRating" class="chip-control" type="button"
+                                    aria-label="Сбросить рейтинг">Сброс · —/5</button>
+                            <button id="like" class="icon-control" type="button"
+                                    aria-label="Нравится" aria-pressed="false">👍</button>
+                            <button id="shuffle" class="chip-control shuffle-control" type="button"
+                                    aria-label="Включить перемешивание" aria-pressed="false">Shuffle OFF</button>
                           </div>
 
                           <p id="connectionStatus" class="message" role="status" aria-live="polite">Подключение…</p>
@@ -98,20 +115,18 @@ final class WebUiAssets {
                       min-height: 100vh;
                       min-height: 100dvh;
                       margin: 0;
-                      padding: max(1rem, env(safe-area-inset-top))
-                               max(1rem, env(safe-area-inset-right))
-                               max(1rem, env(safe-area-inset-bottom))
-                               max(1rem, env(safe-area-inset-left));
-                      background: radial-gradient(circle at top, #252b36 0, #111318 42rem);
+                      padding: max(.75rem, env(safe-area-inset-top))
+                               max(.75rem, env(safe-area-inset-right))
+                               max(.75rem, env(safe-area-inset-bottom))
+                               max(.75rem, env(safe-area-inset-left));
+                      background: radial-gradient(circle at top, #252b36 0, #111318 38rem);
+                      overscroll-behavior: none;
                     }
 
                     button, input { font: inherit; }
 
                     button {
-                      min-width: 3.5rem;
-                      min-height: 3.5rem;
                       border: 0;
-                      border-radius: 50%;
                       background: #303641;
                       color: inherit;
                       cursor: pointer;
@@ -120,18 +135,23 @@ final class WebUiAssets {
 
                     button:disabled, input:disabled {
                       cursor: default;
-                      opacity: .42;
+                      opacity: .4;
                     }
 
                     button:focus-visible, input:focus-visible {
                       outline: .18rem solid #9dc1ff;
-                      outline-offset: .2rem;
+                      outline-offset: .18rem;
+                    }
+
+                    button[aria-pressed="true"] {
+                      background: #86adf7;
+                      color: #10141b;
                     }
 
                     .shell {
                       width: min(100%, 28rem);
-                      min-height: calc(100vh - 2rem);
-                      min-height: calc(100dvh - 2rem);
+                      min-height: calc(100vh - 1.5rem);
+                      min-height: calc(100dvh - 1.5rem);
                       margin: 0 auto;
                       display: grid;
                       place-items: center;
@@ -139,16 +159,16 @@ final class WebUiAssets {
 
                     .card {
                       width: 100%;
-                      padding: 1.5rem;
+                      padding: 1.35rem;
                       border: 1px solid #343a46;
-                      border-radius: 1.25rem;
+                      border-radius: 1.1rem;
                       background: #1a1e25;
                       box-shadow: 0 1.25rem 4rem #0007;
                     }
 
-                    .login h1 { margin: 0 0 .75rem; }
-                    .login p { color: #b8bdc7; line-height: 1.45; }
-                    .login form { display: grid; gap: .75rem; margin-top: 1.25rem; }
+                    .login h1 { margin: 0 0 .65rem; }
+                    .login p { color: #b8bdc7; line-height: 1.4; }
+                    .login form { display: grid; gap: .7rem; margin-top: 1.1rem; }
 
                     .login input {
                       width: 100%;
@@ -162,6 +182,7 @@ final class WebUiAssets {
 
                     .login .login-button {
                       width: 100%;
+                      min-height: 3.1rem;
                       border-radius: .7rem;
                       background: #86adf7;
                       color: #10141b;
@@ -171,18 +192,18 @@ final class WebUiAssets {
                     .player {
                       width: 100%;
                       display: grid;
-                      gap: 1.2rem;
+                      gap: clamp(.5rem, 1.5vh, .8rem);
                       align-content: center;
                     }
 
                     .cover {
-                      width: min(100%, 23rem);
+                      width: min(52vw, 25dvh, 13.5rem);
                       aspect-ratio: 1;
                       margin: 0 auto;
                       overflow: hidden;
-                      border-radius: 1.25rem;
+                      border-radius: 1rem;
                       background: #252a33;
-                      box-shadow: 0 1.25rem 4rem #0008;
+                      box-shadow: 0 .75rem 2.5rem #0008;
                     }
 
                     .cover img {
@@ -198,10 +219,13 @@ final class WebUiAssets {
                       display: grid;
                       place-items: center;
                       color: #687181;
-                      font-size: clamp(4rem, 22vw, 8rem);
+                      font-size: clamp(3.5rem, 18vw, 6.5rem);
                     }
 
-                    .track-copy { min-width: 0; text-align: center; }
+                    .track-copy {
+                      min-width: 0;
+                      text-align: center;
+                    }
 
                     .track-copy h1, .track-copy p {
                       overflow: hidden;
@@ -210,36 +234,127 @@ final class WebUiAssets {
                       white-space: nowrap;
                     }
 
-                    .track-copy h1 { font-size: clamp(1.35rem, 6vw, 2rem); }
-                    .track-copy p { margin-top: .35rem; color: #b8bdc7; font-size: 1.05rem; }
+                    .track-copy h1 {
+                      font-size: clamp(1.2rem, 5.4vw, 1.65rem);
+                      line-height: 1.12;
+                    }
 
-                    .timeline { display: grid; gap: .25rem; }
-                    .timeline input { width: 100%; margin: 0; accent-color: #86adf7; }
-                    .times { display: flex; justify-content: space-between; color: #9da4af; font-variant-numeric: tabular-nums; }
+                    .track-copy .artist {
+                      margin-top: .2rem;
+                      color: #d3d7de;
+                      font-size: .98rem;
+                    }
+
+                    .track-copy .album {
+                      margin-top: .1rem;
+                      color: #949ca8;
+                      font-size: .82rem;
+                    }
+
+                    .metadata {
+                      min-width: 0;
+                      padding: .4rem .6rem;
+                      border: 1px solid #303641;
+                      border-radius: .7rem;
+                      background: #181b21cc;
+                      color: #aeb5c0;
+                      font-size: .74rem;
+                      line-height: 1.35;
+                    }
+
+                    .metadata p {
+                      min-width: 0;
+                      display: grid;
+                      grid-template-columns: 4.35rem minmax(0, 1fr);
+                      gap: .35rem;
+                      margin: 0;
+                    }
+
+                    .metadata p + p { margin-top: .12rem; }
+
+                    .metadata span:last-child {
+                      min-width: 0;
+                      overflow-wrap: anywhere;
+                    }
+
+                    .meta-label {
+                      color: #7387a7;
+                      font-weight: 700;
+                      text-transform: uppercase;
+                      letter-spacing: .035em;
+                    }
+
+                    .timeline { display: grid; gap: .12rem; }
+                    .timeline input { width: 100%; height: 1.2rem; margin: 0; accent-color: #86adf7; }
+
+                    .times {
+                      display: flex;
+                      justify-content: space-between;
+                      color: #9da4af;
+                      font-size: .76rem;
+                      font-variant-numeric: tabular-nums;
+                    }
 
                     .controls {
                       display: flex;
                       justify-content: center;
                       align-items: center;
-                      gap: 1.2rem;
+                      gap: 1rem;
+                    }
+
+                    .controls button {
+                      width: 3.2rem;
+                      height: 3.2rem;
+                      border-radius: 50%;
+                      font-size: 1.15rem;
                     }
 
                     .controls .primary {
-                      min-width: 4.5rem;
-                      min-height: 4.5rem;
+                      width: 3.9rem;
+                      height: 3.9rem;
                       background: #f4f5f7;
                       color: #111318;
-                      font-size: 1.5rem;
+                      font-size: 1.35rem;
                     }
 
-                    .message { min-height: 1.25rem; margin: 0; color: #9da4af; text-align: center; }
+                    .secondary-controls {
+                      display: grid;
+                      grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem minmax(0, 1.15fr);
+                      gap: .4rem;
+                      align-items: stretch;
+                    }
+
+                    .secondary-controls button {
+                      min-width: 0;
+                      min-height: 2.65rem;
+                      border-radius: .75rem;
+                      font-size: .78rem;
+                      font-weight: 700;
+                    }
+
+                    .secondary-controls .icon-control { font-size: 1.05rem; }
+                    .shuffle-control { color: #b9c7df; }
+
+                    .message {
+                      min-height: 1rem;
+                      margin: 0;
+                      color: #8f98a5;
+                      font-size: .73rem;
+                      line-height: 1.2;
+                      text-align: center;
+                    }
+
                     .error { color: #ffaaa5 !important; text-align: left; }
 
                     @media (max-width: 23rem), (max-height: 42rem) {
-                      body { padding: .75rem; }
-                      .player { gap: .8rem; }
-                      .cover { width: min(70vh, 100%); border-radius: 1rem; }
-                      .controls .primary { min-width: 4rem; min-height: 4rem; }
+                      body { padding: .55rem; }
+                      .shell { min-height: calc(100dvh - 1.1rem); }
+                      .player { gap: .45rem; }
+                      .cover { width: min(42vw, 20dvh, 8.5rem); border-radius: .8rem; }
+                      .metadata { padding-block: .3rem; }
+                      .controls button { width: 2.9rem; height: 2.9rem; }
+                      .controls .primary { width: 3.55rem; height: 3.55rem; }
+                      .secondary-controls button { min-height: 2.45rem; }
                     }
 
                     @media (prefers-reduced-motion: reduce) {
@@ -268,12 +383,19 @@ final class WebUiAssets {
                     const artworkPlaceholder = document.getElementById("artworkPlaceholder");
                     const title = document.getElementById("title");
                     const artist = document.getElementById("artist");
+                    const album = document.getElementById("album");
+                    const audioInfo = document.getElementById("audioInfo");
+                    const sourceInfo = document.getElementById("sourceInfo");
                     const seek = document.getElementById("seek");
                     const position = document.getElementById("position");
                     const duration = document.getElementById("duration");
                     const previous = document.getElementById("previous");
                     const playPause = document.getElementById("playPause");
                     const next = document.getElementById("next");
+                    const dislike = document.getElementById("dislike");
+                    const clearRating = document.getElementById("clearRating");
+                    const like = document.getElementById("like");
+                    const shuffle = document.getElementById("shuffle");
                     const connectionStatus = document.getElementById("connectionStatus");
 
                     let currentState = null;
@@ -319,6 +441,10 @@ final class WebUiAssets {
                       return typeof value === "number" && Number.isFinite(value) ? value : null;
                     }
 
+                    function cleanText(value) {
+                      return typeof value === "string" && value.trim() ? value.trim() : null;
+                    }
+
                     function clamp(value, minimum, maximum) {
                       return Math.min(maximum, Math.max(minimum, value));
                     }
@@ -332,6 +458,64 @@ final class WebUiAssets {
                       return hours > 0
                         ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
                         : `${minutes}:${String(remainder).padStart(2, "0")}`;
+                    }
+
+                    function decimal(value, divisor) {
+                      return (value / divisor).toFixed(4).replace(/0+$/, "").replace(/\\.$/, "").replace(".", ",");
+                    }
+
+                    function formatAudio(state) {
+                      const values = [];
+                      const fileType = cleanText(state.fileTypeName);
+                      const codecValue = cleanText(state.codec);
+                      const codec = codecValue ? codecValue.toUpperCase() : null;
+                      if (fileType && codec && fileType.toUpperCase() !== codec) {
+                        values.push(`${fileType} / ${codec}`);
+                      } else if (fileType || codec) {
+                        values.push(fileType || codec);
+                      }
+
+                      const bits = numberOrNull(state.bitsPerSample);
+                      if (bits !== null && bits > 0) values.push(`${Math.round(bits)} бит`);
+
+                      const sampleRate = numberOrNull(state.sampleRate);
+                      if (sampleRate !== null && sampleRate > 0) {
+                        values.push(sampleRate >= 1000000
+                          ? `${decimal(sampleRate, 1000000)} МГц`
+                          : `${decimal(sampleRate, 1000)} кГц`);
+                      }
+
+                      const bitRate = numberOrNull(state.bitRate);
+                      if (bitRate !== null && bitRate > 0) {
+                        const kiloBits = bitRate >= 10000 ? Math.round(bitRate / 1000) : Math.round(bitRate);
+                        values.push(`${kiloBits} кбит/с`);
+                      }
+                      return values.length ? values.join(" · ") : "—";
+                    }
+
+                    function formatSource(state) {
+                      const values = [];
+                      const categoryName = cleanText(state.sourceCategoryName);
+                      const category = numberOrNull(state.sourceCategory);
+                      if (categoryName) {
+                        values.push(categoryName);
+                      } else if (category !== null) {
+                        values.push(`Категория ${Math.round(category)}`);
+                      }
+
+                      const listPosition = numberOrNull(state.positionInList);
+                      const listSize = numberOrNull(state.listSize);
+                      if (listPosition !== null && listSize !== null && listSize > 0) {
+                        const shownPosition = listPosition >= 0 && listPosition < listSize
+                          ? listPosition + 1
+                          : listPosition;
+                        values.push(`${Math.round(shownPosition)} / ${Math.round(listSize)}`);
+                      } else if (listPosition !== null) {
+                        values.push(`позиция ${Math.round(listPosition)}`);
+                      } else if (listSize !== null) {
+                        values.push(`всего ${Math.round(listSize)}`);
+                      }
+                      return values.length ? values.join(" · ") : "—";
                     }
 
                     function trackIdentity(state) {
@@ -387,6 +571,10 @@ final class WebUiAssets {
                       artwork.src = `${state.artwork}${separator}revision=${encodeURIComponent(state.revision)}`;
                     }
 
+                    function setPressed(button, pressed) {
+                      button.setAttribute("aria-pressed", pressed ? "true" : "false");
+                    }
+
                     function applyState(state) {
                       if (!state || typeof state !== "object") return;
                       const previousIdentity = currentState ? trackIdentity(currentState) : null;
@@ -394,8 +582,11 @@ final class WebUiAssets {
                       const trackChanged = previousIdentity !== null && previousIdentity !== identity;
                       currentState = state;
 
-                      title.textContent = state.title || "Нет трека";
-                      artist.textContent = state.artist || "—";
+                      title.textContent = cleanText(state.title) || "Нет трека";
+                      artist.textContent = cleanText(state.artist) || "—";
+                      album.textContent = cleanText(state.album) || "—";
+                      audioInfo.textContent = formatAudio(state);
+                      sourceInfo.textContent = formatSource(state);
                       updateArtwork(state, identity);
 
                       const total = numberOrNull(state.durationSeconds);
@@ -419,16 +610,41 @@ final class WebUiAssets {
                         setPositionAnchor(0);
                       }
 
-                      const controllable = state.powerampAvailable === true && state.hasTrack === true;
+                      const powerampAvailable = state.powerampAvailable === true;
+                      const controllable = powerampAvailable && state.hasTrack === true;
                       previous.disabled = !controllable;
                       next.disabled = !controllable;
-                      playPause.disabled = !controllable;
+                      playPause.disabled = !powerampAvailable;
                       seek.disabled = !controllable || !(total > 0);
 
                       const playing = state.playbackState === "playing";
                       playPause.textContent = playing ? "Ⅱ" : "▶";
                       playPause.setAttribute("aria-label", playing ? "Пауза" : "Воспроизвести");
-                      connectionStatus.textContent = "Подключено";
+
+                      const rating = numberOrNull(state.rating);
+                      const liked = rating === 5;
+                      const disliked = rating === 1;
+                      dislike.disabled = !controllable;
+                      like.disabled = !controllable;
+                      clearRating.disabled = !controllable || rating === null || rating === 0;
+                      setPressed(dislike, disliked);
+                      setPressed(like, liked);
+                      dislike.setAttribute("aria-label", disliked ? "Убрать отметку Не нравится" : "Не нравится");
+                      like.setAttribute("aria-label", liked ? "Убрать отметку Нравится" : "Нравится");
+                      clearRating.textContent = `Сброс · ${rating === null ? "—" : Math.round(rating)}/5`;
+
+                      const shuffleEnabled = state.shuffle === true;
+                      shuffle.disabled = !controllable;
+                      setPressed(shuffle, shuffleEnabled);
+                      shuffle.textContent = state.shuffle === null
+                        ? "Shuffle —"
+                        : `Shuffle ${shuffleEnabled ? "ON" : "OFF"}`;
+                      shuffle.setAttribute(
+                        "aria-label",
+                        shuffleEnabled ? "Выключить перемешивание" : "Включить перемешивание"
+                      );
+
+                      connectionStatus.textContent = powerampAvailable ? "Подключено" : "Poweramp недоступен";
                       renderPosition();
                     }
 
@@ -581,6 +797,16 @@ final class WebUiAssets {
                     next.addEventListener("click", () => sendControl("next"));
                     playPause.addEventListener("click", () => {
                       sendControl(currentState?.playbackState === "playing" ? "pause" : "play");
+                    });
+                    dislike.addEventListener("click", () => {
+                      sendControl("set_rating", currentState?.rating === 1 ? 0 : 1);
+                    });
+                    clearRating.addEventListener("click", () => sendControl("set_rating", 0));
+                    like.addEventListener("click", () => {
+                      sendControl("set_rating", currentState?.rating === 5 ? 0 : 5);
+                    });
+                    shuffle.addEventListener("click", () => {
+                      sendControl(currentState?.shuffle === true ? "shuffle_off" : "shuffle_on");
                     });
 
                     seek.addEventListener("input", () => {

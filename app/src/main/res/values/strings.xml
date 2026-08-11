@@ -25,6 +25,7 @@
     <string name="status_connected">Poweramp подключён</string>
     <string name="error_sync">Не удалось отправить запрос в Poweramp</string>
     <string name="error_command">Не удалось отправить команду в Poweramp</string>
+    <string name="error_service">Фоновый сервис недоступен</string>
     <string name="unknown_title">Без названия</string>
     <string name="unknown_artist">Неизвестный исполнитель</string>
     <string name="unknown_album">Неизвестный альбом</string>
@@ -57,6 +58,14 @@
     <string name="server_token_unavailable">Недоступен</string>
     <string name="server_copy_token">Копировать токен</string>
     <string name="server_token_copied">Токен скопирован</string>
+
+    <string name="remote_service_channel_name">Локальный сервер Poweramp Remote</string>
+    <string name="remote_service_channel_description">Постоянная работа REST и WebSocket в фоне</string>
+    <string name="remote_service_notification_title">Poweramp Remote работает</string>
+    <string name="remote_service_notification_starting">Локальный сервер запускается…</string>
+    <string name="remote_service_notification_running">Порт %1$d · WebSocket: %2$d</string>
+    <string name="remote_service_notification_error">Локальный сервер временно недоступен</string>
+    <string name="remote_service_notification_stop">Остановить</string>
 
     <string-array name="rating_options">
         <item>Без оценки · 0/5</item>

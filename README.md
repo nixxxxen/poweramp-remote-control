@@ -1,18 +1,20 @@
-# R4 Poweramp Remote 0.5.0
+# R4 Poweramp Remote 0.6.0
 
 Нативный Android-клиент для HiBy R4, который показывает состояние Poweramp, управляет воспроизведением и публикует тот же state/control API в локальной сети.
 
-Версия `0.5.0` сохраняет возможности `0.4.0` и добавляет встроенный Web UI, browser-cookie сессии и абсолютный seek. Lyrics по-прежнему не реализованы.
+Версия `0.6.0` переносит Poweramp-интеграцию и локальный сервер в корректный Android foreground service и дополняет Web UI всеми уже доступными метаданными и командами. Lyrics по-прежнему не реализованы.
 
 Отдельного Android-приложения для телефона нет: на телефоне используется обычный браузер.
 
 ## Встроенный Web UI
 
-1. Откройте приложение на HiBy R4 и скопируйте показанный токен.
+1. Откройте приложение на HiBy R4, разрешите уведомления и скопируйте показанный токен.
 2. На телефоне в той же локальной сети откройте `http://<IP_R4>:8765/`.
 3. Введите токен один раз.
 
-Страница показывает обложку, название, исполнителя, позицию/длительность, Previous, актуальный Play/Pause, Next и seekbar. После отпускания seekbar отправляется одна команда seek. Состояние после первоначальной загрузки обновляется через WebSocket, без постоянного polling.
+Компактная mobile-first страница показывает обложку, title/artist/album, codec/file type, bit depth, sample rate, bitrate, источник и позицию/размер списка. Доступны Previous, актуальный Play/Pause, Next, seekbar, Like, Dislike, сброс rating и Shuffle OFF/ON. На обычном портретном экране смартфона основной плеер рассчитан без вертикальной прокрутки.
+
+После отпускания seekbar отправляется ровно одна команда seek. После первоначального REST snapshot всё состояние обновляется через WebSocket, без постоянного polling; отображаемая позиция между событиями продвигается локально.
 
 ## Локальный API
 
@@ -135,13 +137,13 @@ websocat -H="Authorization: Bearer $TOKEN" \
 1. Оставить `websocat` подключённым.
 2. Сменить трек, поставить pause/play, изменить rating или shuffle непосредственно в Poweramp.
 3. Убедиться, что приходит новый объект с увеличенным `revision` и актуальными полями.
-4. Закрыть или свернуть R4 Poweramp Remote: соединение должно закрыться; после возвращения приложения подключиться заново.
+4. Свернуть R4 Poweramp Remote и заблокировать экран R4: WebSocket должен остаться подключённым, а изменения из Poweramp должны продолжить приходить.
 
 Встроенная страница подключает browser `WebSocket` через session cookie. Bearer-аутентификация для `websocat` и других внешних клиентов сохранена.
 
 ## Как это работает
 
-`PowerampClient` продолжает слушать sticky broadcasts `TRACK_CHANGED`, `STATUS_CHANGED`, `PLAYING_MODE_CHANGED` и `TPOS_SYNC`. Он обновляет единый immutable snapshot. Android UI, REST и WebSocket используют это состояние; HTTP-сервер не создаёт второй слой интеграции с Poweramp.
+`RemotePlaybackService` владеет `PowerampClient`, единым immutable snapshot, artwork-кэшем, browser sessions и `RemoteApiServer`. Он продолжает слушать broadcasts `TRACK_CHANGED`, `STATUS_CHANGED`, `PLAYING_MODE_CHANGED` и `TPOS_SYNC`, когда Activity свёрнута или экран заблокирован. Android UI только bind'ится к этому же состоянию; HTTP-сервер не создаёт второй слой интеграции с Poweramp.
 
 Сетевые команды проходят whitelist/JSON-валидацию и ставятся на главный Android-поток, где вызываются уже существующие методы `PowerampClient`. Like/Dislike используют точный `SET_RATING`, а seek — публичный `Commands.SEEK` с extra `pos` в секундах.
 
@@ -149,9 +151,14 @@ websocat -H="Authorization: Bearer $TOKEN" \
 
 Web UI встроен как три статических asset без WebView и стороннего frontend framework. Cookie-сессии хранятся только в памяти, ограничены 16 записями и не заменяют Bearer API.
 
+Service запускается из видимой Activity, публикует постоянное уведомление, возвращает `START_STICKY` и не останавливается при `Activity.onStop()` или удалении Activity из recent apps. Повторный start безопасен. Кнопка «Остановить» в уведомлении закрывает server/WebSocket/receivers; после явной остановки или перезагрузки устройства приложение нужно открыть снова.
+
+Foreground service имеет тип `connectedDevice`, соответствующий локальному сетевому взаимодействию с телефоном. Wakelock и Wi-Fi lock не используются: добавлять их следует только после воспроизводимого screen-off сбоя на HiBy R4.
+
 ## Ограничения прототипа
 
-- сервер работает только пока экран приложения находится в foreground; отдельного Android Service в текущей архитектуре нет;
+- реальная устойчивость REST/WebSocket при длительном выключенном экране ещё должна быть подтверждена на HiBy R4; версия `0.6.0` не запрашивает wakelock/Wi-Fi lock и не просит исключение из battery optimization;
+- Android force-stop, явная кнопка «Остановить» и перезагрузка устройства прекращают service до следующего запуска приложения;
 - HTTP и `ws://` не шифруются: использовать только в доверенной локальной сети и не открывать порт в интернет;
 - проверен стандартный package Poweramp `com.maxmpz.audioplayer`;
 - для рейтинга требуется Poweramp build 995 или новее;
@@ -164,7 +171,7 @@ Web UI встроен как три статических asset без WebView 
 Требуются JDK 17 и Android SDK 36.
 
 ```powershell
-./gradlew.bat testDebugUnitTest lintDebug assembleDebug
+./gradlew.bat clean testDebugUnitTest lintDebug assembleDebug
 ```
 
 APK появится в `app/build/outputs/apk/debug/app-debug.apk`.

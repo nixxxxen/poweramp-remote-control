@@ -4,11 +4,12 @@
 
 Develop a reliable native Android client for HiBy R4 that reads Poweramp state, controls supported Poweramp functions, and exposes that same state and control surface to trusted devices on the local network.
 
-Current version: `0.5.0`.
+Current version: `0.6.0`.
 
 ## Actual architecture
 
-The repository contains one native, foreground-only Android activity. It owns:
+The repository contains one native Android application with a started-and-bound
+`RemotePlaybackService`. The service owns:
 
 - `PowerampClient`, the existing adapter for Poweramp's public Intent API;
 - `PlaybackStateStore`, the thread-safe immutable state shared by the screen and network API;
@@ -17,7 +18,22 @@ The repository contains one native, foreground-only Android activity. It owns:
 - `BrowserSessionStore`, a bounded in-memory cookie-session store derived from the existing API token;
 - `WebUiAssets`, the dependency-free embedded HTML/CSS/JavaScript remote.
 
-There is no separate phone application, WebView, cloud service, or second foreground service. The Web UI is served by the same local server. The network server starts in `MainActivity.onStart()` and stops in `onStop()`, matching the existing foreground-only lifecycle. A future always-on remote will require moving the same components into a proper foreground service.
+`MainActivity` is now only the local presentation/control surface. It starts the service from a
+visible app launch, binds while its UI is visible, and unbinds in `onStop()` without stopping the
+Poweramp receivers or network server. There is no separate phone application, WebView, cloud
+service, or duplicate integration path. The Web UI is served by the same local server.
+
+The service is an Android `connectedDevice` foreground service with an ongoing low-importance
+notification. It returns `START_STICKY`, treats repeated start commands idempotently, and can retry
+a previous server bind or Poweramp-install check. The notification's explicit Stop action stops the
+server and receivers; `onDestroy()` closes sockets, WebSockets, browser sessions, executors,
+artwork state, and Poweramp receivers. Removing the Activity from the foreground or locking the
+screen does not invoke that shutdown path.
+
+No partial wakelock or Wi-Fi lock is requested in version `0.6.0`: there is no target-device
+evidence that either is necessary, and the foreground service plus TCP keepalive is the least
+invasive baseline. Screen-off behavior still requires a real HiBy R4 verification pass before any
+lock or battery-optimization exception is considered.
 
 The HTTP server does not parse Poweramp broadcasts or send Poweramp broadcasts itself. It only reads `PlaybackStateStore` and submits validated commands through the existing `PowerampClient` command methods on Android's main thread.
 
@@ -130,7 +146,18 @@ Artwork readiness and explicit position/rating state changes may also produce a 
 
 ### Embedded Web UI
 
-Open `http://<R4-IP>:8765/` on a phone in the same LAN and enter the token shown on the R4. The page then displays artwork, title, artist, elapsed position/duration, Previous, current-state Play/Pause, Next, and a seekbar. Releasing the seekbar sends exactly one `seek` command. The page performs one initial state request, receives subsequent state through WebSocket, and advances the displayed position locally between events; it does not poll the state endpoint. Artwork is loaded from `/api/v1/artwork` with the session cookie.
+Open `http://<R4-IP>:8765/` on a phone in the same LAN and enter the token shown on the R4. The
+mobile-first page displays artwork; title, artist, and album; codec/file type, bit depth, sample
+rate, and bitrate; source category and list position/size; elapsed position/duration; Previous,
+state-aware Play/Pause, Next, and seek; Like, Dislike, rating reset; and binary Shuffle OFF/ON.
+The compact portrait layout is sized to fit an ordinary phone viewport without vertical scrolling.
+
+Releasing the seekbar sends exactly one `seek` command. Rating and shuffle buttons use the existing
+`set_rating`, `shuffle_on`, and `shuffle_off` REST commands. Controls are rendered from full state
+snapshots rather than locally pretending that Poweramp already changed. The page performs one
+initial state request, receives subsequent state through WebSocket, and advances only the displayed
+position locally between events; it does not poll the state endpoint. Artwork is loaded from
+`/api/v1/artwork` with the session cookie.
 
 If WebSocket disconnects, the page performs one authenticated state probe. A `401` returns it to the token form; a network outage uses bounded exponential reconnect backoff. Session expiry, logout, and session eviction close associated WebSockets so they cannot retain one of the four client slots.
 
@@ -150,7 +177,7 @@ Lyrics remain intentionally out of scope because the public Intent API exposes `
 
 ## Security model
 
-Version `0.5.0` is a trusted-LAN prototype. Authentication prevents casual unauthorised commands, but HTTP and `ws://` are not encrypted, so the initial token login, cookie, and metadata can be observed on an untrusted network. The Web UI uses no browser storage for the token, serves external script/style assets under a restrictive CSP, and uses one state auth probe only after a WebSocket disconnect; normal state updates remain event-driven. Do not expose port `8765` to the internet. TLS/pairing remains future work.
+Version `0.6.0` is a trusted-LAN prototype. Authentication prevents casual unauthorised commands, but HTTP and `ws://` are not encrypted, so the initial token login, cookie, and metadata can be observed on an untrusted network. The Web UI uses no browser storage for the token, serves external script/style assets under a restrictive CSP, and uses one state auth probe only after a WebSocket disconnect; normal state updates remain event-driven. Do not expose port `8765` to the internet. TLS/pairing remains future work.
 
 ## Known semantic uncertainties
 
@@ -158,12 +185,6 @@ The exact unit of Poweramp `bitRate` and index base of `posInList` still require
 
 ## Verification baseline
 
-Version `0.5.0` keeps the version `0.4.0` regression suite passing and has been verified with:
-
-- `56/56` JVM tests across 12 suites, including loopback REST/WebSocket/session/Web UI coverage;
-- Android lint: `0` errors (`1` non-blocking Gradle wrapper update warning);
-- clean debug APK build;
-- APK manifest/version inspection and APK Signature Scheme v2 verification;
-- packaged source/archive enumeration and SHA-256 hashes.
-
-`STATUS.md` records the latest completed run and remaining device checks.
+Version `0.6.0` keeps the version `0.5.0` API/auth regression suite and adds foreground-service
+lifecycle and complete Web UI coverage. The latest exact test, lint, clean-build, manifest, and APK
+results are recorded in `STATUS.md`.

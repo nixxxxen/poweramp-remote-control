@@ -38,10 +38,18 @@ public final class WebUiAssetsTest {
         assertTrue(html.contains("src=\"/app.js\""));
         assertTrue(html.contains("id=\"loginForm\""));
         assertTrue(html.contains("id=\"artwork\""));
+        assertTrue(html.contains("id=\"album\""));
+        assertTrue(html.contains("id=\"audioInfo\""));
+        assertTrue(html.contains("id=\"sourceInfo\""));
         assertTrue(html.contains("id=\"seek\""));
         assertTrue(html.contains("id=\"previous\""));
         assertTrue(html.contains("id=\"playPause\""));
         assertTrue(html.contains("id=\"next\""));
+        assertTrue(html.contains("id=\"dislike\""));
+        assertTrue(html.contains("id=\"clearRating\""));
+        assertTrue(html.contains("id=\"like\""));
+        assertTrue(html.contains("id=\"shuffle\""));
+        assertTrue(html.contains("aria-pressed=\"false\""));
         assertFalse(html.contains("<style"));
         assertFalse(html.contains("<script>"));
     }
@@ -63,6 +71,19 @@ public final class WebUiAssetsTest {
         assertTrue(script.contains("? \"pause\" : \"play\""));
         assertTrue(script.contains("seek.addEventListener(\"change\""));
         assertTrue(script.contains("sendControl(\"seek\", value)"));
+        assertTrue(script.contains("state.album"));
+        assertTrue(script.contains("state.fileTypeName"));
+        assertTrue(script.contains("state.codec"));
+        assertTrue(script.contains("state.bitsPerSample"));
+        assertTrue(script.contains("state.sampleRate"));
+        assertTrue(script.contains("state.bitRate"));
+        assertTrue(script.contains("state.sourceCategoryName"));
+        assertTrue(script.contains("state.positionInList"));
+        assertTrue(script.contains("state.listSize"));
+        assertTrue(script.contains("sendControl(\"set_rating\", 0)"));
+        assertTrue(script.contains("currentState?.rating === 1 ? 0 : 1"));
+        assertTrue(script.contains("currentState?.rating === 5 ? 0 : 5"));
+        assertTrue(script.contains("? \"shuffle_off\" : \"shuffle_on\""));
 
         assertFalse(script.contains("Authorization"));
         assertFalse(script.contains("localStorage"));
@@ -77,6 +98,9 @@ public final class WebUiAssetsTest {
 
         assertTrue(css.contains("width: min(100%, 28rem)"));
         assertTrue(css.contains("@media (max-width: 23rem)"));
+        assertTrue(css.contains("width: min(52vw, 25dvh, 13.5rem)"));
+        assertTrue(css.contains("grid-template-columns: 2.75rem"));
+        assertTrue(css.contains("overflow-wrap: anywhere"));
         assertTrue(css.contains("env(safe-area-inset-top)"));
         assertTrue(css.contains(":focus-visible"));
         assertTrue(css.contains("prefers-reduced-motion"));

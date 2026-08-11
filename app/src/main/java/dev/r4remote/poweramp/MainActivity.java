@@ -1,14 +1,20 @@
 package dev.r4remote.poweramp;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.PersistableBundle;
 import android.os.SystemClock;
@@ -24,7 +30,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
-public final class MainActivity extends Activity implements PowerampClient.Listener {
+public final class MainActivity extends Activity implements RemotePlaybackService.Listener {
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 600;
+
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService diagnosticsExecutor = Executors.newSingleThreadExecutor(
             runnable -> {
@@ -56,64 +64,53 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
     private TextView serverAddress;
     private TextView serverToken;
     private TextView serverClients;
+    private Button copyTokenButton;
 
-    private PowerampClient powerampClient;
-    private PlaybackStateStore stateStore;
-    private RemoteArtworkCache remoteArtworkCache;
-    private RemoteApiServer remoteApiServer;
+    private RemotePlaybackService.LocalBinder remoteService;
     private String apiToken;
     private volatile boolean activityStarted;
-    private volatile int lifecycleGeneration;
+    private boolean serviceBindingRequested;
     private boolean powerampInstalled;
     private boolean hasTrack;
     private int playbackState = PowerampContract.STATE_UNKNOWN;
     private int durationSeconds;
     private int anchorPositionSeconds;
     private long anchorRealtimeMilliseconds;
-    private long currentTrackId;
-    private long currentRealId;
     private long currentAlbumArtId;
+    private long displayedAlbumArtId;
     private int currentRating = -1;
     private int shuffleMode = -1;
+    private long lastStateRevision = -1L;
     private long lastServerStatusSequence = -1L;
 
-    private final RemoteCommandDispatcher.Target remoteCommandTarget =
-            new RemoteCommandDispatcher.Target() {
-                @Override
-                public void play() {
-                    powerampClient.play();
-                }
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            if (!(service instanceof RemotePlaybackService.LocalBinder)) {
+                showServiceUnavailable();
+                return;
+            }
+            remoteService = (RemotePlaybackService.LocalBinder) service;
+            apiToken = remoteService.apiToken();
+            serverToken.setText(apiToken != null
+                    ? apiToken
+                    : getText(R.string.server_token_unavailable));
+            copyTokenButton.setEnabled(apiToken != null);
+            remoteService.addListener(MainActivity.this);
+        }
 
-                @Override
-                public void pause() {
-                    powerampClient.pause();
-                }
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            remoteService = null;
+            renderServiceDisconnected();
+        }
 
-                @Override
-                public void previous() {
-                    powerampClient.skipToPrevious();
-                }
-
-                @Override
-                public void next() {
-                    powerampClient.skipToNext();
-                }
-
-                @Override
-                public void seekTo(int positionSeconds) {
-                    powerampClient.seekTo(positionSeconds);
-                }
-
-                @Override
-                public void setShuffle(boolean enabled) {
-                    powerampClient.setShuffleEnabled(enabled);
-                }
-
-                @Override
-                public void setRating(int rating) {
-                    requestRating(rating);
-                }
-            };
+        @Override
+        public void onNullBinding(ComponentName name) {
+            remoteService = null;
+            showServiceUnavailable();
+        }
+    };
 
     private final Runnable progressTicker = new Runnable() {
         @Override
@@ -131,42 +128,37 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
         setContentView(R.layout.activity_main);
 
         bindViews();
-        stateStore = new PlaybackStateStore(SystemClock.elapsedRealtime());
-        remoteArtworkCache = new RemoteArtworkCache(stateStore);
         try {
-            apiToken = ApiTokenStore.loadOrCreate(this);
-        } catch (RuntimeException ignored) {
-            apiToken = null;
+            RemotePlaybackService.start(this);
+        } catch (RuntimeException exception) {
+            showServiceUnavailable();
         }
-        powerampClient = new PowerampClient(this, this);
-        if (apiToken != null) {
-            remoteApiServer = new RemoteApiServer(
-                    RemoteApiServer.PORT,
-                    apiToken,
-                    stateStore,
-                    remoteArtworkCache,
-                    this::submitRemoteCommand,
-                    this::onRemoteServerStatusChanged,
-                    SystemClock::elapsedRealtime
-            );
-        }
+        requestNotificationPermission();
 
         Button syncButton = findViewById(R.id.sync_button);
         syncButton.setOnClickListener(view -> {
             hideError();
-            powerampClient.refresh();
+            if (remoteService == null || !remoteService.refresh()) {
+                showServiceUnavailable();
+            }
         });
         previousButton.setOnClickListener(view -> {
             hideError();
-            powerampClient.skipToPrevious();
+            if (remoteService == null || !remoteService.previous()) {
+                showServiceUnavailable();
+            }
         });
         playPauseButton.setOnClickListener(view -> {
             hideError();
-            powerampClient.togglePlayPause();
+            if (remoteService == null || !remoteService.togglePlayPause()) {
+                showServiceUnavailable();
+            }
         });
         nextButton.setOnClickListener(view -> {
             hideError();
-            powerampClient.skipToNext();
+            if (remoteService == null || !remoteService.next()) {
+                showServiceUnavailable();
+            }
         });
         dislikeButton.setOnClickListener(view -> {
             hideError();
@@ -182,20 +174,22 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
         shuffleButton.setOnClickListener(view -> {
             hideError();
             boolean enable = shuffleMode <= PowerampContract.ShuffleModes.NONE;
-            powerampClient.setShuffleEnabled(enable);
+            if (remoteService == null || !remoteService.setShuffleEnabled(enable)) {
+                showServiceUnavailable();
+            }
         });
-        Button copyTokenButton = findViewById(R.id.copy_token_button);
         copyTokenButton.setOnClickListener(view -> copyApiToken());
-        copyTokenButton.setEnabled(apiToken != null);
-        serverToken.setText(apiToken != null ? apiToken : getText(R.string.server_token_unavailable));
-        onRemoteServerStatusChanged(
+        copyTokenButton.setEnabled(false);
+        serverToken.setText(R.string.server_token_unavailable);
+        renderRemoteServerStatus(
                 new RemoteApiServer.Status(
                         false,
                         RemoteApiServer.PORT,
                         0,
-                        apiToken == null ? "token_unavailable" : null,
+                        null,
                         0L
-                )
+                ),
+                null
         );
         renderTransportControls();
         renderSecondaryControls();
@@ -205,10 +199,13 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
     protected void onStart() {
         super.onStart();
         activityStarted = true;
-        lifecycleGeneration++;
-        powerampClient.start();
-        if (remoteApiServer != null) {
-            remoteApiServer.start();
+        serviceBindingRequested = bindService(
+                RemotePlaybackService.bindingIntent(this),
+                serviceConnection,
+                Context.BIND_AUTO_CREATE
+        );
+        if (!serviceBindingRequested) {
+            showServiceUnavailable();
         }
         restartProgressTicker();
     }
@@ -216,137 +213,84 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
     @Override
     protected void onStop() {
         activityStarted = false;
-        lifecycleGeneration++;
-        if (remoteApiServer != null) {
-            remoteApiServer.stop();
+        if (remoteService != null) {
+            remoteService.removeListener(this);
+            remoteService = null;
+        }
+        if (serviceBindingRequested) {
+            unbindService(serviceConnection);
+            serviceBindingRequested = false;
         }
         uiHandler.removeCallbacks(progressTicker);
-        powerampClient.stop();
         super.onStop();
     }
 
     @Override
     protected void onDestroy() {
         diagnosticsExecutor.shutdownNow();
-        if (remoteApiServer != null) {
-            remoteApiServer.close();
-        }
-        powerampClient.close();
-        remoteArtworkCache.close();
         super.onDestroy();
     }
 
     @Override
-    public void onAvailabilityChanged(boolean installed) {
-        stateStore.setPowerampAvailable(installed, SystemClock.elapsedRealtime());
-        powerampInstalled = installed;
-        if (!installed) {
-            playbackState = PowerampContract.STATE_UNKNOWN;
-            hasTrack = false;
+    public void onRemoteStateChanged(RemotePlaybackState state) {
+        if (state.revision < lastStateRevision) {
+            return;
+        }
+        lastStateRevision = state.revision;
+        powerampInstalled = state.powerampAvailable;
+        playbackState = state.playbackState;
+        shuffleMode = state.shuffleMode;
+
+        TrackInfo track = state.track;
+        hasTrack = track != null;
+        if (track == null) {
             durationSeconds = 0;
-            currentTrackId = 0L;
-            currentRealId = 0L;
             currentAlbumArtId = 0L;
+            displayedAlbumArtId = 0L;
             currentRating = -1;
-            shuffleMode = -1;
             setPositionAnchor(0);
-            uiHandler.removeCallbacks(progressTicker);
             setWaitingMetadata();
             showAlbumPlaceholder();
-            remoteArtworkCache.update(0L, null);
-            renderProgress();
-        }
-        renderConnectionStatus();
-        renderTransportControls();
-        renderSecondaryControls();
-    }
-
-    @Override
-    public void onTrackChanged(TrackInfo track) {
-        stateStore.setTrack(track, SystemClock.elapsedRealtime());
-        boolean hadTrack = hasTrack;
-        long nextAlbumArtId = track.albumArtId();
-        boolean playbackItemChanged = !hadTrack
-                || track.id != currentTrackId
-                || track.realId != currentRealId;
-        boolean artworkChanged = !hadTrack || nextAlbumArtId != currentAlbumArtId;
-
-        hasTrack = true;
-        currentTrackId = track.id;
-        currentRealId = track.realId;
-        currentAlbumArtId = nextAlbumArtId;
-        currentRating = track.rating;
-        if (playbackItemChanged || track.durationSeconds > 0) {
-            durationSeconds = Math.max(track.durationSeconds, 0);
-        }
-        if (playbackItemChanged) {
-            setPositionAnchor(track.positionSeconds);
-        }
-
-        trackTitle.setText(valueOrFallback(track.title, R.string.unknown_title));
-        trackArtist.setText(valueOrFallback(track.artist, R.string.unknown_artist));
-        trackAlbum.setText(valueOrFallback(track.album, R.string.unknown_album));
-        renderTrackDetails(track);
-        if (artworkChanged) {
-            showAlbumPlaceholder();
-        }
-        renderConnectionStatus();
-        renderProgress();
-        renderTransportControls();
-        renderSecondaryControls();
-    }
-
-    @Override
-    public void onPlaybackStateChanged(int state, int positionSeconds) {
-        stateStore.setPlaybackState(state, positionSeconds, SystemClock.elapsedRealtime());
-        int currentPosition = calculatedPositionSeconds();
-        playbackState = state;
-
-        if (positionSeconds >= 0) {
-            setPositionAnchor(positionSeconds);
-        } else if (state == PowerampContract.STATE_STOPPED) {
-            setPositionAnchor(0);
         } else {
-            setPositionAnchor(currentPosition);
+            durationSeconds = Math.max(track.durationSeconds, 0);
+            currentAlbumArtId = track.albumArtId();
+            currentRating = track.rating;
+            setPositionAnchor(state.positionAvailable
+                    ? state.positionAt(SystemClock.elapsedRealtime())
+                    : 0);
+            trackTitle.setText(valueOrFallback(track.title, R.string.unknown_title));
+            trackArtist.setText(valueOrFallback(track.artist, R.string.unknown_artist));
+            trackAlbum.setText(valueOrFallback(track.album, R.string.unknown_album));
+            renderTrackDetails(track);
+            if (displayedAlbumArtId != currentAlbumArtId) {
+                showAlbumPlaceholder();
+            }
         }
 
         renderConnectionStatus();
         renderProgress();
         renderTransportControls();
-        restartProgressTicker();
-    }
-
-    @Override
-    public void onPositionChanged(int positionSeconds) {
-        stateStore.setPosition(positionSeconds, SystemClock.elapsedRealtime());
-        setPositionAnchor(positionSeconds);
-        renderProgress();
-        restartProgressTicker();
-    }
-
-    @Override
-    public void onShuffleModeChanged(int mode) {
-        stateStore.setShuffleMode(mode, SystemClock.elapsedRealtime());
-        shuffleMode = mode;
         renderSecondaryControls();
+        restartProgressTicker();
     }
 
     @Override
-    public void onAlbumArtChanged(long albumArtId, Bitmap bitmap) {
+    public void onRemoteArtworkChanged(long albumArtId, Bitmap bitmap) {
         if (!hasTrack || albumArtId != currentAlbumArtId) {
             return;
         }
-        remoteArtworkCache.update(albumArtId, bitmap);
         if (bitmap == null) {
+            displayedAlbumArtId = 0L;
             showAlbumPlaceholder();
             return;
         }
+        displayedAlbumArtId = albumArtId;
         albumArt.setPadding(0, 0, 0, 0);
         albumArt.setImageBitmap(bitmap);
     }
 
     @Override
-    public void onPowerampError(String message) {
+    public void onRemotePowerampError(String message) {
         errorMessage.setText(message);
         errorMessage.setVisibility(View.VISIBLE);
     }
@@ -375,6 +319,7 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
         serverAddress = findViewById(R.id.server_address);
         serverToken = findViewById(R.id.server_token);
         serverClients = findViewById(R.id.server_clients);
+        copyTokenButton = findViewById(R.id.copy_token_button);
     }
 
     private void setWaitingMetadata() {
@@ -555,30 +500,15 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
     }
 
     private boolean requestRating(int rating) {
-        if (!powerampClient.setRating(rating)) {
+        if (remoteService == null) {
+            showServiceUnavailable();
             return false;
         }
-        currentRating = rating;
-        stateStore.setRating(rating, SystemClock.elapsedRealtime());
-        renderSecondaryControls();
-        return true;
+        return remoteService.setRating(rating);
     }
 
-    private boolean submitRemoteCommand(RemoteCommand command) {
-        if (!activityStarted) {
-            return false;
-        }
-        int submittedGeneration = lifecycleGeneration;
-        return uiHandler.post(() -> {
-            if (!activityStarted || submittedGeneration != lifecycleGeneration) {
-                return;
-            }
-            hideError();
-            RemoteCommandDispatcher.dispatch(command, remoteCommandTarget);
-        });
-    }
-
-    private void onRemoteServerStatusChanged(RemoteApiServer.Status status) {
+    @Override
+    public void onRemoteServerStatusChanged(RemoteApiServer.Status status) {
         try {
             diagnosticsExecutor.execute(() -> {
                 String address = LocalNetworkAddress.findIpv4Address();
@@ -586,6 +516,52 @@ public final class MainActivity extends Activity implements PowerampClient.Liste
             });
         } catch (RejectedExecutionException ignored) {
             // Activity destruction intentionally stops diagnostic updates.
+        }
+    }
+
+    private void renderServiceDisconnected() {
+        lastStateRevision = -1L;
+        lastServerStatusSequence = -1L;
+        powerampInstalled = false;
+        hasTrack = false;
+        playbackState = PowerampContract.STATE_UNKNOWN;
+        durationSeconds = 0;
+        currentAlbumArtId = 0L;
+        displayedAlbumArtId = 0L;
+        currentRating = -1;
+        shuffleMode = -1;
+        setPositionAnchor(0);
+        setWaitingMetadata();
+        showAlbumPlaceholder();
+        renderConnectionStatus();
+        renderProgress();
+        renderTransportControls();
+        renderSecondaryControls();
+        renderRemoteServerStatus(
+                new RemoteApiServer.Status(
+                        false,
+                        RemoteApiServer.PORT,
+                        0,
+                        null,
+                        0L
+                ),
+                null
+        );
+    }
+
+    private void showServiceUnavailable() {
+        errorMessage.setText(R.string.error_service);
+        errorMessage.setVisibility(View.VISIBLE);
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    NOTIFICATION_PERMISSION_REQUEST
+            );
         }
     }
 

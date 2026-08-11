@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
- * Foreground-only adapter around Poweramp's public Intent API.
+ * Lifecycle-aware adapter around Poweramp's public Intent API.
  *
  * <p>The client deliberately does not request library/database or storage access. It listens to
  * Poweramp's sticky track/status broadcasts, asks for one position sync, and reads album art from
