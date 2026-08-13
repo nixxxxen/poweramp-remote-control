@@ -5,13 +5,13 @@
 Poweramp Remote provides a reliable native Android Server for any compatible Android player device
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
-- Server: `0.8.0` (`versionCode 8`)
-- Phone Client: `0.2.0` (`versionCode 8`)
+- Server: `0.8.1` (`versionCode 9`)
+- Phone Client: `0.2.1` (`versionCode 9`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`, so both new counters currently equal `8`; this preserves Android upgrade
-compatibility while later Server and Phone codes advance independently. The existing Android
+`versionCode 7`; both counters have independently advanced to `9`. This preserves Android upgrade
+compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
 
@@ -43,7 +43,8 @@ Poweramp receivers.
 
 ### Phone Client (`:phone`)
 
-The Phone Client has no Poweramp integration and no server. It contains:
+The Phone Client has no Poweramp integration and no server. One started-and-bound
+`PhoneConnectionService` is the `connectedDevice` foreground owner of:
 
 - `NsdDiscoveryClient` for ordinary LAN discovery/resolution;
 - `WifiDirectConnectionClient` for known-server Wi-Fi Direct discovery and group negotiation;
@@ -51,6 +52,11 @@ The Phone Client has no Poweramp integration and no server. It contains:
 - `RemoteApiClient` for REST state/control/artwork requests;
 - `RemoteWebSocket` for complete event-driven state snapshots;
 - `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination.
+
+`MainActivity` binds only while visible and is solely the presentation, controls, permission, and
+settings surface. Its `onPause()`, `onStop()`, and destruction do not cancel P2P negotiation,
+remove a group, close the P2P channel, stop NSD, or close the API WebSocket. The notification's
+explicit Stop action and final service destruction are the teardown paths.
 
 There is no WebView, cloud service, playback polling loop, duplicate Server runtime, or second
 Poweramp integration path.
@@ -94,16 +100,29 @@ as a transient endpoint. REST, artwork, WebSocket, Bearer auth, JSON, and contro
 LAN API v1. A direct disconnect returns to LAN discovery and direct fallback. Restored network
 availability restarts ordinary NSD automatically.
 
+Publication does not rely on opening the system Wi-Fi Direct settings screen. After registering its
+local DNS-SD record, the Server starts and refreshes `discoverPeers()` so it participates in the
+framework peer-discovery/listen cycle. The Phone explicitly runs `discoverPeers()` before adding its
+DNS-SD request and calling `discoverServices()`. Both sides observe P2P state, discovery, peer-list,
+connection, and channel-loss callbacks for their service lifetime. Stopped or failed discovery is
+retried with bounded delay; a confirmed group loss returns to LAN-first discovery and direct fallback.
+
 Direct-connect is bounded and user-visible. The Phone Client distinguishes permission required,
 Location Mode disabled, Wi-Fi disabled, P2P unsupported, discovery/connect timeout, and a phone
 selected as group owner. It offers the matching system-settings or retry action instead of looping
-system dialogs. Wi-Fi Direct support is optional in both manifests.
+system dialogs. An initial approval/connect failure remains user-retryable so mandatory prompts are
+not looped; after a previously confirmed direct group, a temporary disconnect is automatically
+retried. Wi-Fi Direct support is optional in both manifests.
 
 For Android 13+ the apps declare/request `NEARBY_WIFI_DEVICES` with `neverForLocation`. Android
 8–12L uses both `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION`; Wi-Fi Direct discovery also
 requires system Location Mode to be enabled. Both apps keep `ACCESS_WIFI_STATE` and
 `CHANGE_WIFI_STATE`. These permissions are used only for nearby direct connection, not to infer
 physical location.
+
+The Phone service declares `FOREGROUND_SERVICE_CONNECTED_DEVICE`, shows an ongoing low-importance
+notification, and returns `START_STICKY`. No keep-screen-on flag, partial wakelock, or Wi-Fi lock is
+used by either connection path.
 
 ## Local API v1
 

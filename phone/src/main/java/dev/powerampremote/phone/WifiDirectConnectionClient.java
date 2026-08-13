@@ -17,13 +17,15 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
 
 import java.net.InetAddress;
 import java.util.Map;
 
-/** Discovers and joins one previously paired server through Wi-Fi Direct DNS-SD. */
+/** Discovers and joins one previously paired Server through Wi-Fi Direct DNS-SD. */
 @SuppressWarnings("deprecation")
 final class WifiDirectConnectionClient implements AutoCloseable {
+    private static final String TAG = "PhoneWifiDirect";
     private static final long DISCOVERY_REFRESH_MILLISECONDS = 15_000L;
     private static final long DISCOVERY_ACTION_TIMEOUT_MILLISECONDS = 30_000L;
     private static final long CONNECTION_TIMEOUT_MILLISECONDS = 30_000L;
@@ -56,8 +58,10 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private final WifiManager wifiManager;
     private final boolean featureSupported;
     private final IntentFilter intentFilter = new IntentFilter();
+    private final WifiDirectRecoveryPolicy recoveryPolicy = new WifiDirectRecoveryPolicy();
     private final Runnable discoveryRefresh = this::refreshDiscovery;
-    private final Runnable discoveryTimeout = this::handleDiscoveryTimeout;
+    private final Runnable discoveryRetry = this::beginDiscovery;
+    private final Runnable discoveryActionTimeout = this::handleDiscoveryActionTimeout;
     private final Runnable connectionTimeout = this::handleConnectionTimeout;
 
     private WifiP2pManager.Channel channel;
@@ -66,11 +70,11 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private boolean active;
     private boolean closed;
     private boolean configuringDiscovery;
+    private boolean peerDiscoveryRunning;
     private boolean connectionRequested;
     private boolean groupConnected;
-    private boolean ownsGroup;
-    private boolean haltedAfterFailure;
-    private boolean discoveryTimeoutScheduled;
+    private boolean managedGroup;
+    private boolean manualRetryRequired;
     private int generation;
     private String expectedServerId;
     private String expectedServiceName;
@@ -83,29 +87,16 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         public void onReceive(Context ignored, Intent intent) {
             String action = intent.getAction();
             if (WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION.equals(action)) {
-                int state = intent.getIntExtra(
-                        WifiP2pManager.EXTRA_WIFI_STATE,
-                        WifiP2pManager.WIFI_P2P_STATE_DISABLED
-                );
-                if (state != WifiP2pManager.WIFI_P2P_STATE_ENABLED) {
-                    boolean wasConnected = groupConnected;
-                    configuringDiscovery = false;
-                    connectionRequested = false;
-                    groupConnected = false;
-                    ownsGroup = false;
-                    haltedAfterFailure = false;
-                    cancelDiscoveryTimeout();
-                    mainHandler.removeCallbacks(connectionTimeout);
-                    cancelPendingConnection();
-                    clearServiceRequest();
-                    notifyState(State.WIFI_DISABLED, 0);
-                    if (wasConnected) listener.onDirectDisconnected();
-                } else if (active && !connectionRequested && !groupConnected
-                        && !haltedAfterFailure) {
-                    beginDiscovery();
-                }
+                handleP2pState(intent);
+            } else if (WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION.equals(action)) {
+                handleDiscoveryState(intent);
+            } else if (WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION.equals(action)) {
+                requestPeerCount();
             } else if (WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION.equals(action)) {
+                Log.d(TAG, "P2P connection broadcast; requesting authoritative info");
                 requestConnectionInfo();
+            } else if (WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION.equals(action)) {
+                Log.d(TAG, "Local P2P device state changed");
             }
         }
     };
@@ -119,7 +110,10 @@ final class WifiDirectConnectionClient implements AutoCloseable {
                 PackageManager.FEATURE_WIFI_DIRECT
         );
         intentFilter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
+        intentFilter.addAction(WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION);
+        intentFilter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
         intentFilter.addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION);
+        intentFilter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
     }
 
     void start(String serverId, String serviceName) {
@@ -129,31 +123,35 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         lastState = null;
         lastReason = Integer.MIN_VALUE;
         active = true;
-        haltedAfterFailure = false;
+        manualRetryRequired = false;
         generation++;
+        Log.i(TAG, "Direct fallback started for verified Server identity");
         registerReceiver();
         beginDiscovery();
     }
 
     void retry() {
         if (!active || closed) return;
-        haltedAfterFailure = false;
+        Log.i(TAG, "User requested direct-connect retry");
+        generation++;
+        manualRetryRequired = false;
         connectionRequested = false;
         groupConnected = false;
-        cancelDiscoveryTimeout();
-        mainHandler.removeCallbacks(connectionTimeout);
+        cancelOperationCallbacks();
         cancelPendingConnection();
-        if (ownsGroup) {
-            removeOwnedGroup(this::beginDiscovery);
-        } else {
-            beginDiscovery();
-        }
+        if (managedGroup) removeManagedGroup(this::beginDiscovery);
+        else beginDiscovery();
     }
 
     void onPermissionOrSettingsChanged() {
         if (!active || closed || groupConnected) return;
-        haltedAfterFailure = false;
-        cancelDiscoveryTimeout();
+        Log.i(TAG, "Permission/settings changed; rechecking direct-connect prerequisites");
+        generation++;
+        manualRetryRequired = false;
+        configuringDiscovery = false;
+        peerDiscoveryRunning = false;
+        cancelOperationCallbacks();
+        clearServiceRequest();
         beginDiscovery();
     }
 
@@ -184,92 +182,101 @@ final class WifiDirectConnectionClient implements AutoCloseable {
 
     void stop() {
         if (!active && !receiverRegistered) return;
+        Log.i(TAG, "Direct fallback explicitly stopping");
         active = false;
         generation++;
-        haltedAfterFailure = false;
-        mainHandler.removeCallbacks(discoveryRefresh);
-        cancelDiscoveryTimeout();
-        mainHandler.removeCallbacks(connectionTimeout);
-        cancelPendingConnection();
+        manualRetryRequired = false;
+        cancelOperationCallbacks();
+        if (connectionRequested) cancelPendingConnection();
         clearServiceRequest();
-        if (ownsGroup) removeOwnedGroup(null);
+        stopPeerDiscovery();
+        if (managedGroup) removeManagedGroup(null);
         connectionRequested = false;
         groupConnected = false;
+        managedGroup = false;
         expectedServerId = null;
         expectedServiceName = null;
         unregisterReceiver();
     }
 
     private void beginDiscovery() {
-        if (!active || closed || connectionRequested || groupConnected || haltedAfterFailure) return;
+        mainHandler.removeCallbacks(discoveryRetry);
+        if (!active || closed || connectionRequested || groupConnected || manualRetryRequired) return;
         if (!featureSupported || manager == null) {
-            cancelDiscoveryTimeout();
             notifyState(State.UNSUPPORTED, WifiP2pManager.P2P_UNSUPPORTED);
             return;
         }
         if (!hasRuntimePermission(context)) {
-            cancelDiscoveryTimeout();
+            Log.w(TAG, "Direct discovery waiting for Nearby/location permission");
             notifyState(State.PERMISSION_REQUIRED, 0);
             return;
         }
         if (!isLocationModeEnabled()) {
-            cancelDiscoveryTimeout();
+            Log.w(TAG, "Direct discovery waiting for Android Location Mode");
             notifyState(State.LOCATION_DISABLED, 0);
             return;
         }
         if (wifiManager != null && !wifiManager.isWifiEnabled()) {
-            cancelDiscoveryTimeout();
+            Log.w(TAG, "Direct discovery waiting for Wi-Fi");
             notifyState(State.WIFI_DISABLED, 0);
             return;
         }
+        if (!receiverRegistered) {
+            registerReceiver();
+            if (!receiverRegistered) {
+                scheduleDiscoveryRecovery("receiver unavailable");
+                return;
+            }
+        }
         initializeChannel();
-        if (channel == null || configuringDiscovery) {
-            if (channel == null) notifyState(State.FAILED, WifiP2pManager.ERROR);
+        if (channel == null) {
+            scheduleDiscoveryRecovery("channel unavailable");
             return;
         }
+        if (configuringDiscovery) return;
         notifyState(State.DISCOVERING, 0);
-        if (!discoveryTimeoutScheduled) {
-            discoveryTimeoutScheduled = true;
-            mainHandler.postDelayed(
-                    discoveryTimeout,
-                    DISCOVERY_ACTION_TIMEOUT_MILLISECONDS
-            );
-        }
-        configureDiscovery(generation);
+        prepareDiscovery(++generation);
     }
 
     private void initializeChannel() {
         if (channel != null || manager == null || closed) return;
         try {
-            channel = manager.initialize(
-                    context,
-                    mainHandler.getLooper(),
-                    this::onChannelDisconnected
-            );
+            channel = manager.initialize(context, mainHandler.getLooper(), this::onChannelDisconnected);
+            Log.i(TAG, "P2P channel initialized");
         } catch (RuntimeException exception) {
             channel = null;
+            Log.w(TAG, "Unable to initialize P2P channel", exception);
         }
     }
 
     private void onChannelDisconnected() {
+        Log.w(TAG, "P2P channel disconnected; rebuilding it through retry policy");
+        generation++;
         channel = null;
         serviceRequest = null;
         configuringDiscovery = false;
-        haltedAfterFailure = true;
-        cancelDiscoveryTimeout();
-        if (active && !closed) notifyState(State.FAILED, WifiP2pManager.ERROR);
+        peerDiscoveryRunning = false;
+        connectionRequested = false;
+        groupConnected = false;
+        managedGroup = false;
+        cancelOperationCallbacks();
+        if (active && !closed && !manualRetryRequired) {
+            listener.onDirectDisconnected();
+            scheduleDiscoveryRecovery("channel disconnected");
+        }
     }
 
-    private void configureDiscovery(int operationGeneration) {
+    private void prepareDiscovery(int operationGeneration) {
         WifiP2pManager.Channel currentChannel = channel;
         if (manager == null || currentChannel == null || !isCurrent(operationGeneration)) return;
         configuringDiscovery = true;
+        mainHandler.removeCallbacks(discoveryActionTimeout);
+        mainHandler.postDelayed(discoveryActionTimeout, DISCOVERY_ACTION_TIMEOUT_MILLISECONDS);
         try {
             manager.setDnsSdResponseListeners(
                     currentChannel,
-                    (instanceName, registrationType, device) -> {
-                        // The TXT record carries the stable identity and listener port.
-                    },
+                    (instanceName, registrationType, device) ->
+                            Log.d(TAG, "DNS-SD service response received"),
                     (fullDomain, record, device) -> handleTxtRecord(
                             operationGeneration,
                             fullDomain,
@@ -280,19 +287,49 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             manager.clearServiceRequests(
                     currentChannel,
                     action(
-                            () -> addServiceRequest(operationGeneration),
-                            reason -> addServiceRequest(operationGeneration)
+                            () -> discoverPeers(operationGeneration),
+                            reason -> {
+                                Log.w(TAG, "clearServiceRequests failed: " + reasonName(reason));
+                                discoverPeers(operationGeneration);
+                            }
                     )
             );
         } catch (SecurityException exception) {
             configuringDiscovery = false;
-            cancelDiscoveryTimeout();
+            mainHandler.removeCallbacks(discoveryActionTimeout);
             notifyState(State.PERMISSION_REQUIRED, 0);
         } catch (RuntimeException exception) {
             configuringDiscovery = false;
-            haltedAfterFailure = true;
-            cancelDiscoveryTimeout();
-            notifyState(State.FAILED, WifiP2pManager.ERROR);
+            Log.w(TAG, "Unable to configure P2P discovery", exception);
+            scheduleDiscoveryRecovery("configuration exception");
+        }
+    }
+
+    private void discoverPeers(int operationGeneration) {
+        if (!isCurrent(operationGeneration) || manager == null || channel == null) {
+            configuringDiscovery = false;
+            return;
+        }
+        Log.i(TAG, "Starting peer discovery before DNS-SD service discovery");
+        try {
+            manager.discoverPeers(
+                    channel,
+                    action(
+                            () -> {
+                                if (!isCurrent(operationGeneration)) return;
+                                peerDiscoveryRunning = true;
+                                Log.i(TAG, "Peer discovery started");
+                                addServiceRequest(operationGeneration);
+                            },
+                            reason -> failDiscovery(operationGeneration, "discoverPeers", reason)
+                    )
+            );
+        } catch (SecurityException exception) {
+            configuringDiscovery = false;
+            mainHandler.removeCallbacks(discoveryActionTimeout);
+            notifyState(State.PERMISSION_REQUIRED, 0);
+        } catch (RuntimeException exception) {
+            failDiscovery(operationGeneration, "discoverPeers", WifiP2pManager.ERROR);
         }
     }
 
@@ -308,15 +345,19 @@ final class WifiDirectConnectionClient implements AutoCloseable {
                     serviceRequest,
                     action(
                             () -> discoverServices(operationGeneration),
-                            reason -> failDiscovery(operationGeneration, reason)
+                            reason -> failDiscovery(
+                                    operationGeneration,
+                                    "addServiceRequest",
+                                    reason
+                            )
                     )
             );
         } catch (SecurityException exception) {
             configuringDiscovery = false;
-            cancelDiscoveryTimeout();
+            mainHandler.removeCallbacks(discoveryActionTimeout);
             notifyState(State.PERMISSION_REQUIRED, 0);
         } catch (RuntimeException exception) {
-            failDiscovery(operationGeneration, WifiP2pManager.ERROR);
+            failDiscovery(operationGeneration, "addServiceRequest", WifiP2pManager.ERROR);
         }
     }
 
@@ -325,35 +366,43 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             configuringDiscovery = false;
             return;
         }
+        Log.i(TAG, "Starting DNS-SD service discovery");
         try {
             manager.discoverServices(
                     channel,
                     action(
                             () -> {
+                                if (!isCurrent(operationGeneration)) return;
                                 configuringDiscovery = false;
+                                peerDiscoveryRunning = true;
+                                mainHandler.removeCallbacks(discoveryActionTimeout);
+                                recoveryPolicy.onDiscoveryStarted();
+                                Log.i(TAG, "DNS-SD discovery active");
                                 scheduleDiscoveryRefresh();
                             },
-                            reason -> failDiscovery(operationGeneration, reason)
+                            reason -> failDiscovery(operationGeneration, "discoverServices", reason)
                     )
             );
         } catch (SecurityException exception) {
             configuringDiscovery = false;
-            cancelDiscoveryTimeout();
+            mainHandler.removeCallbacks(discoveryActionTimeout);
             notifyState(State.PERMISSION_REQUIRED, 0);
         } catch (RuntimeException exception) {
-            failDiscovery(operationGeneration, WifiP2pManager.ERROR);
+            failDiscovery(operationGeneration, "discoverServices", WifiP2pManager.ERROR);
         }
     }
 
-    private void failDiscovery(int operationGeneration, int reason) {
+    private void failDiscovery(int operationGeneration, String operation, int reason) {
         if (!isCurrent(operationGeneration)) return;
         configuringDiscovery = false;
-        haltedAfterFailure = true;
-        cancelDiscoveryTimeout();
+        peerDiscoveryRunning = false;
+        mainHandler.removeCallbacks(discoveryActionTimeout);
         if (reason == WifiP2pManager.P2P_UNSUPPORTED) {
+            Log.i(TAG, operation + " reports P2P unsupported");
             notifyState(State.UNSUPPORTED, reason);
         } else {
-            notifyState(State.FAILED, reason);
+            Log.w(TAG, operation + " failed: " + reasonName(reason));
+            scheduleDiscoveryRecovery(operation + " failed");
         }
     }
 
@@ -366,7 +415,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         if (!isCurrent(operationGeneration)
                 || connectionRequested
                 || groupConnected
-                || haltedAfterFailure
+                || manualRetryRequired
                 || device == null
                 || device.deviceAddress == null) {
             return;
@@ -377,15 +426,19 @@ final class WifiDirectConnectionClient implements AutoCloseable {
                 expectedServerId
         );
         if (port < 0) return;
-        cancelDiscoveryTimeout();
         matchedPort = port;
+        Log.i(TAG, "Matched verified Server DNS-SD identity; requesting P2P connection");
         connect(device, operationGeneration);
     }
 
     private void connect(WifiP2pDevice device, int operationGeneration) {
         if (!isCurrent(operationGeneration) || manager == null || channel == null) return;
         connectionRequested = true;
+        peerDiscoveryRunning = false;
         mainHandler.removeCallbacks(discoveryRefresh);
+        mainHandler.removeCallbacks(discoveryRetry);
+        mainHandler.removeCallbacks(discoveryActionTimeout);
+        clearServiceRequest();
         notifyState(State.CONNECTING, 0);
 
         WifiP2pConfig config = new WifiP2pConfig();
@@ -401,6 +454,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
                     action(
                             () -> {
                                 if (!isCurrent(operationGeneration)) return;
+                                Log.i(TAG, "P2P connect accepted by framework; awaiting group/approval");
                                 notifyState(State.WAITING_FOR_APPROVAL, 0);
                                 mainHandler.removeCallbacks(connectionTimeout);
                                 mainHandler.postDelayed(
@@ -411,13 +465,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
                             },
                             reason -> {
                                 if (!isCurrent(operationGeneration)) return;
-                                connectionRequested = false;
-                                haltedAfterFailure = true;
-                                notifyState(
-                                        reason == WifiP2pManager.P2P_UNSUPPORTED
-                                                ? State.UNSUPPORTED : State.FAILED,
-                                        reason
-                                );
+                                handleConnectFailure(reason, "connect rejected");
                             }
                     )
             );
@@ -426,25 +474,25 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             mainHandler.removeCallbacks(connectionTimeout);
             notifyState(State.PERMISSION_REQUIRED, 0);
         } catch (RuntimeException exception) {
-            connectionRequested = false;
-            haltedAfterFailure = true;
-            notifyState(State.FAILED, WifiP2pManager.ERROR);
+            handleConnectFailure(WifiP2pManager.ERROR, "connect exception");
         }
     }
 
     private void requestConnectionInfo() {
-        if (!active || closed || manager == null || channel == null || !hasRuntimePermission(context)) {
+        if (!active || closed || manager == null || channel == null
+                || !hasRuntimePermission(context)) {
             return;
         }
         try {
             manager.requestConnectionInfo(channel, this::handleConnectionInfo);
+        } catch (SecurityException exception) {
+            connectionRequested = false;
+            mainHandler.removeCallbacks(connectionTimeout);
+            cancelPendingConnection();
+            notifyState(State.PERMISSION_REQUIRED, 0);
         } catch (RuntimeException exception) {
-            if (connectionRequested) {
-                connectionRequested = false;
-                haltedAfterFailure = true;
-                mainHandler.removeCallbacks(connectionTimeout);
-                notifyState(State.FAILED, WifiP2pManager.ERROR);
-            }
+            Log.w(TAG, "Unable to request P2P connection info", exception);
+            if (connectionRequested) handleConnectFailure(WifiP2pManager.ERROR, "info failure");
         }
     }
 
@@ -453,33 +501,40 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         if (groupConnected && info != null && info.groupFormed) return;
         if (info == null || !info.groupFormed) {
             if (groupConnected) {
+                Log.w(TAG, "Established P2P group disconnected; starting automatic recovery");
                 groupConnected = false;
-                ownsGroup = false;
+                managedGroup = false;
                 connectionRequested = false;
                 listener.onDirectDisconnected();
-                beginDiscovery();
+                scheduleDiscoveryRecovery("group disconnected");
             }
             return;
         }
-        if (!connectionRequested) return;
-        ownsGroup = true;
+        if (!connectionRequested) {
+            Log.d(TAG, "Ignoring an untracked pre-existing P2P group");
+            return;
+        }
+        managedGroup = true;
         mainHandler.removeCallbacks(connectionTimeout);
         if (info.isGroupOwner) {
             connectionRequested = false;
-            haltedAfterFailure = true;
+            manualRetryRequired = true;
+            Log.w(TAG, "Phone became P2P group owner; current Server route is unavailable");
             notifyState(State.PHONE_GROUP_OWNER, 0);
-            removeOwnedGroup(null);
+            removeManagedGroup(null);
             return;
         }
         InetAddress address = info.groupOwnerAddress;
         if (address == null || matchedPort < 1) {
-            connectionRequested = false;
-            haltedAfterFailure = true;
-            notifyState(State.FAILED, WifiP2pManager.ERROR);
+            handleConnectFailure(WifiP2pManager.ERROR, "missing group-owner endpoint");
             return;
         }
         groupConnected = true;
+        connectionRequested = false;
+        manualRetryRequired = false;
+        recoveryPolicy.onGroupConnected();
         clearServiceRequest();
+        Log.i(TAG, "P2P group connected with Server as group owner");
         listener.onDirectEndpoint(new DiscoveredServer(
                 expectedServerId,
                 expectedServiceName,
@@ -489,39 +544,119 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         ));
     }
 
-    private void handleConnectionTimeout() {
-        if (!active || !connectionRequested || groupConnected) return;
+    private void handleConnectFailure(int reason, String detail) {
         connectionRequested = false;
-        haltedAfterFailure = true;
+        mainHandler.removeCallbacks(connectionTimeout);
         cancelPendingConnection();
-        notifyState(State.FAILED, WifiP2pManager.ERROR);
+        Log.w(TAG, detail + ": " + reasonName(reason));
+        if (reason == WifiP2pManager.P2P_UNSUPPORTED) {
+            notifyState(State.UNSUPPORTED, reason);
+        } else if (recoveryPolicy.shouldAutomaticallyRetryConnection()) {
+            scheduleDiscoveryRecovery(detail);
+        } else {
+            manualRetryRequired = true;
+            notifyState(State.FAILED, reason);
+        }
     }
 
-    private void handleDiscoveryTimeout() {
-        discoveryTimeoutScheduled = false;
-        if (!active || connectionRequested || groupConnected) return;
-        haltedAfterFailure = true;
+    private void handleConnectionTimeout() {
+        if (!active || !connectionRequested || groupConnected) return;
+        handleConnectFailure(WifiP2pManager.ERROR, "connection timeout");
+    }
+
+    private void handleDiscoveryActionTimeout() {
+        if (!active || !configuringDiscovery || connectionRequested || groupConnected) return;
         configuringDiscovery = false;
-        clearServiceRequest();
-        notifyState(State.FAILED, WifiP2pManager.ERROR);
+        peerDiscoveryRunning = false;
+        Log.w(TAG, "P2P discovery action timed out; retrying automatically");
+        scheduleDiscoveryRecovery("discovery action timeout");
     }
 
     private void refreshDiscovery() {
-        if (!active || connectionRequested || groupConnected || haltedAfterFailure) return;
+        if (!active || connectionRequested || groupConnected || manualRetryRequired) return;
         configuringDiscovery = false;
+        peerDiscoveryRunning = false;
+        Log.d(TAG, "Refreshing peer and DNS-SD discovery");
         beginDiscovery();
     }
 
     private void scheduleDiscoveryRefresh() {
         mainHandler.removeCallbacks(discoveryRefresh);
-        if (active && !connectionRequested && !groupConnected && !haltedAfterFailure) {
+        if (active && !connectionRequested && !groupConnected && !manualRetryRequired) {
             mainHandler.postDelayed(discoveryRefresh, DISCOVERY_REFRESH_MILLISECONDS);
         }
     }
 
-    private void cancelDiscoveryTimeout() {
-        discoveryTimeoutScheduled = false;
-        mainHandler.removeCallbacks(discoveryTimeout);
+    private void scheduleDiscoveryRecovery(String detail) {
+        if (!active || closed || connectionRequested || groupConnected || manualRetryRequired) return;
+        configuringDiscovery = false;
+        peerDiscoveryRunning = false;
+        mainHandler.removeCallbacks(discoveryActionTimeout);
+        mainHandler.removeCallbacks(discoveryRefresh);
+        clearServiceRequest();
+        long delay = recoveryPolicy.nextDiscoveryRetryDelayMilliseconds();
+        Log.i(TAG, "Scheduling P2P discovery recovery in " + delay + " ms: " + detail);
+        notifyState(State.DISCOVERING, 0);
+        mainHandler.removeCallbacks(discoveryRetry);
+        mainHandler.postDelayed(discoveryRetry, delay);
+    }
+
+    private void handleP2pState(Intent intent) {
+        int state = intent.getIntExtra(
+                WifiP2pManager.EXTRA_WIFI_STATE,
+                WifiP2pManager.WIFI_P2P_STATE_DISABLED
+        );
+        boolean enabled = state == WifiP2pManager.WIFI_P2P_STATE_ENABLED;
+        Log.i(TAG, "P2P state=" + (enabled ? "enabled" : "disabled"));
+        if (!enabled) {
+            boolean wasConnected = groupConnected;
+            generation++;
+            configuringDiscovery = false;
+            peerDiscoveryRunning = false;
+            connectionRequested = false;
+            groupConnected = false;
+            managedGroup = false;
+            manualRetryRequired = false;
+            cancelOperationCallbacks();
+            cancelPendingConnection();
+            clearServiceRequest();
+            notifyState(State.WIFI_DISABLED, 0);
+            if (wasConnected) listener.onDirectDisconnected();
+        } else if (active && !connectionRequested && !groupConnected && !manualRetryRequired) {
+            beginDiscovery();
+        }
+    }
+
+    private void handleDiscoveryState(Intent intent) {
+        int state = intent.getIntExtra(
+                WifiP2pManager.EXTRA_DISCOVERY_STATE,
+                WifiP2pManager.WIFI_P2P_DISCOVERY_STOPPED
+        );
+        peerDiscoveryRunning = state == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED;
+        Log.i(TAG, "P2P discovery state=" + (peerDiscoveryRunning ? "started" : "stopped"));
+        if (!peerDiscoveryRunning && active && !configuringDiscovery
+                && !connectionRequested && !groupConnected && !manualRetryRequired) {
+            scheduleDiscoveryRecovery("framework stopped discovery");
+        }
+    }
+
+    private void requestPeerCount() {
+        if (!active || manager == null || channel == null || !hasRuntimePermission(context)) return;
+        try {
+            manager.requestPeers(channel, peers ->
+                    Log.d(TAG, "P2P peers visible=" + peers.getDeviceList().size()));
+        } catch (SecurityException exception) {
+            Log.w(TAG, "P2P peer-list permission unavailable", exception);
+        } catch (RuntimeException exception) {
+            Log.w(TAG, "Unable to request P2P peers", exception);
+        }
+    }
+
+    private void cancelOperationCallbacks() {
+        mainHandler.removeCallbacks(discoveryRefresh);
+        mainHandler.removeCallbacks(discoveryRetry);
+        mainHandler.removeCallbacks(discoveryActionTimeout);
+        mainHandler.removeCallbacks(connectionTimeout);
     }
 
     private void cancelPendingConnection() {
@@ -533,6 +668,16 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         }
     }
 
+    private void stopPeerDiscovery() {
+        peerDiscoveryRunning = false;
+        if (manager == null || channel == null) return;
+        try {
+            manager.stopPeerDiscovery(channel, null);
+        } catch (RuntimeException ignored) {
+            // Final service teardown may race framework channel cleanup.
+        }
+    }
+
     private void clearServiceRequest() {
         mainHandler.removeCallbacks(discoveryRefresh);
         WifiP2pDnsSdServiceRequest request = serviceRequest;
@@ -541,25 +686,27 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         try {
             manager.removeServiceRequest(channel, request, null);
         } catch (RuntimeException ignored) {
-            // Channel teardown also releases the request.
+            // A channel rebuild also releases its service request.
         }
     }
 
-    private void removeOwnedGroup(Runnable completion) {
-        if (!ownsGroup || manager == null || channel == null) {
-            ownsGroup = false;
+    private void removeManagedGroup(Runnable completion) {
+        if (!managedGroup || manager == null || channel == null) {
+            managedGroup = false;
             if (completion != null) completion.run();
             return;
         }
-        ownsGroup = false;
+        managedGroup = false;
         try {
             manager.removeGroup(
                     channel,
                     action(
                             () -> {
+                                Log.i(TAG, "Managed P2P group removed");
                                 if (completion != null) completion.run();
                             },
                             reason -> {
+                                Log.w(TAG, "removeGroup failed: " + reasonName(reason));
                                 if (completion != null) completion.run();
                             }
                     )
@@ -585,13 +732,16 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         if (receiverRegistered) return;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(receiver, intentFilter, Context.RECEIVER_NOT_EXPORTED);
+                // Wi-Fi framework broadcasts can originate from a privileged module UID.
+                context.registerReceiver(receiver, intentFilter, Context.RECEIVER_EXPORTED);
             } else {
                 context.registerReceiver(receiver, intentFilter);
             }
             receiverRegistered = true;
+            Log.d(TAG, "P2P receiver registered for service lifetime");
         } catch (RuntimeException exception) {
             receiverRegistered = false;
+            Log.w(TAG, "Unable to register P2P receiver", exception);
         }
     }
 
@@ -603,6 +753,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         } catch (RuntimeException ignored) {
             // The process may already have discarded the registration.
         }
+        Log.d(TAG, "P2P receiver unregistered");
     }
 
     private boolean isCurrent(int operationGeneration) {
@@ -613,6 +764,8 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         if (!active || closed || (state == lastState && reason == lastReason)) return;
         lastState = state;
         lastReason = reason;
+        Log.i(TAG, "Direct state=" + state + ", reason="
+                + (reason == 0 && state != State.FAILED ? "none" : reasonName(reason)));
         listener.onDirectStatus(state, reason);
     }
 
@@ -633,6 +786,18 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         };
     }
 
+    private static String reasonName(int reason) {
+        switch (reason) {
+            case WifiP2pManager.BUSY:
+                return "BUSY";
+            case WifiP2pManager.P2P_UNSUPPORTED:
+                return "P2P_UNSUPPORTED";
+            case WifiP2pManager.ERROR:
+            default:
+                return "ERROR(" + reason + ')';
+        }
+    }
+
     private interface ReasonConsumer {
         void accept(int reason);
     }
@@ -643,5 +808,6 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         stop();
         closed = true;
         mainHandler.removeCallbacksAndMessages(null);
+        Log.i(TAG, "P2P client closed");
     }
 }

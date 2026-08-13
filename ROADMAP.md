@@ -1,9 +1,19 @@
 # Poweramp Remote Roadmap
 
-Current releases are Server `0.8.0` and Phone Client `0.2.0`; API remains `v1`. Confirmed
+Current releases are Server `0.8.1` and Phone Client `0.2.1`; API remains `v1`. Confirmed
 implementation and verification are tracked in `STATUS.md`.
 
 ## 0.8.x Server / 0.2.x Phone — Connection hardening
+
+Implemented in Server `0.8.1` / Phone Client `0.2.1`:
+
+- Server-owned peer discovery keeps the DNS-SD publisher visible without opening Android Settings.
+- Phone peer discovery, service discovery, P2P receivers/channel, group monitoring, API WebSocket,
+  and reconnect now live in a `connectedDevice` foreground service rather than Activity lifecycle.
+- Discovery action/channel failures use bounded automatic recovery; a previously established direct
+  group automatically reconnects after temporary loss without looping first-approval dialogs.
+
+Remaining real-device validation and hardening:
 
 - Validate LAN-first discovery and automatic Wi-Fi Direct fallback on real Android devices.
 - Cover Android 8–12L location permissions/Location Mode and Android 13+ Nearby devices permission.

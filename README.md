@@ -2,11 +2,11 @@
 
 Два нативных Android-приложения с независимыми версиями:
 
-- Server `0.8.0` (`:app`) — устанавливается на Android-устройство с Poweramp;
-- Phone Client `0.2.0` (`:phone`) — управляет Server через неизменный API `v1`.
+- Server `0.8.1` (`:app`) — устанавливается на Android-устройство с Poweramp;
+- Phone Client `0.2.1` (`:phone`) — управляет Server через неизменный API `v1`.
 
-Оба APK сейчас используют `versionCode 8`, поскольку прежние Server и Phone APK уже выпускались с
-кодом `7`. Счётчики объявлены отдельно в модулях и дальше увеличиваются независимо.
+Оба APK сейчас используют `versionCode 9`; счётчики объявлены отдельно в модулях и дальше
+увеличиваются независимо.
 
 Server сохраняет foreground service, Poweramp Intent API, REST/WebSocket API, Bearer/session auth,
 LAN NSD и встроенный Web UI. Phone Client предпочитает обычную LAN, а для уже привязанного Server
@@ -28,9 +28,10 @@ Server `id`, имя сервиса и токен в приватных preferenc
 ### Автоматическое соединение
 
 При следующих запусках Phone Client сначала ищет известный `id` через обычный LAN NSD. Если Server
-не найден, запускается Wi-Fi Direct DNS-SD и одна автоматическая попытка соединения. Android может
-показать системное подтверждение на одном из устройств — его нужно принять вручную. Приложение не
-обходит обязательные диалоги.
+не найден, запускаются Wi-Fi Direct peer discovery и DNS-SD service discovery. Для этого не нужно
+открывать системный экран Wi-Fi Direct на Player device. Android может показать системное
+подтверждение на одном из устройств — его нужно принять вручную. Приложение не обходит обязательные
+диалоги.
 
 Для Wi-Fi Direct нужны:
 
@@ -46,6 +47,11 @@ Permission-модель соответствует официальным рук
 Если permission, Wi-Fi, Location Mode, group negotiation или системное подтверждение мешают
 автоподключению, Phone Client показывает конкретное состояние и действие. После восстановления
 обычной сети LAN discovery и reconnect запускаются автоматически.
+
+Phone Client держит NSD, P2P channel/group, reconnect и WebSocket в собственном `connectedDevice`
+foreground service с постоянным уведомлением. Сворачивание Activity и блокировка телефона не
+останавливают соединение. Явный Stop в уведомлении завершает runtime; keep-screen-on, wakelock и
+Wi-Fi lock не используются.
 
 Первая привязка остаётся LAN-only: Wi-Fi Direct fallback принимает только уже проверенный Server
 `id`, чтобы не предлагать токен неизвестному nearby-устройству.
@@ -124,6 +130,11 @@ LAN NSD публикует `_poweramp-remote._tcp.` с TXT `api=1` и стаби
 Wi-Fi Direct DNS-SD публикует тот же `id`, `api=1` и `port=8765`. Bearer-токен не публикуется ни в
 одном discovery transport.
 
+Server после публикации запускает и периодически обновляет `discoverPeers()`. Phone запускает
+`discoverPeers()`, затем добавляет DNS-SD request и вызывает `discoverServices()`. Оба приложения
+наблюдают discovery/connection/channel state в течение жизни foreground service и автоматически
+возобновляют discovery после временной остановки или потери уже установленной группы.
+
 После формирования P2P-группы Phone Client использует group-owner address и тот же HTTP/WebSocket
 API v1. Server должен стать group owner; клиент запрашивает минимальный phone group-owner intent,
 но итог выбирает Android. Если владельцем группы стал телефон, UI предлагает повторить попытку.
@@ -140,8 +151,8 @@ API v1. Server должен стать group owner; клиент запраши�
 
 APK:
 
-- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.8.0`;
-- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.2.0`.
+- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.8.1`;
+- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.2.1`.
 
 Исторические `applicationId` `dev.r4remote.poweramp` и `dev.r4remote.poweramp.phone` сохранены ради
 обновления существующих установок без потери Server token и Phone pairing. Исходные namespace,
@@ -152,7 +163,8 @@ APK:
 - HTTP и `ws://` не имеют application-layer encryption; используйте доверенную локальную сеть и не
   открывайте порт `8765` в интернет.
 - Wi-Fi Direct, vendor group-owner behavior и reconnect требуют проверки на реальных устройствах.
-- Force-stop, Stop в уведомлении или перезагрузка останавливают Server до следующего запуска.
+- Force-stop, Stop в уведомлении или перезагрузка останавливают соответствующий runtime до
+  следующего запуска приложения.
 - Wakelock и Wi-Fi lock не используются без воспроизводимого device-specific сбоя.
 - Lyrics намеренно не реализованы.
 

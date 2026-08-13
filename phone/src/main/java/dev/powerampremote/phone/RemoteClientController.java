@@ -7,6 +7,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -18,6 +19,7 @@ import java.util.concurrent.RejectedExecutionException;
 /** Coordinates discovery transports, token verification, event streaming, controls, and reconnect. */
 final class RemoteClientController implements NsdDiscoveryClient.Listener,
         WifiDirectConnectionClient.Listener, AutoCloseable {
+    private static final String TAG = "RemoteClientController";
     private static final long DIRECT_FALLBACK_DELAY_MILLISECONDS = 8_000L;
 
     enum Status {
@@ -127,6 +129,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     void start() {
         if (active || closed) return;
         active = true;
+        Log.i(TAG, "Client runtime started; LAN discovery has priority");
         notifyStatus(Status.SEARCHING, 0L);
         startNetworkMonitor();
         discoveryClient.start();
@@ -135,6 +138,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     void stop() {
         if (!active) return;
+        Log.i(TAG, "Client runtime explicitly stopping");
         active = false;
         mainHandler.removeCallbacks(reconnectRunnable);
         mainHandler.removeCallbacks(discoveryRestartRunnable);
@@ -239,6 +243,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     @Override
     public void onServerFound(DiscoveredServer server) {
         if (!active) return;
+        Log.i(TAG, "LAN NSD Server found; transport=" + server.transport);
         candidates.put(server.serverId, server);
         if (credentials == null) {
             if (pairingCandidate == null
@@ -260,6 +265,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         if (endpoint != null && endpoint.sameEndpoint(server) && (connecting || connected)) return;
         mainHandler.removeCallbacks(directFallbackRunnable);
+        Log.i(TAG, "Selecting LAN endpoint and stopping direct fallback/group");
         directClient.stop();
         endpoint = server;
         connectSocket(false);
@@ -268,6 +274,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     @Override
     public void onServerLost(String serviceName) {
         if (!active) return;
+        Log.i(TAG, "LAN NSD service lost");
         candidates.values().removeIf(server -> serviceName.equals(server.serviceName));
         if (pairingCandidate != null && serviceName.equals(pairingCandidate.serviceName)) {
             pairingCandidate = null;
@@ -285,6 +292,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     @Override
     public void onDiscoveryError(int errorCode) {
         if (!active) return;
+        Log.w(TAG, "LAN NSD discovery failed: " + errorCode);
         notifyStatus(Status.SEARCHING, ReconnectBackoff.delayMilliseconds(1));
         scheduleDirectFallback(0L);
         mainHandler.removeCallbacks(discoveryRestartRunnable);
@@ -331,8 +339,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         connecting = true;
         connected = false;
         if (connectingEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) {
+            Log.i(TAG, "Opening API v1 WebSocket over Wi-Fi Direct");
             notifyStatus(Status.DIRECT_CONNECTING, 0L);
         } else {
+            Log.i(TAG, "Opening API v1 WebSocket over LAN; retry=" + retry);
             notifyStatus(retry ? Status.RETRYING : Status.CONNECTING, 0L);
         }
         RemoteWebSocket socket = new RemoteWebSocket(
@@ -378,6 +388,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 mainHandler.removeCallbacks(directFallbackRunnable);
                 directClient.stop();
             }
+            Log.i(TAG, "API v1 WebSocket connected over "
+                    + (endpoint == null ? "unknown" : endpoint.transport));
             notifyStatus(endpoint != null
                             && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
                             ? Status.CONNECTED_DIRECT : Status.CONNECTED,
@@ -397,10 +409,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         connecting = false;
         connected = false;
         if (type == RemoteWebSocket.FailureType.AUTHENTICATION) {
+            Log.w(TAG, "WebSocket authentication rejected");
             invalidateRejectedCredentials(failedEndpoint);
             return;
         }
         long delay = ReconnectBackoff.delayMilliseconds(reconnectFailures++);
+        Log.w(TAG, "WebSocket failed over " + failedEndpoint.transport
+                + "; reconnect in " + delay + " ms; type=" + type);
         notifyStatus(Status.RETRYING, delay);
         mainHandler.removeCallbacks(reconnectRunnable);
         mainHandler.postDelayed(reconnectRunnable, delay);
@@ -512,6 +527,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     @Override
     public void onDirectStatus(WifiDirectConnectionClient.State directState, int reason) {
         if (!active || credentials == null || connected) return;
+        Log.i(TAG, "Direct fallback state=" + directState + ", reason=" + reason);
         switch (directState) {
             case PERMISSION_REQUIRED:
                 notifyStatus(Status.DIRECT_PERMISSION_REQUIRED, 0L);
@@ -553,6 +569,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         endpoint = server;
+        Log.i(TAG, "Selecting verified Wi-Fi Direct endpoint");
         connectSocket(false);
     }
 
@@ -563,6 +580,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         endpoint = null;
+        Log.w(TAG, "Wi-Fi Direct endpoint lost; restarting LAN and direct discovery");
         disconnectSocket();
         notifyStatus(Status.SEARCHING, 0L);
         restartDiscovery();
@@ -578,6 +596,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private void startDirectFallback() {
         if (!active || credentials == null || connected || directClient.isActive()) return;
+        Log.i(TAG, "LAN grace period expired; starting Wi-Fi Direct fallback");
         directClient.start(credentials.serverId, credentials.serviceName);
     }
 
@@ -603,6 +622,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private void scheduleNetworkRecovery(boolean networkAvailable) {
         recoveredNetworkAvailable = networkAvailable;
+        Log.d(TAG, "Default network callback available=" + networkAvailable);
         mainHandler.removeCallbacks(networkRecoveryRunnable);
         if (active) mainHandler.postDelayed(networkRecoveryRunnable, 500L);
     }
@@ -631,7 +651,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private void runReconnect() {
-        if (active && credentials != null && endpoint != null) connectSocket(true);
+        if (active && credentials != null && endpoint != null) {
+            Log.i(TAG, "Running scheduled WebSocket reconnect over " + endpoint.transport);
+            connectSocket(true);
+        }
     }
 
     private void restartDiscovery() {
@@ -671,5 +694,6 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         controlExecutor.shutdownNow();
         artworkExecutor.shutdownNow();
         mainHandler.removeCallbacksAndMessages(null);
+        Log.i(TAG, "Client runtime closed");
     }
 }

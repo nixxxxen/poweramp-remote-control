@@ -65,10 +65,20 @@
     <string name="rating_dialog_title">Оценка трека</string>
     <string name="cancel">Отмена</string>
     <string name="command_error">Команда не отправлена · соединение восстанавливается</string>
+    <string name="connection_service_error">Фоновый сервис соединения недоступен</string>
     <string name="forget_pairing">Сбросить привязку к Server</string>
     <string name="forget_pairing_title">Сбросить привязку?</string>
     <string name="forget_pairing_message">Сохранённый токен будет удалён только с этого телефона.</string>
     <string name="forget_confirm">Сбросить</string>
+
+    <string name="connection_service_channel_name">Соединение Poweramp Remote</string>
+    <string name="connection_service_channel_description">LAN/Wi-Fi Direct discovery, WebSocket и автоматическое восстановление связи</string>
+    <string name="connection_service_notification_title">Poweramp Remote работает</string>
+    <string name="connection_service_notification_searching">Поиск Server и восстановление соединения…</string>
+    <string name="connection_service_notification_lan">Подключено через LAN</string>
+    <string name="connection_service_notification_direct">Подключено через Wi-Fi Direct</string>
+    <string name="connection_service_notification_action">Для соединения требуется действие</string>
+    <string name="connection_service_notification_stop">Остановить</string>
 
     <string-array name="rating_options">
         <item>Без оценки · 0/5</item>

@@ -7,15 +7,15 @@ Android player device with Poweramp, plus a separate native Phone Client.
 
 Current application versions are independent:
 
-- Server: `0.8.0` (`versionCode 8`);
-- Phone Client: `0.2.0` (`versionCode 8`);
+- Server: `0.8.1` (`versionCode 9`);
+- Phone Client: `0.2.1` (`versionCode 9`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
-Both legacy apps previously shipped `versionCode 7`, so their current independent counters happen
-to be `8`; future Server and Phone codes must advance separately. The legacy IDs are not the current
-product or source namespace.
+Both legacy apps previously shipped `versionCode 7`; their independent counters have now advanced
+to `9`. Future Server and Phone codes must continue to advance separately. The legacy IDs are not
+the current product or source namespace.
 
 ## Read first
 
@@ -37,9 +37,11 @@ The `:app` module is Poweramp Remote Server. Its one in-process started-and-boun
 LAN NSD publication, and Wi-Fi Direct DNS-SD publication. Do not create another foreground service
 or a second Poweramp integration path.
 
-The `:phone` module is the native Phone Client. It never integrates with Poweramp directly. It
-discovers `_poweramp-remote._tcp` through ordinary LAN NSD first, verifies and stores the existing
-Bearer token during initial pairing, and consumes the existing API v1 REST/artwork/WebSocket routes.
+The `:phone` module is the native Phone Client. Its started-and-bound `PhoneConnectionService`
+owns LAN discovery, Wi-Fi Direct, API/WebSocket connections, and reconnect state independently of
+the Activity. It never integrates with Poweramp directly. It discovers `_poweramp-remote._tcp`
+through ordinary LAN NSD first, verifies and stores the existing Bearer token during initial
+pairing, and consumes the existing API v1 REST/artwork/WebSocket routes.
 
 For a previously paired Server only, the Phone Client starts Wi-Fi Direct service discovery when
 the known identity is not found through LAN NSD. The Server advertises the same public stable
@@ -60,6 +62,9 @@ Version history:
 - Server `0.7.0` introduced LAN NSD and the initial Phone Client;
 - Server `0.8.0` / Phone Client `0.2.0` add automatic Wi-Fi Direct fallback while retaining LAN,
   pairing, authentication, Web UI, and API v1.
+- Server `0.8.1` / Phone Client `0.2.1` make peer/service discovery autonomous and move the Phone
+  connection runtime into a `connectedDevice` foreground service for background persistence and
+  automatic recovery.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.

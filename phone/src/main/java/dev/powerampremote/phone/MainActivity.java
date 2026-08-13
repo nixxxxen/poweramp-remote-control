@@ -1,14 +1,19 @@
 package dev.powerampremote.phone;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -24,8 +29,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /** Native phone control surface for the existing Poweramp Remote API v1. */
-public final class MainActivity extends Activity implements RemoteClientController.Listener {
+public final class MainActivity extends Activity implements PhoneConnectionService.Listener {
     private static final int DIRECT_PERMISSION_REQUEST = 700;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 701;
     private static final String STATE_PERMISSION_REQUEST_ATTEMPTED =
             "direct_permission_request_attempted";
 
@@ -64,7 +70,7 @@ public final class MainActivity extends Activity implements RemoteClientControll
     private TextView errorMessage;
     private Button forgetPairingButton;
 
-    private RemoteClientController controller;
+    private PhoneConnectionService.LocalBinder controller;
     private RemoteClientController.Status status = RemoteClientController.Status.SEARCHING;
     private DiscoveredServer pairingServer;
     private RemoteState state;
@@ -79,6 +85,40 @@ public final class MainActivity extends Activity implements RemoteClientControll
     private ConnectionAction connectionAction = ConnectionAction.NONE;
     private boolean permissionRequestAttempted;
     private boolean permissionRequestInFlight;
+    private boolean notificationPermissionInFlight;
+    private boolean serviceBindingRequested;
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            if (!(service instanceof PhoneConnectionService.LocalBinder)) {
+                showError(R.string.connection_service_error);
+                return;
+            }
+            controller = (PhoneConnectionService.LocalBinder) service;
+            renderBoundServiceState();
+            controller.addListener(MainActivity.this);
+            if (isDirectRecoveryStatus(status)) {
+                controller.onDirectPermissionOrSettingsChanged();
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            controller = null;
+            status = RemoteClientController.Status.ERROR;
+            connectionStatus.setText(R.string.connection_service_error);
+            connectionStatus.setTextColor(getColor(R.color.error));
+            renderConnectionAction(status);
+            renderControls();
+        }
+
+        @Override
+        public void onNullBinding(ComponentName name) {
+            controller = null;
+            showError(R.string.connection_service_error);
+        }
+    };
 
     private final Runnable progressTicker = new Runnable() {
         @Override
@@ -97,20 +137,14 @@ public final class MainActivity extends Activity implements RemoteClientControll
                 && savedInstanceState.getBoolean(STATE_PERMISSION_REQUEST_ATTEMPTED, false);
         setContentView(R.layout.activity_main);
         bindViews();
-        controller = new RemoteClientController(this, this);
         configureControls();
-
-        if (controller.hasPairing()) {
-            pairingPanel.setVisibility(View.GONE);
-            playerPanel.setVisibility(View.VISIBLE);
-            forgetPairingButton.setVisibility(View.VISIBLE);
-            serverIdentity.setText(getString(
-                    R.string.known_server,
-                    controller.pairedServiceName()
-            ));
-        } else {
-            showScanningPanel();
+        showScanningPanel();
+        try {
+            PhoneConnectionService.start(this);
+        } catch (RuntimeException exception) {
+            showError(R.string.connection_service_error);
         }
+        requestNotificationPermission();
         renderPlayer();
         renderControls();
     }
@@ -119,7 +153,12 @@ public final class MainActivity extends Activity implements RemoteClientControll
     protected void onStart() {
         super.onStart();
         activityStarted = true;
-        controller.start();
+        serviceBindingRequested = bindService(
+                PhoneConnectionService.bindingIntent(this),
+                serviceConnection,
+                Context.BIND_AUTO_CREATE
+        );
+        if (!serviceBindingRequested) showError(R.string.connection_service_error);
         restartProgressTicker();
     }
 
@@ -135,13 +174,19 @@ public final class MainActivity extends Activity implements RemoteClientControll
     protected void onStop() {
         activityStarted = false;
         uiHandler.removeCallbacks(progressTicker);
-        controller.stop();
+        if (controller != null) {
+            controller.removeListener(this);
+            controller = null;
+        }
+        if (serviceBindingRequested) {
+            unbindService(serviceConnection);
+            serviceBindingRequested = false;
+        }
         super.onStop();
     }
 
     @Override
     protected void onDestroy() {
-        controller.close();
         uiHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
@@ -159,10 +204,16 @@ public final class MainActivity extends Activity implements RemoteClientControll
             int[] grantResults
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != DIRECT_PERMISSION_REQUEST) return;
-        permissionRequestInFlight = false;
-        renderConnectionAction(status);
-        controller.onDirectPermissionOrSettingsChanged();
+        if (requestCode == DIRECT_PERMISSION_REQUEST) {
+            permissionRequestInFlight = false;
+            renderConnectionAction(status);
+            if (controller != null) controller.onDirectPermissionOrSettingsChanged();
+        } else if (requestCode == NOTIFICATION_PERMISSION_REQUEST) {
+            notificationPermissionInFlight = false;
+            if (status == RemoteClientController.Status.DIRECT_PERMISSION_REQUIRED) {
+                requestDirectPermission();
+            }
+        }
     }
 
     private void bindViews() {
@@ -196,6 +247,40 @@ public final class MainActivity extends Activity implements RemoteClientControll
         forgetPairingButton = findViewById(R.id.forget_pairing_button);
     }
 
+    private void renderBoundServiceState() {
+        if (controller == null) return;
+        if (controller.hasPairing()) {
+            pairingPanel.setVisibility(View.GONE);
+            playerPanel.setVisibility(View.VISIBLE);
+            forgetPairingButton.setVisibility(View.VISIBLE);
+            serverIdentity.setText(getString(
+                    R.string.known_server,
+                    controller.pairedServiceName()
+            ));
+        } else if (pairingServer == null) {
+            showScanningPanel();
+            forgetPairingButton.setVisibility(View.GONE);
+        }
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            notificationPermissionInFlight = true;
+            requestPermissions(
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    NOTIFICATION_PERMISSION_REQUEST
+            );
+        }
+    }
+
+    private boolean ensureServiceAvailable() {
+        if (controller != null) return true;
+        showError(R.string.connection_service_error);
+        return false;
+    }
+
     private void configureControls() {
         connectionActionButton.setOnClickListener(view -> performConnectionAction());
         pairButton.setOnClickListener(view -> submitPairing());
@@ -208,28 +293,39 @@ public final class MainActivity extends Activity implements RemoteClientControll
         });
         previousButton.setOnClickListener(view -> {
             hideError();
-            controller.previous();
+            if (ensureServiceAvailable()) controller.previous();
         });
         playPauseButton.setOnClickListener(view -> {
             hideError();
+            if (!ensureServiceAvailable()) return;
             if (state != null && "playing".equals(state.playbackState)) controller.pause();
             else controller.play();
         });
         nextButton.setOnClickListener(view -> {
             hideError();
-            controller.next();
+            if (ensureServiceAvailable()) controller.next();
         });
         dislikeButton.setOnClickListener(view -> {
             hideError();
-            controller.setRating(state != null && Integer.valueOf(1).equals(state.rating) ? 0 : 1);
+            if (ensureServiceAvailable()) {
+                controller.setRating(
+                        state != null && Integer.valueOf(1).equals(state.rating) ? 0 : 1
+                );
+            }
         });
         likeButton.setOnClickListener(view -> {
             hideError();
-            controller.setRating(state != null && Integer.valueOf(5).equals(state.rating) ? 0 : 5);
+            if (ensureServiceAvailable()) {
+                controller.setRating(
+                        state != null && Integer.valueOf(5).equals(state.rating) ? 0 : 5
+                );
+            }
         });
         shuffleButton.setOnClickListener(view -> {
             hideError();
-            controller.setShuffle(state == null || !Boolean.TRUE.equals(state.shuffle));
+            if (ensureServiceAvailable()) {
+                controller.setShuffle(state == null || !Boolean.TRUE.equals(state.shuffle));
+            }
         });
         ratingButton.setOnClickListener(view -> showRatingDialog());
         forgetPairingButton.setOnClickListener(view -> showForgetPairingDialog());
@@ -253,14 +349,14 @@ public final class MainActivity extends Activity implements RemoteClientControll
                 pendingSeekExpiresRealtimeMilliseconds =
                         SystemClock.elapsedRealtime() + 2_000L;
                 hideError();
-                controller.seek(requestedPosition);
+                if (ensureServiceAvailable()) controller.seek(requestedPosition);
                 renderProgress();
             }
         });
     }
 
     private void submitPairing() {
-        if (pairingServer == null) return;
+        if (pairingServer == null || !ensureServiceAvailable()) return;
         hideError();
         controller.pair(pairingServer, tokenInput.getText().toString());
     }
@@ -271,7 +367,7 @@ public final class MainActivity extends Activity implements RemoteClientControll
             long retryDelayMilliseconds
     ) {
         if (newStatus == RemoteClientController.Status.SEARCHING
-                && !controller.hasPairing() && pairingServer == null) {
+                && controller != null && !controller.hasPairing() && pairingServer == null) {
             showScanningPanel();
         }
         status = newStatus;
@@ -356,7 +452,8 @@ public final class MainActivity extends Activity implements RemoteClientControll
         renderControls();
         if (newStatus == RemoteClientController.Status.DIRECT_PERMISSION_REQUIRED
                 && !permissionRequestAttempted
-                && !permissionRequestInFlight) {
+                && !permissionRequestInFlight
+                && !notificationPermissionInFlight) {
             uiHandler.post(this::requestDirectPermission);
         }
     }
@@ -364,7 +461,9 @@ public final class MainActivity extends Activity implements RemoteClientControll
     @Override
     public void onPairingRequired(DiscoveredServer server, boolean tokenRejected) {
         pairingServer = server;
-        forgetPairingButton.setVisibility(controller.hasPairing() ? View.VISIBLE : View.GONE);
+        forgetPairingButton.setVisibility(
+                controller != null && controller.hasPairing() ? View.VISIBLE : View.GONE
+        );
         playerPanel.setVisibility(View.GONE);
         pairingPanel.setVisibility(View.VISIBLE);
         discoveryProgress.setVisibility(View.GONE);
@@ -444,7 +543,9 @@ public final class MainActivity extends Activity implements RemoteClientControll
             setPositionAnchor(0);
         }
         playerPanel.setVisibility(View.VISIBLE);
-        if (controller.hasPairing()) forgetPairingButton.setVisibility(View.VISIBLE);
+        if (controller != null && controller.hasPairing()) {
+            forgetPairingButton.setVisibility(View.VISIBLE);
+        }
         renderPlayer();
         renderProgress();
         renderControls();
@@ -570,7 +671,7 @@ public final class MainActivity extends Activity implements RemoteClientControll
                 .setTitle(R.string.rating_dialog_title)
                 .setSingleChoiceItems(R.array.rating_options, selected, (dialog, which) -> {
                     hideError();
-                    controller.setRating(which);
+                    if (ensureServiceAvailable()) controller.setRating(which);
                     dialog.dismiss();
                 })
                 .setNegativeButton(R.string.cancel, null)
@@ -582,6 +683,7 @@ public final class MainActivity extends Activity implements RemoteClientControll
                 .setTitle(R.string.forget_pairing_title)
                 .setMessage(R.string.forget_pairing_message)
                 .setPositiveButton(R.string.forget_confirm, (dialog, which) -> {
+                    if (!ensureServiceAvailable()) return;
                     DiscoveredServer previousPairingServer = pairingServer;
                     pairingServer = null;
                     if (!controller.forgetPairing()) {
@@ -660,10 +762,10 @@ public final class MainActivity extends Activity implements RemoteClientControll
                 openSystemSettings(Settings.ACTION_WIFI_SETTINGS);
                 break;
             case RETRY_DIRECT:
-                controller.retryDirectConnection();
+                if (ensureServiceAvailable()) controller.retryDirectConnection();
                 break;
             case RETRY_LAN:
-                controller.retryLanDiscovery();
+                if (ensureServiceAvailable()) controller.retryLanDiscovery();
                 break;
             case NONE:
             default:
@@ -672,10 +774,10 @@ public final class MainActivity extends Activity implements RemoteClientControll
     }
 
     private void requestDirectPermission() {
-        if (permissionRequestInFlight) return;
+        if (permissionRequestInFlight || notificationPermissionInFlight) return;
         String permission = WifiDirectConnectionClient.requiredRuntimePermission();
         if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
-            controller.onDirectPermissionOrSettingsChanged();
+            if (controller != null) controller.onDirectPermissionOrSettingsChanged();
             return;
         }
         if (permissionRequestAttempted && !shouldShowRequestPermissionRationale(permission)) {
@@ -699,7 +801,7 @@ public final class MainActivity extends Activity implements RemoteClientControll
         try {
             startActivity(new Intent(action));
         } catch (RuntimeException exception) {
-            controller.retryDirectConnection();
+            if (controller != null) controller.retryDirectConnection();
         }
     }
 
