@@ -1,35 +1,35 @@
-# Poweramp Remote roadmap
+# Poweramp Remote Roadmap
 
-Этот документ фиксирует дальнейшие этапы проекта после выпуска версии `0.7.0`. Текущий подтверждённый статус реализации и проверки находится в `STATUS.md`.
+This document outlines the project's future stages following the release of version `0.7.0`. The current confirmed status of implementation and verification can be found in `STATUS.md`.
 
-## 0.7.x — нативный Android-клиент
+## 0.7.x — Native Android Client
 
-- развитие отдельного Android-клиента для телефона;
-- NSD/mDNS discovery сервера в локальной сети;
-- pairing и безопасное локальное хранение credential;
-- автоматическое подключение к известному R4 и устойчивый reconnect;
-- исправления по результатам проверки на реальных телефоне и HiBy R4.
+- Development of a standalone Android client for phones;
+- NSD/mDNS server discovery on the local network;
+- Pairing and secure local credential storage;
+- Automatic connection to a known R4 and robust reconnection logic;
+- Fixes based on testing with actual phones and the HiBy R4.
 
-## Direct connection без ручного hotspot
+## Direct Connection Without Manual Hotspot
 
-Исследовать Wi-Fi Direct и Local Only Hotspot, чтобы устройства могли устанавливать прямое локальное соединение без заранее настроенной общей Wi-Fi-сети и без ручного запуска hotspot. В `0.7.0` эта возможность намеренно не реализована: сервер и телефон всё ещё должны находиться в одной IP-сети.
+Investigate Wi-Fi Direct and Local Only Hotspot to enable direct local connections between devices without a pre-configured shared Wi-Fi network or manual hotspot activation. This feature is intentionally omitted from `0.7.0`; the server and phone must still reside on the same IP network.
 
-## MediaSession в Android-клиенте
+## MediaSession in Android Client
 
-Добавить MediaSession, media notification и lock-screen controls в телефонный клиент, включая управление воспроизведением со смарт-часов.
+Implement MediaSession, media notifications, and lock-screen controls in the phone client, including playback control via smartwatches.
 
-## Регулировка громкости
+## Volume Control
 
-Исследовать поддерживаемый Poweramp/Android путь управления громкостью и добавить его в серверный API, Web UI и Android-клиент без неподтверждённых magic constants.
+Investigate the volume control method supported by Poweramp/Android and implement it across the server API, Web UI, and Android client, avoiding unverified "magic constants."
 
-## Библиотека и Queue
+## Library and Queue
 
-Добавить просмотр и поиск библиотеки Poweramp, запуск выбранного трека, просмотр Queue и операции с очередью через документированные или проверенные интеграционные механизмы.
+Add support for browsing and searching the Poweramp library, playing selected tracks, viewing the queue, and performing queue operations using documented or verified integration mechanisms.
 
 ## Lyrics
 
-Добавить LRC и embedded lyrics, а на следующем шаге — синхронизированное отображение текста. До появления подтверждённого источника текста не подменять его одним `lyricsState` из публичного Intent API.
+Add support for LRC and embedded lyrics, followed by synchronized lyrics display. Until a verified lyrics source is available, do not rely solely on the `lyricsState` from the public Intent API.
 
-## Дальнейшая полировка
+## Further Refinement
 
-Продолжать улучшать UI, безопасность pairing, обработку смены сети, диагностику и общую стабильность соединения, сохраняя совместимость REST/WebSocket API и существующего Web UI.
+Continue improving the UI, pairing security, network change handling, diagnostics, and overall connection stability, while maintaining compatibility with the REST/WebSocket API and the existing Web UI.
