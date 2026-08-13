@@ -13,7 +13,8 @@ final class RemoteCommand {
         SEEK("seek"),
         SHUFFLE_ON("shuffle_on"),
         SHUFFLE_OFF("shuffle_off"),
-        SET_RATING("set_rating");
+        SET_RATING("set_rating"),
+        SET_VOLUME("set_volume");
 
         final String wireName;
 
@@ -34,11 +35,13 @@ final class RemoteCommand {
     final Action action;
     final int rating;
     final int positionSeconds;
+    final int volume;
 
-    private RemoteCommand(Action action, int rating, int positionSeconds) {
+    private RemoteCommand(Action action, int rating, int positionSeconds, int volume) {
         this.action = action;
         this.rating = rating;
         this.positionSeconds = positionSeconds;
+        this.volume = volume;
     }
 
     static RemoteCommand parse(String json) {
@@ -68,7 +71,7 @@ final class RemoteCommand {
             if (rating < 0L || rating > 5L) {
                 throw new IllegalArgumentException("rating must be in range 0..5");
             }
-            return new RemoteCommand(action, (int) rating, -1);
+            return new RemoteCommand(action, (int) rating, -1, -1);
         }
         if (action == Action.SEEK) {
             Object positionValue = values.get("value");
@@ -79,12 +82,27 @@ final class RemoteCommand {
             if (positionSeconds < 0L || positionSeconds > Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("seek value must be in range 0..2147483647");
             }
-            return new RemoteCommand(action, -1, (int) positionSeconds);
+            return new RemoteCommand(action, -1, (int) positionSeconds, -1);
+        }
+        if (action == Action.SET_VOLUME) {
+            Object volumeValue = values.get("value");
+            if (!(volumeValue instanceof Long)) {
+                throw new IllegalArgumentException("set_volume value must be an integer");
+            }
+            long volume = (Long) volumeValue;
+            if (volume < 0L || volume > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException(
+                        "set_volume value must be in range 0..2147483647"
+                );
+            }
+            return new RemoteCommand(action, -1, -1, (int) volume);
         }
         if (hasValue) {
-            throw new IllegalArgumentException("value is only valid for set_rating or seek");
+            throw new IllegalArgumentException(
+                    "value is only valid for set_rating, seek, or set_volume"
+            );
         }
-        return new RemoteCommand(action, -1, -1);
+        return new RemoteCommand(action, -1, -1, -1);
     }
 
     private static final class Parser {

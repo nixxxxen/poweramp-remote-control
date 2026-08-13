@@ -97,6 +97,21 @@ public final class PlaybackStateStoreTest {
     }
 
     @Test
+    public void volumeIsIndependentOfPowerampAvailabilityAndDuplicateEventsAreIgnored() {
+        PlaybackStateStore store = new PlaybackStateStore(0L);
+        store.setVolume(6, 15, true, 0L);
+        long revision = store.snapshot().revision;
+
+        store.setVolume(6, 15, true, 100L);
+        assertEquals(revision, store.snapshot().revision);
+
+        store.setPowerampAvailable(false, 200L);
+        assertEquals(6, store.snapshot().volume);
+        assertEquals(15, store.snapshot().volumeMax);
+        assertTrue(store.snapshot().volumeControlAvailable);
+    }
+
+    @Test
     public void listenersReceiveMonotonicRevisionsAndCanBeRemoved() {
         PlaybackStateStore store = new PlaybackStateStore(0L);
         List<Long> revisions = new ArrayList<>();

@@ -71,6 +71,12 @@ final class WebUiAssets {
                             </div>
                           </div>
 
+                          <div id="volumePanel" class="volume" aria-label="Громкость на устройстве с Poweramp" hidden>
+                            <span>Громкость</span>
+                            <input id="volume" type="range" min="0" max="1" value="0" step="1" disabled>
+                            <span id="volumeValue">0/0</span>
+                          </div>
+
                           <div class="controls" aria-label="Управление воспроизведением">
                             <button id="previous" type="button" aria-label="Предыдущий трек">⏮</button>
                             <button id="playPause" class="primary" type="button" aria-label="Воспроизвести">▶</button>
@@ -295,6 +301,19 @@ final class WebUiAssets {
                       font-variant-numeric: tabular-nums;
                     }
 
+                    .volume {
+                      display: grid;
+                      grid-template-columns: auto minmax(0, 1fr) 3rem;
+                      gap: .45rem;
+                      align-items: center;
+                      color: #9da4af;
+                      font-size: .72rem;
+                      font-variant-numeric: tabular-nums;
+                    }
+
+                    .volume input { width: 100%; height: 1.1rem; margin: 0; accent-color: #86adf7; }
+                    .volume span:last-child { text-align: right; }
+
                     .controls {
                       display: flex;
                       justify-content: center;
@@ -389,6 +408,9 @@ final class WebUiAssets {
                     const seek = document.getElementById("seek");
                     const position = document.getElementById("position");
                     const duration = document.getElementById("duration");
+                    const volumePanel = document.getElementById("volumePanel");
+                    const volume = document.getElementById("volume");
+                    const volumeValue = document.getElementById("volumeValue");
                     const previous = document.getElementById("previous");
                     const playPause = document.getElementById("playPause");
                     const next = document.getElementById("next");
@@ -407,6 +429,8 @@ final class WebUiAssets {
                     let anchorPosition = 0;
                     let anchorTime = performance.now();
                     let pendingSeek = null;
+                    let draggingVolume = false;
+                    let pendingVolume = null;
                     let artworkKey = null;
                     let renderedSecond = -1;
 
@@ -617,6 +641,30 @@ final class WebUiAssets {
                       playPause.disabled = !powerampAvailable;
                       seek.disabled = !controllable || !(total > 0);
 
+                      const serverVolume = numberOrNull(state.volume);
+                      const maximumVolume = numberOrNull(state.volumeMax);
+                      const volumeAvailable = serverVolume !== null
+                        && maximumVolume !== null && maximumVolume > 0;
+                      volumePanel.hidden = !volumeAvailable;
+                      if (volumeAvailable) {
+                        volume.max = String(Math.floor(maximumVolume));
+                        const now = performance.now();
+                        const volumeConfirmed = pendingVolume
+                          && Math.round(serverVolume) === pendingVolume.value;
+                        if (pendingVolume && (volumeConfirmed || now >= pendingVolume.expires)) {
+                          pendingVolume = null;
+                        }
+                        if (!draggingVolume && !pendingVolume) {
+                          volume.value = String(clamp(
+                            Math.round(serverVolume),
+                            0,
+                            Math.floor(maximumVolume)
+                          ));
+                        }
+                        volumeValue.textContent = `${volume.value}/${Math.floor(maximumVolume)}`;
+                        volume.disabled = state.volumeControlAvailable !== true;
+                      }
+
                       const playing = state.playbackState === "playing";
                       playPause.textContent = playing ? "Ⅱ" : "▶";
                       playPause.setAttribute("aria-label", playing ? "Пауза" : "Воспроизвести");
@@ -822,6 +870,35 @@ final class WebUiAssets {
                       if (!await sendControl("seek", value)) {
                         pendingSeek = null;
                         if (currentState) setPositionAnchor(numberOrNull(currentState.positionSeconds) ?? 0);
+                      }
+                    });
+
+                    volume.addEventListener("input", () => {
+                      draggingVolume = true;
+                      volumeValue.textContent = `${volume.value}/${volume.max}`;
+                    });
+
+                    volume.addEventListener("change", async () => {
+                      draggingVolume = false;
+                      const value = Math.round(Number(volume.value));
+                      pendingVolume = { value, expires: performance.now() + 2000 };
+                      if (!await sendControl("set_volume", value)) {
+                        pendingVolume = null;
+                        const serverVolume = numberOrNull(currentState?.volume);
+                        if (serverVolume !== null) {
+                          volume.value = String(Math.round(serverVolume));
+                          volumeValue.textContent = `${volume.value}/${volume.max}`;
+                        }
+                      }
+                      const requested = pendingVolume;
+                      if (requested) {
+                        setTimeout(() => {
+                          if (pendingVolume === requested
+                              && performance.now() >= requested.expires) {
+                            pendingVolume = null;
+                            if (currentState) applyState(currentState);
+                          }
+                        }, 2050);
                       }
                     });
 

@@ -7,6 +7,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo;
@@ -20,13 +24,16 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
     private static final String TAG = "RemoteWifiDirect";
     private static final long RETRY_DELAY_MILLISECONDS = 5_000L;
     private static final long DISCOVERY_REFRESH_MILLISECONDS = 30_000L;
+    private static final long NETWORK_REFRESH_DELAY_MILLISECONDS = 750L;
 
     private final Context context;
     private final Handler mainHandler;
     private final WifiP2pManager manager;
+    private final ConnectivityManager connectivityManager;
     private final WifiP2pDnsSdServiceInfo serviceInfo;
     private final Runnable retry = this::retryCurrentState;
     private final Runnable discoveryRefresh = this::refreshPeerDiscovery;
+    private final Runnable publicationRefresh = this::refreshPublicationAfterNetworkChange;
     private final IntentFilter stateFilter = new IntentFilter();
 
     private WifiP2pManager.Channel channel;
@@ -41,6 +48,28 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
     private boolean closed;
     private boolean receiverRegistered;
     private boolean wifiWasDisabled;
+    private boolean publicationRefreshRequested;
+    private boolean networkMonitorRegistered;
+    private boolean initialLanNetworkCallbackPending;
+    private int channelGeneration;
+
+    private final ConnectivityManager.NetworkCallback networkCallback =
+            new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    if (initialLanNetworkCallbackPending) {
+                        initialLanNetworkCallbackPending = false;
+                        Log.d(TAG, "Initial LAN network observed for Server transport lifecycle");
+                    } else {
+                        requestPublicationRefresh("LAN-capable network available");
+                    }
+                }
+
+                @Override
+                public void onLost(Network network) {
+                    requestPublicationRefresh("LAN-capable network lost");
+                }
+            };
 
     private final BroadcastReceiver stateReceiver = new BroadcastReceiver() {
         @Override
@@ -63,6 +92,7 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
         this.context = context.getApplicationContext();
         this.mainHandler = mainHandler;
         manager = (WifiP2pManager) this.context.getSystemService(Context.WIFI_P2P_SERVICE);
+        connectivityManager = this.context.getSystemService(ConnectivityManager.class);
         serviceInfo = WifiP2pDnsSdServiceInfo.newInstance(
                 RemoteNsdContract.SERVICE_NAME,
                 RemoteNsdContract.WIFI_DIRECT_SERVICE_TYPE,
@@ -79,6 +109,7 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
         if (closed) return;
         desired = true;
         Log.i(TAG, "Wi-Fi Direct publication requested");
+        registerNetworkMonitor();
         registerReceiver();
         requestConnectionInfo();
         registerIfNeeded();
@@ -89,15 +120,23 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
         Log.i(TAG, "Wi-Fi Direct publication stopping");
         mainHandler.removeCallbacks(retry);
         mainHandler.removeCallbacks(discoveryRefresh);
+        mainHandler.removeCallbacks(publicationRefresh);
+        publicationRefreshRequested = false;
         stopPeerDiscovery();
         unregisterIfNeeded();
         unregisterReceiver();
+        unregisterNetworkMonitor();
     }
 
     private void initializeChannel() {
         if (closed || unsupported || manager == null || channel != null) return;
         try {
-            channel = manager.initialize(context, mainHandler.getLooper(), this::onChannelDisconnected);
+            int initializedGeneration = ++channelGeneration;
+            channel = manager.initialize(
+                    context,
+                    mainHandler.getLooper(),
+                    () -> onChannelDisconnected(initializedGeneration)
+            );
             Log.i(TAG, "P2P channel initialized");
         } catch (RuntimeException exception) {
             Log.w(TAG, "Unable to initialize Wi-Fi Direct channel", exception);
@@ -106,8 +145,14 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
         }
     }
 
-    private void onChannelDisconnected() {
+    private void onChannelDisconnected(int disconnectedGeneration) {
+        if (disconnectedGeneration != channelGeneration) {
+            Log.d(TAG, "Ignoring callback from stale Server P2P channel generation="
+                    + disconnectedGeneration);
+            return;
+        }
         Log.w(TAG, "P2P channel disconnected; scheduling reinitialization");
+        channelGeneration++;
         channel = null;
         registered = false;
         adding = false;
@@ -122,6 +167,10 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
     private void registerIfNeeded() {
         mainHandler.removeCallbacks(retry);
         if (!desired || closed || unsupported || adding || removing) return;
+        if (publicationRefreshRequested) {
+            refreshPublicationAfterNetworkChange();
+            return;
+        }
         if (!receiverRegistered) {
             registerReceiver();
             if (!receiverRegistered) {
@@ -155,6 +204,9 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
                                 registered = true;
                                 Log.i(TAG, "Wi-Fi Direct DNS-SD service published");
                                 if (!desired || closed) unregisterIfNeeded();
+                                else if (publicationRefreshRequested) {
+                                    mainHandler.post(publicationRefresh);
+                                }
                                 else startPeerDiscoveryIfNeeded();
                             },
                             reason -> {
@@ -289,6 +341,7 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
             peerDiscoveryStarting = false;
             peerDiscoveryActive = false;
             groupConnected = false;
+            closeChannel(detachChannel());
             mainHandler.removeCallbacks(retry);
             mainHandler.removeCallbacks(discoveryRefresh);
             return;
@@ -339,7 +392,128 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
             peerDiscoveryActive = false;
             mainHandler.removeCallbacks(discoveryRefresh);
         } else if (desired && registered) {
-            schedulePeerDiscoveryRefresh(0L);
+            if (publicationRefreshRequested) mainHandler.post(publicationRefresh);
+            else schedulePeerDiscoveryRefresh(0L);
+        }
+    }
+
+    private void requestPublicationRefresh(String reason) {
+        if (!desired || closed) return;
+        publicationRefreshRequested = true;
+        Log.i(TAG, "Scheduling full P2P publication refresh: " + reason);
+        mainHandler.removeCallbacks(publicationRefresh);
+        mainHandler.postDelayed(publicationRefresh, NETWORK_REFRESH_DELAY_MILLISECONDS);
+    }
+
+    private void refreshPublicationAfterNetworkChange() {
+        mainHandler.removeCallbacks(publicationRefresh);
+        if (!publicationRefreshRequested || !desired || closed || unsupported) return;
+        if (groupConnected) {
+            Log.i(TAG, "Deferring P2P publication refresh while group is connected");
+            return;
+        }
+        if (adding || removing) {
+            mainHandler.postDelayed(publicationRefresh, RETRY_DELAY_MILLISECONDS);
+            return;
+        }
+        if (!hasRuntimePermission()) {
+            scheduleRetry();
+            return;
+        }
+        initializeChannel();
+        WifiP2pManager.Channel currentChannel = channel;
+        if (manager == null || currentChannel == null) {
+            scheduleRetry();
+            return;
+        }
+        stopPeerDiscovery();
+        removing = true;
+        Log.i(TAG, "Clearing and republishing P2P DNS-SD after transport transition");
+        try {
+            manager.clearLocalServices(
+                    currentChannel,
+                    action(
+                            () -> {
+                                removing = false;
+                                registered = false;
+                                publicationRefreshRequested = false;
+                                Log.i(TAG, "P2P local services cleared; publishing fresh record");
+                                registerIfNeeded();
+                            },
+                            reason -> {
+                                removing = false;
+                                registered = false;
+                                Log.w(TAG, "clearLocalServices failed during transport refresh: "
+                                        + reasonName(reason));
+                                rebuildChannelAfterNetworkChange();
+                            }
+                    )
+            );
+        } catch (SecurityException exception) {
+            removing = false;
+            Log.w(TAG, "P2P publication refresh permission unavailable", exception);
+            scheduleRetry();
+        } catch (RuntimeException exception) {
+            removing = false;
+            registered = false;
+            Log.w(TAG, "Unable to refresh P2P publication", exception);
+            rebuildChannelAfterNetworkChange();
+        }
+    }
+
+    private void rebuildChannelAfterNetworkChange() {
+        WifiP2pManager.Channel staleChannel = detachChannel();
+        adding = false;
+        removing = false;
+        peerDiscoveryStarting = false;
+        peerDiscoveryActive = false;
+        closeChannel(staleChannel);
+        Log.i(TAG, "Reinitializing Server P2P channel after transport transition");
+        initializeChannel();
+        scheduleRetry();
+    }
+
+    private WifiP2pManager.Channel detachChannel() {
+        WifiP2pManager.Channel staleChannel = channel;
+        channel = null;
+        channelGeneration++;
+        return staleChannel;
+    }
+
+    private void closeChannel(WifiP2pManager.Channel staleChannel) {
+        if (staleChannel != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            try {
+                staleChannel.close();
+            } catch (RuntimeException exception) {
+                Log.w(TAG, "Unable to close stale Server P2P channel", exception);
+            }
+        }
+    }
+
+    private void registerNetworkMonitor() {
+        if (networkMonitorRegistered || connectivityManager == null) return;
+        try {
+            NetworkRequest request = new NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    .build();
+            initialLanNetworkCallbackPending = true;
+            connectivityManager.registerNetworkCallback(request, networkCallback, mainHandler);
+            networkMonitorRegistered = true;
+        } catch (RuntimeException exception) {
+            networkMonitorRegistered = false;
+            Log.w(TAG, "Unable to monitor Server network transitions", exception);
+        }
+    }
+
+    private void unregisterNetworkMonitor() {
+        if (!networkMonitorRegistered || connectivityManager == null) return;
+        networkMonitorRegistered = false;
+        initialLanNetworkCallbackPending = false;
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback);
+        } catch (RuntimeException ignored) {
+            // Service teardown may race callback removal.
         }
     }
 
@@ -478,6 +652,7 @@ final class RemoteWifiDirectPublisher implements AutoCloseable {
     public void close() {
         if (closed) return;
         stop();
+        closeChannel(detachChannel());
         closed = true;
     }
 }

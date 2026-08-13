@@ -84,6 +84,9 @@ final class RemoteStateJson {
                         : null
         );
         appendNullableNumber(json, "shuffleMode", state.shuffleMode);
+        appendNullableNumber(json, "volume", state.volume);
+        appendNullableNumber(json, "volumeMax", state.volumeMax);
+        appendBoolean(json, "volumeControlAvailable", state.volumeControlAvailable);
         json.append('}');
         return json.toString();
     }

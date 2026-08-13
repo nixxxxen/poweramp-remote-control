@@ -16,6 +16,8 @@ final class RemoteCommandDispatcher {
         void setShuffle(boolean enabled);
 
         void setRating(int rating);
+
+        void setVolume(int volume);
     }
 
     private RemoteCommandDispatcher() {
@@ -46,6 +48,9 @@ final class RemoteCommandDispatcher {
                 break;
             case SET_RATING:
                 target.setRating(command.rating);
+                break;
+            case SET_VOLUME:
+                target.setVolume(command.volume);
                 break;
             default:
                 throw new IllegalArgumentException("unsupported action");

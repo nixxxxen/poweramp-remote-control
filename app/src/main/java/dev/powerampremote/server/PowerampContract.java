@@ -4,7 +4,10 @@ package dev.powerampremote.server;
  * The small subset of Poweramp's public Intent API used by this MVP.
  *
  * <p>The canonical API definition lives at
- * https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java</p>
+ * https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java.
+ * The source snapshot through Poweramp build 1026-beta was re-audited for release 0.9.0 and has no
+ * public volume command; player-device volume therefore belongs to the separate Android system
+ * volume adapter rather than this contract.</p>
  */
 final class PowerampContract {
     static final String PACKAGE_NAME = "com.maxmpz.audioplayer";

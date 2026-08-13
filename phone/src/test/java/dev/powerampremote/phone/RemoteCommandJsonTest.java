@@ -16,6 +16,7 @@ public final class RemoteCommandJsonTest {
         assertEquals("{\"action\":\"shuffle_off\"}", RemoteCommandJson.shuffle(false));
         assertEquals("{\"action\":\"seek\",\"value\":37}", RemoteCommandJson.seek(37));
         assertEquals("{\"action\":\"set_rating\",\"value\":5}", RemoteCommandJson.rating(5));
+        assertEquals("{\"action\":\"set_volume\",\"value\":11}", RemoteCommandJson.volume(11));
     }
 
     @Test
@@ -23,6 +24,7 @@ public final class RemoteCommandJsonTest {
         assertInvalid(() -> RemoteCommandJson.seek(-1));
         assertInvalid(() -> RemoteCommandJson.rating(-1));
         assertInvalid(() -> RemoteCommandJson.rating(6));
+        assertInvalid(() -> RemoteCommandJson.volume(-1));
     }
 
     @Test

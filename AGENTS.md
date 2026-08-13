@@ -7,14 +7,14 @@ Android player device with Poweramp, plus a separate native Phone Client.
 
 Current application versions are independent:
 
-- Server: `0.8.1` (`versionCode 9`);
-- Phone Client: `0.2.1` (`versionCode 9`);
+- Server: `0.9.0` (`versionCode 10`);
+- Phone Client: `0.3.0` (`versionCode 10`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
 Both legacy apps previously shipped `versionCode 7`; their independent counters have now advanced
-to `9`. Future Server and Phone codes must continue to advance separately. The legacy IDs are not
+to `10`. Future Server and Phone codes must continue to advance separately. The legacy IDs are not
 the current product or source namespace.
 
 ## Read first
@@ -33,15 +33,17 @@ Before any non-trivial change:
 ## Current architecture
 
 The `:app` module is Poweramp Remote Server. Its one in-process started-and-bound
-`RemotePlaybackService` owns Poweramp integration, playback state, local API v1, embedded Web UI,
-LAN NSD publication, and Wi-Fi Direct DNS-SD publication. Do not create another foreground service
-or a second Poweramp integration path.
+`RemotePlaybackService` owns Poweramp integration, system media volume, playback state, local API
+v1, embedded Web UI, LAN NSD publication, and Wi-Fi Direct DNS-SD publication. Do not create another
+foreground service or a second Poweramp integration path.
 
-The `:phone` module is the native Phone Client. Its started-and-bound `PhoneConnectionService`
-owns LAN discovery, Wi-Fi Direct, API/WebSocket connections, and reconnect state independently of
-the Activity. It never integrates with Poweramp directly. It discovers `_poweramp-remote._tcp`
-through ordinary LAN NSD first, verifies and stores the existing Bearer token during initial
-pairing, and consumes the existing API v1 REST/artwork/WebSocket routes.
+The `:phone` module is the native Phone Client. Its one started-and-bound
+`PhoneConnectionService` is both a `connectedDevice` and `mediaPlayback` foreground service. It owns
+LAN discovery, Wi-Fi Direct, API/WebSocket connections, reconnect state, and one Media3
+`MediaSession` independently of the Activity. Its custom `SimpleBasePlayer` is only a remote proxy:
+it never decodes audio, requests audio focus, or integrates with Poweramp directly. It discovers
+`_poweramp-remote._tcp` through ordinary LAN NSD first, verifies and stores the existing Bearer
+token during initial pairing, and consumes the existing API v1 REST/artwork/WebSocket routes.
 
 For a previously paired Server only, the Phone Client starts Wi-Fi Direct service discovery when
 the known identity is not found through LAN NSD. The Server advertises the same public stable
@@ -65,6 +67,9 @@ Version history:
 - Server `0.8.1` / Phone Client `0.2.1` make peer/service discovery autonomous and move the Phone
   connection runtime into a `connectedDevice` foreground service for background persistence and
   automatic recovery.
+- Server `0.9.0` / Phone Client `0.3.0` add player-device system media volume, a remote Media3
+  session for Android/Wear controls, and complete LAN-to-P2P transport reinitialization while
+  keeping API v1 backward compatible.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.

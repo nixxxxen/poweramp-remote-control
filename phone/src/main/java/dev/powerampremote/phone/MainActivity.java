@@ -60,6 +60,9 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     private SeekBar trackSeek;
     private TextView elapsedTime;
     private TextView durationTime;
+    private View volumePanel;
+    private SeekBar volumeSeek;
+    private TextView volumeValue;
     private ImageButton previousButton;
     private ImageButton playPauseButton;
     private ImageButton nextButton;
@@ -76,12 +79,15 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     private RemoteState state;
     private boolean activityStarted;
     private boolean draggingSeek;
+    private boolean draggingVolume;
     private int durationSeconds;
     private int anchorPositionSeconds;
     private long anchorRealtimeMilliseconds;
     private String trackIdentity;
     private Integer pendingSeekSeconds;
     private long pendingSeekExpiresRealtimeMilliseconds;
+    private Integer pendingVolume;
+    private long pendingVolumeExpiresRealtimeMilliseconds;
     private ConnectionAction connectionAction = ConnectionAction.NONE;
     private boolean permissionRequestAttempted;
     private boolean permissionRequestInFlight;
@@ -236,6 +242,9 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
         trackSeek = findViewById(R.id.track_seek);
         elapsedTime = findViewById(R.id.elapsed_time);
         durationTime = findViewById(R.id.duration_time);
+        volumePanel = findViewById(R.id.volume_panel);
+        volumeSeek = findViewById(R.id.volume_seek);
+        volumeValue = findViewById(R.id.volume_value);
         previousButton = findViewById(R.id.previous_button);
         playPauseButton = findViewById(R.id.play_pause_button);
         nextButton = findViewById(R.id.next_button);
@@ -351,6 +360,38 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
                 hideError();
                 if (ensureServiceAvailable()) controller.seek(requestedPosition);
                 renderProgress();
+            }
+        });
+        volumeSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    volumeValue.setText(getString(
+                            R.string.volume_value,
+                            progress,
+                            seekBar.getMax()
+                    ));
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                draggingVolume = true;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                int requestedVolume = seekBar.getProgress();
+                draggingVolume = false;
+                pendingVolume = requestedVolume;
+                pendingVolumeExpiresRealtimeMilliseconds =
+                        SystemClock.elapsedRealtime() + 2_000L;
+                hideError();
+                if (ensureServiceAvailable()) controller.setVolume(requestedVolume);
+                renderVolume();
+                uiHandler.postDelayed(() -> {
+                    if (activityStarted) renderVolume();
+                }, 2_050L);
             }
         });
     }
@@ -547,6 +588,7 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
             forgetPairingButton.setVisibility(View.VISIBLE);
         }
         renderPlayer();
+        renderVolume();
         renderProgress();
         renderControls();
         restartProgressTicker();
@@ -571,6 +613,10 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
             setPositionAnchor(state == null || state.positionSeconds == null
                     ? 0 : state.positionSeconds);
             renderProgress();
+        }
+        if (pendingVolume != null) {
+            pendingVolume = null;
+            renderVolume();
         }
         if (!authenticationError) showError(R.string.command_error);
     }
@@ -602,6 +648,30 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
         durationTime.setText(TimeFormatter.formatSeconds(durationSeconds));
     }
 
+    private void renderVolume() {
+        if (state == null || state.volume == null || state.volumeMax == null
+                || state.volumeMax <= 0) {
+            volumePanel.setVisibility(View.GONE);
+            return;
+        }
+        volumePanel.setVisibility(View.VISIBLE);
+        volumeSeek.setMax(state.volumeMax);
+        long now = SystemClock.elapsedRealtime();
+        boolean confirmed = pendingVolume != null && pendingVolume.equals(state.volume);
+        if (pendingVolume != null
+                && (confirmed || now >= pendingVolumeExpiresRealtimeMilliseconds)) {
+            pendingVolume = null;
+        }
+        if (!draggingVolume && pendingVolume == null) {
+            volumeSeek.setProgress(Math.min(state.volume, state.volumeMax));
+        }
+        volumeValue.setText(getString(
+                R.string.volume_value,
+                volumeSeek.getProgress(),
+                state.volumeMax
+        ));
+    }
+
     private int calculatedPositionSeconds() {
         long position = anchorPositionSeconds;
         if (state != null && "playing".equals(state.playbackState)) {
@@ -617,9 +687,10 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     }
 
     private void renderControls() {
-        boolean apiReady = (status == RemoteClientController.Status.CONNECTED
+        boolean connected = (status == RemoteClientController.Status.CONNECTED
                 || status == RemoteClientController.Status.CONNECTED_DIRECT)
-                && state != null && state.powerampAvailable;
+                && state != null;
+        boolean apiReady = connected && state.powerampAvailable;
         boolean trackReady = apiReady && state.hasTrack;
         setControlEnabled(previousButton, trackReady);
         setControlEnabled(playPauseButton, apiReady);
@@ -629,6 +700,10 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
         setControlEnabled(ratingButton, trackReady);
         setControlEnabled(likeButton, trackReady);
         setControlEnabled(shuffleButton, trackReady);
+        setControlEnabled(
+                volumeSeek,
+                connected && Boolean.TRUE.equals(state.volumeControlAvailable)
+        );
 
         boolean playing = state != null && "playing".equals(state.playbackState);
         playPauseButton.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
@@ -699,6 +774,8 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
                     trackIdentity = null;
                     pendingSeekSeconds = null;
                     draggingSeek = false;
+                    pendingVolume = null;
+                    draggingVolume = false;
                     forgetPairingButton.setVisibility(View.GONE);
                     onArtworkChanged(null);
                     renderPlayer();

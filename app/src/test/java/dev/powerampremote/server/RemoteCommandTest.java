@@ -22,6 +22,10 @@ public final class RemoteCommandTest {
         RemoteCommand rating = RemoteCommand.parse("{\"action\":\"set_rating\",\"value\":3}");
         assertEquals(RemoteCommand.Action.SET_RATING, rating.action);
         assertEquals(3, rating.rating);
+
+        RemoteCommand volume = RemoteCommand.parse("{\"action\":\"set_volume\",\"value\":11}");
+        assertEquals(RemoteCommand.Action.SET_VOLUME, volume.action);
+        assertEquals(11, volume.volume);
     }
 
     @Test
@@ -75,6 +79,20 @@ public final class RemoteCommandTest {
     }
 
     @Test
+    public void validatesRemoteVolumeAsANonNegativeInteger() {
+        assertEquals(0, RemoteCommand.parse(
+                "{\"action\":\"set_volume\",\"value\":0}"
+        ).volume);
+        assertEquals(Integer.MAX_VALUE, RemoteCommand.parse(
+                "{\"action\":\"set_volume\",\"value\":2147483647}"
+        ).volume);
+        assertInvalid("{\"action\":\"set_volume\"}");
+        assertInvalid("{\"action\":\"set_volume\",\"value\":-1}");
+        assertInvalid("{\"action\":\"set_volume\",\"value\":1.5}");
+        assertInvalid("{\"action\":\"set_volume\",\"value\":2147483648}");
+    }
+
+    @Test
     public void rejectsUnknownDuplicateAndActionSpecificFields() {
         assertInvalid("{}");
         assertInvalid("{\"action\":\"unknown\"}");
@@ -98,6 +116,7 @@ public final class RemoteCommandTest {
         assertEquals(expected, command.action);
         assertEquals(-1, command.rating);
         assertEquals(-1, command.positionSeconds);
+        assertEquals(-1, command.volume);
     }
 
     private static void assertInvalid(String json) {

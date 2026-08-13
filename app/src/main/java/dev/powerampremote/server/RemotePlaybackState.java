@@ -12,6 +12,9 @@ final class RemotePlaybackState {
     final int shuffleMode;
     final long artworkId;
     final boolean artworkAvailable;
+    final int volume;
+    final int volumeMax;
+    final boolean volumeControlAvailable;
 
     RemotePlaybackState(
             long revision,
@@ -34,7 +37,10 @@ final class RemotePlaybackState {
                 shuffleMode,
                 artworkId,
                 artworkAvailable,
-                track != null
+                track != null,
+                -1,
+                -1,
+                false
         );
     }
 
@@ -50,6 +56,38 @@ final class RemotePlaybackState {
             boolean artworkAvailable,
             boolean positionAvailable
     ) {
+        this(
+                revision,
+                powerampAvailable,
+                track,
+                playbackState,
+                anchorPositionSeconds,
+                anchorRealtimeMilliseconds,
+                shuffleMode,
+                artworkId,
+                artworkAvailable,
+                positionAvailable,
+                -1,
+                -1,
+                false
+        );
+    }
+
+    RemotePlaybackState(
+            long revision,
+            boolean powerampAvailable,
+            TrackInfo track,
+            int playbackState,
+            int anchorPositionSeconds,
+            long anchorRealtimeMilliseconds,
+            int shuffleMode,
+            long artworkId,
+            boolean artworkAvailable,
+            boolean positionAvailable,
+            int volume,
+            int volumeMax,
+            boolean volumeControlAvailable
+    ) {
         this.revision = revision;
         this.powerampAvailable = powerampAvailable;
         this.track = track;
@@ -60,6 +98,9 @@ final class RemotePlaybackState {
         this.shuffleMode = shuffleMode;
         this.artworkId = artworkId;
         this.artworkAvailable = artworkAvailable;
+        this.volume = volume;
+        this.volumeMax = volumeMax;
+        this.volumeControlAvailable = volumeControlAvailable;
     }
 
     static RemotePlaybackState initial(long nowMilliseconds) {

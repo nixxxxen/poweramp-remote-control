@@ -114,6 +114,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
     private RemoteApiServer remoteApiServer;
     private RemoteNsdPublisher nsdPublisher;
     private RemoteWifiDirectPublisher wifiDirectPublisher;
+    private SystemMediaVolumeController volumeController;
     private NotificationManager notificationManager;
     private String apiToken;
     private RemoteApiServer.Status serverStatus;
@@ -158,6 +159,11 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                 public void setRating(int rating) {
                     setRatingInternal(rating);
                 }
+
+                @Override
+                public void setVolume(int volume) {
+                    volumeController.setVolume(volume);
+                }
             };
 
     static void start(Context context) {
@@ -177,6 +183,11 @@ public final class RemotePlaybackService extends Service implements PowerampClie
 
         stateStore = new PlaybackStateStore(SystemClock.elapsedRealtime());
         stateStore.addListener(stateListener);
+        volumeController = new SystemMediaVolumeController(
+                this,
+                mainHandler,
+                this::onSystemMediaVolumeChanged
+        );
         artworkCache = new RemoteArtworkCache(stateStore);
         try {
             apiToken = ApiTokenStore.loadOrCreate(this);
@@ -276,6 +287,9 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         if (powerampClient != null) {
             powerampClient.close();
         }
+        if (volumeController != null) {
+            volumeController.close();
+        }
         if (artworkCache != null) {
             artworkCache.close();
         }
@@ -291,6 +305,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         }
         // Both starts are idempotent. Calling them again also retries a previous bind/install error.
         powerampClient.start();
+        volumeController.start();
         if (remoteApiServer != null) {
             remoteApiServer.start();
         }
@@ -311,6 +326,18 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         if (powerampClient != null) {
             powerampClient.stop();
         }
+        if (volumeController != null) {
+            volumeController.stop();
+        }
+    }
+
+    private void onSystemMediaVolumeChanged(SystemMediaVolumeController.State state) {
+        stateStore.setVolume(
+                state.volume,
+                state.volumeMax,
+                state.controlAvailable,
+                SystemClock.elapsedRealtime()
+        );
     }
 
     private boolean submitRemoteCommand(RemoteCommand command) {

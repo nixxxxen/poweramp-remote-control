@@ -2,124 +2,142 @@
 
 Current versions:
 
-- Server: `0.8.1` (`versionCode 9`)
-- Phone Client: `0.2.1` (`versionCode 9`)
-- API: `v1` (unchanged)
+- Server: `0.9.0` (`versionCode 10`)
+- Phone Client: `0.3.0` (`versionCode 10`)
+- API: backward-compatible `v1`
 
 ## Stage
 
-The repository builds two native Android applications. `:app` is the Poweramp Remote Server for
-an Android player device with Poweramp. `:phone` is the native Phone Client. Ordinary LAN/NSD
-remains preferred; an already paired Server can be reached through automatic Wi-Fi Direct fallback
-when it is unavailable on the shared LAN.
+The repository builds two native Android applications. `:app` is the foreground Server on the
+Poweramp/player device; `:phone` is the native remote client. This stage adds player-device volume,
+an Android Media3 session on the Phone, and deterministic LAN → Wi-Fi Direct recovery without
+changing existing routes, authentication, or pairing identity.
 
-## Implemented in Server 0.8.1 / Phone Client 0.2.1
+## Implemented in Server 0.9.0 / Phone Client 0.3.0
 
-- Updated the independently versioned applications to Server `9 / 0.8.1` and Phone Client
-  `9 / 0.2.1`; API v1 routes, payloads, authentication, and status semantics are unchanged.
-- Made Server Wi-Fi Direct publication actively discoverable without opening Android Settings.
-  After publishing the existing DNS-SD record, `RemoteWifiDirectPublisher` starts and periodically
-  refreshes `discoverPeers()` and observes P2P state, discovery, peers, connection, and channel loss.
-- Added channel reinitialization and retry after framework failures. Publication and peer discovery
-  resume after Wi-Fi/P2P restoration or group loss and pause while a P2P group is formed.
-- Changed the Phone discovery cycle to explicitly clear old requests, run `discoverPeers()`, add the
-  DNS-SD service request, and run `discoverServices()`. Stopped discovery, action timeout, `BUSY`,
-  and channel loss now use bounded recovery rather than permanently halting fallback.
-- Kept service matching restricted to the previously authenticated stable Server identity. No
-  Bearer token or resolved address is advertised or used as pairing identity.
-- Added service-lifetime Phone receivers for P2P state, discovery, peer, connection, and local-device
-  changes. Framework broadcasts no longer depend on the Activity being visible, and stale callbacks
-  from an earlier discovery generation cannot cancel or corrupt a newer attempt.
-- Added `PhoneConnectionService`, one started-and-bound `connectedDevice` foreground service with an
-  ongoing low-importance notification, explicit Stop action, idempotent start, and `START_STICKY`.
-  It owns `RemoteClientController`, LAN NSD, the P2P channel/group, network callbacks, REST/artwork,
-  the API WebSocket, and both reconnect paths.
-- `MainActivity` now binds only while visible. Its `onPause()`, `onStop()`, and destruction do not
-  call `cancelConnect()`, `removeGroup()`, stop discovery, close the P2P channel, or close WebSocket.
-- A confirmed direct group loss automatically returns to LAN-first discovery and retries direct
-  connection. Initial approval/connect failure and unfavorable phone group-owner selection remain
-  explicit user-retry states so mandatory Android confirmation dialogs are not looped.
-- Added diagnostic logs under `RemoteWifiDirect`, `PhoneWifiDirect`, `RemoteClientController`, and
-  `PhoneConnectionService` for publication, discovery, peer count, channel, group, transport, and
-  retry transitions without logging tokens or persisting transient addresses.
-- Added a pure Wi-Fi Direct recovery policy and unit tests for bounded discovery backoff and the
-  distinction between initial approval failure and reconnect after a confirmed group.
-- No keep-screen-on flag, wakelock, or Wi-Fi lock was added.
+### Player-device volume
+
+- Re-audited the official Poweramp API source snapshot through Poweramp build `1026-beta`. Its
+  public Intent commands contain no volume operation; internal DSP/skin identifiers are not used.
+- Added one service-owned `SystemMediaVolumeController` on Server. It reads and sets only
+  `AudioManager.STREAM_MUSIC` on the player device, reports fixed/unavailable volume safely, and
+  observes Android system-setting changes so hardware-button changes produce event-driven state.
+- Appended optional `volume`, `volumeMax`, and `volumeControlAvailable` fields to complete API v1
+  state snapshots and added `{"action":"set_volume","value":N}`. Existing fields, routes, Bearer
+  auth, browser sessions, status codes, WebSocket format, and old API v1 clients remain compatible.
+- Added compact confirmed-state volume sliders to the embedded Web UI and Phone UI. A short pending
+  window prevents an older snapshot from jumping under the user's finger, then reverts if Server
+  does not confirm the value. Phone never accesses its own `AudioManager`.
+
+### Phone MediaSession
+
+- `PhoneConnectionService` now extends Media3 `MediaSessionService` and remains the one owner of all
+  Phone runtime state. It is a combined `connectedDevice|mediaPlayback` foreground service with one
+  persistent media/connection notification; Activity lifecycle still owns no transport teardown.
+- Added a custom `SimpleBasePlayer` proxy, not ExoPlayer. Metadata, artwork, playing/paused, duration,
+  and confirmed position come from the existing WebSocket state; position advances locally from the
+  confirmed anchor while playing. Previous, play/pause, next, and seek return through REST API v1.
+- MediaSession artwork is downscaled/re-encoded to a bounded Binder-safe payload. The standard
+  Android session endpoint is exported for System UI, lock-screen, and compatible Wear controllers;
+  the private Activity binder exposes no cross-process transaction protocol.
+- The custom player declares remote `DeviceInfo`. MediaSession volume reads/commands therefore map
+  to the Server's player-device volume rather than the phone media stream.
+- No decoder, fake playback engine, audio output, audio-focus request, keep-screen-on flag, wakelock,
+  or Wi-Fi lock was added.
+
+### LAN → Wi-Fi Direct recovery
+
+- Fixed the Phone recovery decision that treated any default network, including cellular, as proof
+  that the old LAN endpoint was still routable. Wi-Fi/Ethernet callbacks now invalidate stale LAN
+  candidates, close the old socket, restart NSD, and trigger direct fallback immediately when no
+  LAN-capable network remains.
+- A new fallback cycle clears old P2P requests/negotiation and uses a fresh
+  `WifiP2pManager.Channel`. Channel generations prevent a delayed callback from an old closed
+  channel from clearing the replacement; managed-group removal is bounded before final release.
+- Server monitors Wi-Fi/Ethernet transitions, clears and republishes its P2P DNS-SD record, restarts
+  peer discovery, and rebuilds a failed channel. Refresh is deferred while an established group is
+  connected.
+- Added diagnostic logs for LAN route evaluation, endpoint invalidation, publication refresh,
+  discovery/channel generations, group cleanup, and fallback restart. Tokens are never logged and
+  transient addresses are not persisted.
 
 ## Preserved behavior
 
-- One existing started-and-bound Server foreground service and one Poweramp integration path.
-- LAN-first `_poweramp-remote._tcp.` discovery/publication and recovery after network changes.
-- Port `8765`, all API v1 routes, JSON fields, command bodies, HTTP status semantics, Bearer auth,
-  browser session auth, CSP/origin checks, and WebSocket client limits.
-- Embedded Web UI metadata, artwork, transport, seek, rating/Like/Dislike, and shuffle controls.
-- Event-driven complete state snapshots without playback polling or optimistic authoritative state.
-- Raw Poweramp `bitRate` and `positionInList` values remain unchanged in API v1.
+- One Server foreground service and one Poweramp integration path; one Phone foreground service.
+- LAN-first `_poweramp-remote._tcp.` discovery, verified-identity Wi-Fi Direct fallback, automatic
+  reconnect, and system-owned approval/group-owner decisions.
+- Port `8765`, every API v1 route and prior JSON field/command, Bearer auth, browser session auth,
+  CSP/origin checks, WebSocket limits, and event-driven complete snapshots.
+- Embedded Web UI and native Phone metadata, artwork, transport, seek, rating/Like/Dislike, and
+  shuffle behavior.
+- Raw Poweramp `bitRate` and `positionInList` values remain unchanged.
 
 ## Verification
 
-Development verification completed on 2026-08-13 with the pinned Gradle wrapper 8.14.3, JDK 17,
-and Android SDK 36.
+Development verification completed on 2026-08-13 with the pinned Gradle wrapper `8.14.3`, Microsoft
+OpenJDK `21.0.9` (Java 17 source/target), and Android SDK 36.
 
 - Final clean pipeline succeeded:
   `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
   :app:assembleDebug :phone:assembleDebug --no-build-cache --no-daemon`.
-- Gradle executed all 100 tasks; both debug APKs assembled successfully.
-- All `84/84` JVM tests passed across 21 suites with zero failures, errors, or skips:
-  Server `62/62` in 14 suites and Phone Client `22/22` in 7 suites.
-- Phone lint reports zero issues. Server lint has no source/manifest errors and one maintenance-only
-  `AndroidGradlePluginVersion` warning because 8.14.5 is available while the repository intentionally
-  uses its pinned 8.14.3 wrapper.
-- APK badging confirms Server `versionCode=9`, `versionName=0.8.1` and Phone Client
-  `versionCode=9`, `versionName=0.2.1`; both use min API 26 and target API 36.
-- Merged manifests confirm both foreground services use `connectedDevice`, are not exported, have
-  `stopWithTask=false`, and include the connected-device foreground-service and Wi-Fi prerequisites.
-- APK Signature Scheme v2 verification passed for both debug APKs. Both have one Android Debug
-  signer with certificate SHA-256
-  `7112c13a7d98be65d011603fc01855f594b60b7bdd748d814bb3a9630e4f9b42`.
+- Gradle executed all `100/100` tasks from clean outputs; both debug APKs assembled successfully.
+- All `94/94` JVM tests passed across 24 suites with zero failures, errors, or skips:
+  Server `66/66` in 15 suites and Phone Client `28/28` in 9 suites.
+- Phone lint reports no issues. Server lint reports zero errors and one maintenance-only
+  `AndroidGradlePluginVersion` warning because the repository pins wrapper `8.14.3` while `8.14.5`
+  is available.
+- Phone uses current stable Media3 `1.10.1` `common`/`session`; dependency inspection finds no
+  `media3-exoplayer` dependency.
+- APK badging confirms Server `versionCode=10`, `versionName=0.9.0` and Phone Client
+  `versionCode=10`, `versionName=0.3.0`; both use min API 26 and target/compile API 36.
+- Merged manifests confirm Server `RemotePlaybackService` remains non-exported
+  `connectedDevice`; Phone `PhoneConnectionService` is the exported Media3 endpoint with
+  `connectedDevice|mediaPlayback`; both retain `stopWithTask=false` and required permissions.
+- APK Signature Scheme v2 verification passed for both APKs. Both retain the previous Android Debug
+  signer certificate SHA-256
+  `7112c13a7d98be65d011603fc01855f594b60b7bdd748d814bb3a9630e4f9b42`, preserving install-over-debug
+  compatibility.
 - Delivery artifacts:
-  - `outputs/Poweramp-Remote-Server-v0.8.1-debug.apk` — 118,530 bytes, SHA-256
-    `efdfe4cddba99cecf257e0cbb50eb23f344912ffe1d0fa6c31d8e16856c3a101`.
-  - `outputs/Poweramp-Remote-Phone-v0.2.1-debug.apk` — 101,147 bytes, SHA-256
-    `2647abbaf6b0d7893d1716412aacba6be86db53a3082f1dfbdf3d399c6c6985a`.
+  - `outputs/Poweramp-Remote-Server-v0.9.0-debug.apk` — 124,594 bytes, SHA-256
+    `e446b3731894f6cf928fbd86376637c767c5ed6636c87a50cba8699e426b6011`.
+  - `outputs/Poweramp-Remote-Phone-v0.3.0-debug.apk` — 3,575,305 bytes, SHA-256
+    `411950514dca4dae24b26979d7b1f4dd349828b7fa55df79ebc3a7b0f63c7dd8`.
 
 ## Real-device checks required
 
-No Wi-Fi Direct hardware pass is claimed by JVM, lint, manifest, or APK verification. Before release
-validation, use the target HiBy R4 and phone to confirm:
+No hardware pass is claimed by JVM, lint, manifest, dependency, or APK verification. Before release,
+use the target HiBy R4 and representative phones/Wear device to confirm:
 
-- With no shared LAN, both applications discover and connect without opening the system Wi-Fi
-  Direct screen on the player device.
-- After a direct connection is usable, Home/background and phone screen lock leave the P2P group,
-  API WebSocket, state updates, artwork, and controls working.
-- A temporary P2P disconnect triggers automatic LAN-first recovery and direct reconnect without
-  requiring an Activity restart; any mandatory Android approval is still completed manually.
-- Normal LAN NSD remains preferred, reconnects after DHCP/Wi-Fi changes, and replaces a direct route
-  when an ordinary LAN endpoint recovers.
-- Nearby devices permission on Android 13+, legacy location permission/Location Mode on Android
-  8–12L, Wi-Fi off/on, rejection, timeout, channel loss, and phone group-owner selection all produce
-  the expected recoverable state and diagnostic log sequence.
-- Bearer REST, browser session auth, API v1 WebSocket, embedded Web UI, and all player controls pass
-  regression testing over LAN and the direct group-owner address.
-- Upgrade from the previously installed APKs preserves the Server token and Phone pairing.
+- Both remote sliders change only the R4/player media volume, display its actual step range, follow
+  hardware volume buttons, handle fixed-volume policy, and continue to synchronize screen-off.
+- Android notification and lock screen show title/artist/album/artwork, playing/paused, duration and
+  advancing position; previous/play-pause/next/seek and remote volume reach Poweramp through Server.
+- Compatible Wear OS media controls connect, display current state/artwork, and execute the same
+  actions without the Phone producing audio or taking audio focus.
+- Starting on shared LAN, removing that Wi-Fi route triggers automatic Wi-Fi Direct discovery and a
+  usable API/WebSocket connection without restarting Server or opening Wi-Fi Direct Settings.
+- Restored LAN replaces the direct endpoint; DHCP changes, Wi-Fi off/on, P2P channel/group loss, and
+  screen lock retain bounded recovery without stale-channel callbacks corrupting the new cycle.
+- Android 13+ Nearby devices, Android 8–12L location/Location Mode, mandatory approval, rejection,
+  timeout, and unfavorable phone group-owner selection remain user-visible recoverable states.
+- Bearer REST, browser session auth, API v1 WebSocket, Web UI, pairing persistence, and upgrade from
+  the previous signed debug APKs pass regressions over LAN and P2P.
 
 ## Known limitations
 
 - HTTP and `ws://` remain plaintext at the application layer. Do not expose port `8765` to the
   internet.
-- Initial token pairing still requires a shared LAN; direct fallback deliberately accepts only an
-  already verified Server identity.
-- The current direct IPv4 route requires the Poweramp device to become P2P group owner. Android may
-  choose otherwise despite the client preference; the UI then asks the user to retry or use LAN.
-- Wi-Fi Direct and system approval behavior remain vendor-dependent and require the hardware matrix
-  above; a foreground service improves process lifecycle but does not bypass OEM radio policy.
+- Initial pairing remains LAN-only; direct fallback accepts only the previously verified Server ID.
+- The direct IPv4 path still requires the player device to become P2P group owner. Android controls
+  selection and mandatory approval; the applications do not bypass either.
+- System-volume notification behavior and OEM audio policy can vary. No lock is held to override
+  vendor power/radio policy; add one only after a reproducible target-device failure proves it needed.
 - Force-stop, explicit notification Stop, or reboot ends the corresponding runtime until the app is
-  launched again. No lock is held to override platform power management.
+  launched again.
 - Exact public semantics of Poweramp bitrate units and list index base remain unverified.
-- MediaSession/lock-screen media controls remain roadmap work; lyrics remain intentionally out of
-  scope.
+- Lyrics remain intentionally out of scope.
 
 ## Next scope
 
-Complete the real-device connection matrix and any evidence-based vendor-specific hardening for
-Server `0.8.x` / Phone Client `0.2.x`, then continue the priorities in [`ROADMAP.md`](ROADMAP.md).
+Complete the real-device volume, MediaSession/Wear, and LAN → P2P matrix above, then continue the
+library/queue, pairing security, and refinement work in [`ROADMAP.md`](ROADMAP.md).

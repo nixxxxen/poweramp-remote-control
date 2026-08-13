@@ -15,6 +15,7 @@ public final class RemoteCommandDispatcherTest {
         assertDispatch("{\"action\":\"shuffle_on\"}", "shuffle:true", -1);
         assertDispatch("{\"action\":\"shuffle_off\"}", "shuffle:false", -1);
         assertDispatch("{\"action\":\"set_rating\",\"value\":3}", "rating", 3);
+        assertDispatch("{\"action\":\"set_volume\",\"value\":11}", "volume", 11);
     }
 
     @Test
@@ -84,6 +85,12 @@ public final class RemoteCommandDispatcherTest {
         public void setRating(int value) {
             this.value = value;
             record("rating");
+        }
+
+        @Override
+        public void setVolume(int value) {
+            this.value = value;
+            record("volume");
         }
 
         private void record(String value) {

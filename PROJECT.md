@@ -5,12 +5,12 @@
 Poweramp Remote provides a reliable native Android Server for any compatible Android player device
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
-- Server: `0.8.1` (`versionCode 9`)
-- Phone Client: `0.2.1` (`versionCode 9`)
+- Server: `0.9.0` (`versionCode 10`)
+- Phone Client: `0.3.0` (`versionCode 10`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; both counters have independently advanced to `9`. This preserves Android upgrade
+`versionCode 7`; both counters have independently advanced to `10`. This preserves Android upgrade
 compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
@@ -24,6 +24,7 @@ The repository contains two native Android application modules.
 The Server runs on the Poweramp device. One started-and-bound `RemotePlaybackService` owns:
 
 - `PowerampClient`, the adapter for Poweramp's public Intent API;
+- `SystemMediaVolumeController`, the event-driven `AudioManager.STREAM_MUSIC` adapter;
 - `PlaybackStateStore`, the thread-safe immutable state shared by UI and network API;
 - `RemoteApiServer`, the bounded HTTP/WebSocket API listener;
 - `RemoteArtworkCache`, which encodes already loaded artwork for authenticated delivery;
@@ -44,22 +45,28 @@ Poweramp receivers.
 ### Phone Client (`:phone`)
 
 The Phone Client has no Poweramp integration and no server. One started-and-bound
-`PhoneConnectionService` is the `connectedDevice` foreground owner of:
+`PhoneConnectionService` is the combined `connectedDevice|mediaPlayback` foreground owner of:
 
 - `NsdDiscoveryClient` for ordinary LAN discovery/resolution;
 - `WifiDirectConnectionClient` for known-server Wi-Fi Direct discovery and group negotiation;
 - `PairingStore` for a verified stable Server identity, service name, and Bearer token;
 - `RemoteApiClient` for REST state/control/artwork requests;
 - `RemoteWebSocket` for complete event-driven state snapshots;
-- `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination.
+- `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
+- `RemoteSessionPlayer`, a Media3 `SimpleBasePlayer` facade over the remote state and commands;
+- one Media3 `MediaSession` exposed to Android System UI, lock screen, and compatible Wear OS
+  controllers.
 
 `MainActivity` binds only while visible and is solely the presentation, controls, permission, and
 settings surface. Its `onPause()`, `onStop()`, and destruction do not cancel P2P negotiation,
 remove a group, close the P2P channel, stop NSD, or close the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
 
-There is no WebView, cloud service, playback polling loop, duplicate Server runtime, or second
-Poweramp integration path.
+The Phone does not play or decode audio and never changes its own volume. The custom player forwards
+play, pause, previous, next, and seek to API v1, while metadata, artwork, playback state, duration,
+and position come from the existing WebSocket snapshots. There is no fake ExoPlayer, audio-focus
+request, WebView, cloud service, playback polling loop, duplicate Server runtime, or second Poweramp
+integration path.
 
 ## Connection model
 
@@ -75,8 +82,10 @@ backup-excluded preferences. It never persists a resolved IP address.
 
 Every launch starts ordinary NSD. When the known `id` is resolved, the Phone Client opens the same
 Bearer-authenticated API v1 WebSocket at the current LAN address. LAN remains preferred and retains
-bounded exponential reconnect. Network callbacks restart discovery after loss or restoration so a
-new DHCP address can replace a stale endpoint automatically.
+bounded exponential reconnect. Recovery observes Wi-Fi/Ethernet networks rather than merely the
+system default network, so cellular availability cannot keep a stale LAN endpoint alive after the
+shared network disappears. Loss invalidates the transient LAN endpoint and restarts NSD/direct
+fallback; a new DHCP address can replace it automatically.
 
 ### Wi-Fi Direct fallback
 
@@ -107,6 +116,12 @@ DNS-SD request and calling `discoverServices()`. Both sides observe P2P state, d
 connection, and channel-loss callbacks for their service lifetime. Stopped or failed discovery is
 retried with bounded delay; a confirmed group loss returns to LAN-first discovery and direct fallback.
 
+Every fresh LAN-to-direct transition discards stale Phone discovery requests/connections and closes
+the old `WifiP2pManager.Channel` where supported before creating a new channel. The Server watches
+LAN transport changes, clears/re-adds its local DNS-SD service, restarts peer discovery, and likewise
+reinitializes a failed channel. This repairs framework state that can otherwise remain stale until a
+process restart while retaining LAN preference and the same stable identity.
+
 Direct-connect is bounded and user-visible. The Phone Client distinguishes permission required,
 Location Mode disabled, Wi-Fi disabled, P2P unsupported, discovery/connect timeout, and a phone
 selected as group owner. It offers the matching system-settings or retry action instead of looping
@@ -120,9 +135,11 @@ requires system Location Mode to be enabled. Both apps keep `ACCESS_WIFI_STATE` 
 `CHANGE_WIFI_STATE`. These permissions are used only for nearby direct connection, not to infer
 physical location.
 
-The Phone service declares `FOREGROUND_SERVICE_CONNECTED_DEVICE`, shows an ongoing low-importance
-notification, and returns `START_STICKY`. No keep-screen-on flag, partial wakelock, or Wi-Fi lock is
-used by either connection path.
+The Phone service declares both `FOREGROUND_SERVICE_CONNECTED_DEVICE` and
+`FOREGROUND_SERVICE_MEDIA_PLAYBACK`, shows one ongoing media/connection notification, exports the
+standard Media3 service binding, and returns `START_STICKY`. Its private in-process Activity binder
+does not define an IPC transaction surface. No keep-screen-on flag, partial wakelock, or Wi-Fi lock
+is used by either connection path.
 
 ## Local API v1
 
@@ -162,7 +179,8 @@ There is no CORS API, polling endpoint, URL credential, or WebSocket command cha
 
 REST state and every WebSocket message use the same flat object with `apiVersion: 1`, monotonic
 `revision`, Poweramp availability, metadata, playback position/state, rating, Like/Dislike, shuffle,
-and artwork path. Existing field names and null behavior are unchanged.
+artwork path, and optional player-device volume fields. Existing field names and null behavior are
+unchanged, so older API v1 clients can ignore the appended fields.
 
 Important semantic rules:
 
@@ -172,6 +190,8 @@ Important semantic rules:
 - `shuffle` is the binary view; `shuffleMode` preserves Poweramp's mode;
 - `bitRate` preserves the Poweramp value without an API conversion;
 - `positionInList` preserves the Poweramp value without an API index offset;
+- `volume` and `volumeMax` are integer `AudioManager.STREAM_MUSIC` steps or `null`;
+- `volumeControlAvailable` reports whether Server can change that stream;
 - artwork uses an authenticated relative path and `Cache-Control: no-store`.
 
 The Phone Client UI formats bitrate as `кбит/с` using the same tolerant rule already used by the
@@ -192,23 +212,33 @@ Accepted bodies remain:
 {"action":"shuffle_on"}
 {"action":"shuffle_off"}
 {"action":"set_rating","value":4}
+{"action":"set_volume","value":7}
 ```
 
 Seek is an absolute integer second. Rating accepts `0…5`; Like is `5`, Dislike is `1`, clearing is
-`0`. `202 Accepted` means the validated command was handed to the active Android client; confirmed
-state arrives through Poweramp events and the next full snapshot.
+`0`. Volume is a non-negative integer step and is validated against the current `volumeMax` by the
+Server's system-volume adapter. `202 Accepted` means the validated command was handed to the active
+Android client; confirmed state arrives through the next full snapshot.
+
+The official Poweramp Intent API snapshot audited for this release (repository source through
+Poweramp build `1026-beta`) exposes no public volume command. Server therefore controls only the
+player device's Android media stream through `AudioManager.STREAM_MUSIC`; no internal Poweramp DSP
+constant is assumed and Phone never changes its local stream.
 
 ### Event flow and UIs
 
 Poweramp events such as `TRACK_CHANGED`, `STATUS_CHANGED`, and `PLAYING_MODE_CHANGED` update the
 shared state. Artwork readiness and explicit position/rating updates can also increase revision.
-WebSocket revisions are monotonic and slow clients may receive coalesced full snapshots. There is
-no elapsed-second state polling; UIs only advance displayed time locally.
+Android system-setting notifications update media volume, including changes from the player-device
+hardware buttons. WebSocket revisions are monotonic and slow clients may receive coalesced full
+snapshots. There is no elapsed-second state polling; UIs and MediaSession only advance displayed
+time locally from a confirmed position anchor.
 
 The embedded Web UI remains available on either reachable Server address and retains cookie
-sessions, CSP, Origin checks, artwork, transport, seek, rating, Like/Dislike, and shuffle. The native
-Phone Client uses the same Bearer routes and waits for confirmed snapshots rather than making
-authoritative optimistic state changes.
+sessions, CSP, Origin checks, artwork, transport, seek, rating, Like/Dislike, shuffle, and a compact
+remote-volume slider. The native Phone Client adds the same volume control and a MediaSession while
+using the same Bearer routes and waiting for confirmed snapshots rather than making authoritative
+optimistic state changes.
 
 ## Security model
 

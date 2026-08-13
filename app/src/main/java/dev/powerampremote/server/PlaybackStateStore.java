@@ -215,6 +215,36 @@ final class PlaybackStateStore {
         });
     }
 
+    void setVolume(
+            int volume,
+            int volumeMax,
+            boolean volumeControlAvailable,
+            long nowMilliseconds
+    ) {
+        update(current -> {
+            if (current.volume == volume
+                    && current.volumeMax == volumeMax
+                    && current.volumeControlAvailable == volumeControlAvailable) {
+                return current;
+            }
+            return new RemotePlaybackState(
+                    current.revision + 1L,
+                    current.powerampAvailable,
+                    current.track,
+                    current.playbackState,
+                    current.positionAt(nowMilliseconds),
+                    nowMilliseconds,
+                    current.shuffleMode,
+                    current.artworkId,
+                    current.artworkAvailable,
+                    current.positionAvailable,
+                    volume,
+                    volumeMax,
+                    volumeControlAvailable
+            );
+        });
+    }
+
     private void update(Mutation mutation) {
         synchronized (this) {
             RemotePlaybackState current = state;
@@ -252,7 +282,10 @@ final class PlaybackStateStore {
                 shuffleMode,
                 artworkId,
                 artworkAvailable,
-                positionAvailable
+                positionAvailable,
+                current.volume,
+                current.volumeMax,
+                current.volumeControlAvailable
         );
     }
 }

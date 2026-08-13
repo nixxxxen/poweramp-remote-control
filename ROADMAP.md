@@ -1,7 +1,32 @@
 # Poweramp Remote Roadmap
 
-Current releases are Server `0.8.1` and Phone Client `0.2.1`; API remains `v1`. Confirmed
+Current releases are Server `0.9.0` and Phone Client `0.3.0`; API remains `v1`. Confirmed
 implementation and verification are tracked in `STATUS.md`.
+
+## 0.9.0 Server / 0.3.0 Phone — Remote system integration
+
+Implemented:
+
+- Server exposes the player device's Android media-stream current/max volume as optional API v1
+  fields and accepts `set_volume`; the official Poweramp Intent API audit found no public volume
+  command, so no private Poweramp constant is used.
+- Embedded Web UI and Phone Client provide compact, WebSocket-synchronized remote volume sliders.
+- Phone Client publishes one Media3 MediaSession backed by a custom remote `SimpleBasePlayer`:
+  metadata, artwork, state, duration, and position come from API v1; playback/seek commands return
+  through API v1. It has no ExoPlayer, audio output, or audio-focus ownership.
+- Android notification/lock-screen and compatible Wear OS controllers receive previous,
+  play/pause, next, and seek from the same foreground Phone runtime.
+- LAN recovery now keys off actual Wi-Fi/Ethernet availability, replaces stale LAN endpoints, fully
+  reinitializes Phone P2P discovery/channel state, and refreshes Server DNS-SD publication before
+  direct fallback instead of relying on a Server restart.
+
+Remaining release validation:
+
+- Verify remote volume changes in both directions, including player hardware buttons, fixed-volume
+  devices, screen-off operation, and the target HiBy R4 step range.
+- Verify MediaSession metadata/artwork/position/actions in Android notification, lock screen, and a
+  compatible Wear OS controller across LAN, P2P, reconnect, pause, track change, and process restart.
+- Reproduce shared-LAN loss and confirm automatic LAN → P2P fallback without restarting Server.
 
 ## 0.8.x Server / 0.2.x Phone — Connection hardening
 
@@ -32,15 +57,6 @@ Remaining real-device validation and hardening:
   evolution is designed.
 - Investigate application-layer encrypted transport while keeping API v1 compatibility for current
   trusted-LAN clients.
-
-## MediaSession in Phone Client
-
-Add MediaSession, media notifications, lock-screen controls, and smartwatch playback control.
-
-## Volume control
-
-Research a documented Poweramp/Android volume mechanism and implement it across Server API, Web UI,
-and Phone Client without unverified constants.
 
 ## Library and queue
 

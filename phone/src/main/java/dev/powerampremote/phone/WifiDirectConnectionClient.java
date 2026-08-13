@@ -29,6 +29,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private static final long DISCOVERY_REFRESH_MILLISECONDS = 15_000L;
     private static final long DISCOVERY_ACTION_TIMEOUT_MILLISECONDS = 30_000L;
     private static final long CONNECTION_TIMEOUT_MILLISECONDS = 30_000L;
+    private static final long GROUP_REMOVAL_RELEASE_TIMEOUT_MILLISECONDS = 2_000L;
     private static final int LEGACY_GROUP_OWNER_INTENT_MIN = 0;
 
     enum State {
@@ -76,6 +77,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private boolean managedGroup;
     private boolean manualRetryRequired;
     private int generation;
+    private int channelGeneration;
     private String expectedServerId;
     private String expectedServiceName;
     private int matchedPort;
@@ -133,14 +135,34 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     void retry() {
         if (!active || closed) return;
         Log.i(TAG, "User requested direct-connect retry");
+        reinitializeDiscovery("user retry");
+    }
+
+    void reinitializeDiscovery(String reason) {
+        if (!active || closed || groupConnected) return;
+        Log.i(TAG, "Reinitializing P2P channel/discovery: " + reason);
         generation++;
         manualRetryRequired = false;
-        connectionRequested = false;
-        groupConnected = false;
+        configuringDiscovery = false;
+        peerDiscoveryRunning = false;
+        boolean hadManagedGroup = managedGroup;
         cancelOperationCallbacks();
-        cancelPendingConnection();
-        if (managedGroup) removeManagedGroup(this::beginDiscovery);
-        else beginDiscovery();
+        if (connectionRequested) cancelPendingConnection();
+        clearServiceRequest();
+        stopPeerDiscovery();
+        connectionRequested = false;
+        WifiP2pManager.Channel staleChannel = detachChannel();
+        int reinitializeGeneration = generation;
+        if (hadManagedGroup) {
+            managedGroup = false;
+            removeManagedGroupOnChannel(staleChannel, () -> {
+                closeChannel(staleChannel);
+                if (active && !closed && generation == reinitializeGeneration) beginDiscovery();
+            });
+        } else {
+            closeChannel(staleChannel);
+            beginDiscovery();
+        }
     }
 
     void onPermissionOrSettingsChanged() {
@@ -190,13 +212,43 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         if (connectionRequested) cancelPendingConnection();
         clearServiceRequest();
         stopPeerDiscovery();
-        if (managedGroup) removeManagedGroup(null);
+        boolean hadManagedGroup = managedGroup;
+        WifiP2pManager.Channel staleChannel = detachChannel();
+        managedGroup = false;
+        if (hadManagedGroup) {
+            removeManagedGroupOnChannel(staleChannel, () -> closeChannel(staleChannel));
+        } else {
+            closeChannel(staleChannel);
+        }
         connectionRequested = false;
         groupConnected = false;
-        managedGroup = false;
         expectedServerId = null;
         expectedServiceName = null;
         unregisterReceiver();
+    }
+
+    private void releaseChannel() {
+        closeChannel(detachChannel());
+    }
+
+    private WifiP2pManager.Channel detachChannel() {
+        WifiP2pManager.Channel currentChannel = channel;
+        channel = null;
+        serviceRequest = null;
+        channelGeneration++;
+        return currentChannel;
+    }
+
+    private void closeChannel(WifiP2pManager.Channel currentChannel) {
+        if (currentChannel == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            try {
+                currentChannel.close();
+            } catch (RuntimeException exception) {
+                Log.w(TAG, "Unable to close stale P2P channel", exception);
+            }
+        }
+        Log.i(TAG, "P2P channel released; next fallback will initialize a fresh channel");
     }
 
     private void beginDiscovery() {
@@ -241,7 +293,12 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private void initializeChannel() {
         if (channel != null || manager == null || closed) return;
         try {
-            channel = manager.initialize(context, mainHandler.getLooper(), this::onChannelDisconnected);
+            int initializedGeneration = ++channelGeneration;
+            channel = manager.initialize(
+                    context,
+                    mainHandler.getLooper(),
+                    () -> onChannelDisconnected(initializedGeneration)
+            );
             Log.i(TAG, "P2P channel initialized");
         } catch (RuntimeException exception) {
             channel = null;
@@ -249,8 +306,14 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         }
     }
 
-    private void onChannelDisconnected() {
+    private void onChannelDisconnected(int disconnectedGeneration) {
+        if (disconnectedGeneration != channelGeneration) {
+            Log.d(TAG, "Ignoring callback from stale P2P channel generation="
+                    + disconnectedGeneration);
+            return;
+        }
         Log.w(TAG, "P2P channel disconnected; rebuilding it through retry policy");
+        channelGeneration++;
         generation++;
         channel = null;
         serviceRequest = null;
@@ -620,6 +683,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             cancelOperationCallbacks();
             cancelPendingConnection();
             clearServiceRequest();
+            releaseChannel();
             notifyState(State.WIFI_DISABLED, 0);
             if (wasConnected) listener.onDirectDisconnected();
         } else if (active && !connectionRequested && !groupConnected && !manualRetryRequired) {
@@ -713,6 +777,41 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             );
         } catch (RuntimeException exception) {
             if (completion != null) completion.run();
+        }
+    }
+
+    private void removeManagedGroupOnChannel(
+            WifiP2pManager.Channel targetChannel,
+            Runnable completion
+    ) {
+        if (manager == null || targetChannel == null) {
+            completion.run();
+            return;
+        }
+        boolean[] completed = {false};
+        Runnable finish = () -> {
+            if (completed[0]) return;
+            completed[0] = true;
+            completion.run();
+        };
+        mainHandler.postDelayed(finish, GROUP_REMOVAL_RELEASE_TIMEOUT_MILLISECONDS);
+        try {
+            manager.removeGroup(
+                    targetChannel,
+                    action(
+                            () -> {
+                                Log.i(TAG, "Managed P2P group removed before channel release");
+                                finish.run();
+                            },
+                            reason -> {
+                                Log.w(TAG, "removeGroup before channel release failed: "
+                                        + reasonName(reason));
+                                finish.run();
+                            }
+                    )
+            );
+        } catch (RuntimeException exception) {
+            finish.run();
         }
     }
 

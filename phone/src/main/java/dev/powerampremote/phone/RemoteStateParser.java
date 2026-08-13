@@ -53,7 +53,10 @@ final class RemoteStateParser {
                 nullableBoolean(values, "liked"),
                 nullableBoolean(values, "disliked"),
                 nullableBoolean(values, "shuffle"),
-                nullableNonNegativeInt(values, "shuffleMode")
+                nullableNonNegativeInt(values, "shuffleMode"),
+                nullableNonNegativeInt(values, "volume"),
+                nullableNonNegativeInt(values, "volumeMax"),
+                nullableBoolean(values, "volumeControlAvailable")
         );
     }
 

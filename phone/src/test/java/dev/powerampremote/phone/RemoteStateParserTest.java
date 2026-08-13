@@ -21,7 +21,8 @@ public final class RemoteStateParserTest {
             + "\"positionInList\":0,\"listSize\":10,"
             + "\"durationSeconds\":180,\"positionSeconds\":37,"
             + "\"playbackState\":\"playing\",\"rating\":5,"
-            + "\"liked\":true,\"disliked\":false,\"shuffle\":true,\"shuffleMode\":2}";
+            + "\"liked\":true,\"disliked\":false,\"shuffle\":true,\"shuffleMode\":2,"
+            + "\"volume\":7,\"volumeMax\":15,\"volumeControlAvailable\":true}";
 
     @Test
     public void parsesCompleteServerSnapshotWithoutChangingRawValues() {
@@ -35,6 +36,9 @@ public final class RemoteStateParserTest {
         assertEquals("playing", state.playbackState);
         assertEquals(Integer.valueOf(5), state.rating);
         assertEquals(Boolean.TRUE, state.shuffle);
+        assertEquals(Integer.valueOf(7), state.volume);
+        assertEquals(Integer.valueOf(15), state.volumeMax);
+        assertEquals(Boolean.TRUE, state.volumeControlAvailable);
     }
 
     @Test
@@ -70,6 +74,20 @@ public final class RemoteStateParserTest {
     public void rejectsDuplicateKeysAndFractionalNumbers() {
         assertInvalid(COMPLETE_STATE.replace("\"revision\":42", "\"revision\":42,\"revision\":43"));
         assertInvalid(COMPLETE_STATE.replace("\"revision\":42", "\"revision\":4.2"));
+    }
+
+    @Test
+    public void remainsCompatibleWithOlderApiV1SnapshotsWithoutVolumeFields() {
+        String legacy = COMPLETE_STATE
+                .replace(",\"volume\":7", "")
+                .replace(",\"volumeMax\":15", "")
+                .replace(",\"volumeControlAvailable\":true", "");
+
+        RemoteState state = RemoteStateParser.parse(legacy);
+
+        assertNull(state.volume);
+        assertNull(state.volumeMax);
+        assertNull(state.volumeControlAvailable);
     }
 
     private static void assertInvalid(String json) {

@@ -25,6 +25,13 @@ final class RemoteCommandJson {
         return valued("set_rating", rating);
     }
 
+    static String volume(int volume) {
+        if (volume < 0) {
+            throw new IllegalArgumentException("negative volume");
+        }
+        return valued("set_volume", volume);
+    }
+
     private static String action(String action) {
         return "{\"action\":\"" + action + "\"}";
     }

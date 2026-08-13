@@ -42,6 +42,7 @@ public final class WebUiAssetsTest {
         assertTrue(html.contains("id=\"audioInfo\""));
         assertTrue(html.contains("id=\"sourceInfo\""));
         assertTrue(html.contains("id=\"seek\""));
+        assertTrue(html.contains("id=\"volume\""));
         assertTrue(html.contains("id=\"previous\""));
         assertTrue(html.contains("id=\"playPause\""));
         assertTrue(html.contains("id=\"next\""));
@@ -71,6 +72,9 @@ public final class WebUiAssetsTest {
         assertTrue(script.contains("? \"pause\" : \"play\""));
         assertTrue(script.contains("seek.addEventListener(\"change\""));
         assertTrue(script.contains("sendControl(\"seek\", value)"));
+        assertTrue(script.contains("state.volumeMax"));
+        assertTrue(script.contains("state.volumeControlAvailable"));
+        assertTrue(script.contains("sendControl(\"set_volume\", value)"));
         assertTrue(script.contains("state.album"));
         assertTrue(script.contains("state.fileTypeName"));
         assertTrue(script.contains("state.codec"));

@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
@@ -52,11 +53,17 @@
             </intent-filter>
         </activity>
 
+        <!-- MediaSessionService must be exported so Android System UI and Wear controllers bind. -->
         <service
             android:name="dev.powerampremote.phone.PhoneConnectionService"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice"
-            android:stopWithTask="false" />
+            android:exported="true"
+            android:foregroundServiceType="connectedDevice|mediaPlayback"
+            android:stopWithTask="false"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

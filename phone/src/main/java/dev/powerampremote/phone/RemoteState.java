@@ -28,6 +28,9 @@ final class RemoteState {
     final Boolean disliked;
     final Boolean shuffle;
     final Integer shuffleMode;
+    final Integer volume;
+    final Integer volumeMax;
+    final Boolean volumeControlAvailable;
 
     RemoteState(long revision, boolean powerampAvailable, boolean hasTrack,
             String title, String artist, String album, String artwork,
@@ -37,6 +40,24 @@ final class RemoteState {
             Integer positionInList, Integer listSize, Integer durationSeconds,
             Integer positionSeconds, String playbackState, Integer rating,
             Boolean liked, Boolean disliked, Boolean shuffle, Integer shuffleMode) {
+        this(
+                revision, powerampAvailable, hasTrack, title, artist, album, artwork,
+                fileType, fileTypeName, codec, bitsPerSample, sampleRate, bitRate,
+                sourceCategory, sourceCategoryName, sourceCategoryUri,
+                positionInList, listSize, durationSeconds, positionSeconds, playbackState,
+                rating, liked, disliked, shuffle, shuffleMode, null, null, null
+        );
+    }
+
+    RemoteState(long revision, boolean powerampAvailable, boolean hasTrack,
+            String title, String artist, String album, String artwork,
+            Integer fileType, String fileTypeName, String codec,
+            Integer bitsPerSample, Integer sampleRate, Integer bitRate,
+            Integer sourceCategory, String sourceCategoryName, String sourceCategoryUri,
+            Integer positionInList, Integer listSize, Integer durationSeconds,
+            Integer positionSeconds, String playbackState, Integer rating,
+            Boolean liked, Boolean disliked, Boolean shuffle, Integer shuffleMode,
+            Integer volume, Integer volumeMax, Boolean volumeControlAvailable) {
         this.revision = revision;
         this.powerampAvailable = powerampAvailable;
         this.hasTrack = hasTrack;
@@ -63,6 +84,9 @@ final class RemoteState {
         this.disliked = disliked;
         this.shuffle = shuffle;
         this.shuffleMode = shuffleMode;
+        this.volume = volume;
+        this.volumeMax = volumeMax;
+        this.volumeControlAvailable = volumeControlAvailable;
     }
 
     String artworkKey() {

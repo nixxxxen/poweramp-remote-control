@@ -105,6 +105,9 @@ public final class RemoteStateJsonTest {
         assertContains(json, "\"disliked\":null");
         assertContains(json, "\"shuffle\":null");
         assertContains(json, "\"shuffleMode\":null");
+        assertContains(json, "\"volume\":null");
+        assertContains(json, "\"volumeMax\":null");
+        assertContains(json, "\"volumeControlAvailable\":false");
         assertFalse(json.contains("\"null\""));
     }
 
@@ -134,6 +137,19 @@ public final class RemoteStateJsonTest {
         String neutral = jsonForRating(3);
         assertContains(neutral, "\"liked\":false");
         assertContains(neutral, "\"disliked\":false");
+    }
+
+    @Test
+    public void exposesPlayerDeviceMediaVolumeWithoutChangingApiVersion() {
+        PlaybackStateStore store = new PlaybackStateStore(0L);
+        store.setVolume(7, 15, true, 0L);
+
+        String json = RemoteStateJson.toJson(store.snapshot(), 0L);
+
+        assertContains(json, "\"apiVersion\":1");
+        assertContains(json, "\"volume\":7");
+        assertContains(json, "\"volumeMax\":15");
+        assertContains(json, "\"volumeControlAvailable\":true");
     }
 
     @Test

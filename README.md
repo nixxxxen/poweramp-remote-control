@@ -2,10 +2,10 @@
 
 Два нативных Android-приложения с независимыми версиями:
 
-- Server `0.8.1` (`:app`) — устанавливается на Android-устройство с Poweramp;
-- Phone Client `0.2.1` (`:phone`) — управляет Server через неизменный API `v1`.
+- Server `0.9.0` (`:app`) — устанавливается на Android-устройство с Poweramp;
+- Phone Client `0.3.0` (`:phone`) — управляет Server через обратно совместимый API `v1`.
 
-Оба APK сейчас используют `versionCode 9`; счётчики объявлены отдельно в модулях и дальше
+Оба APK сейчас используют `versionCode 10`; счётчики объявлены отдельно в модулях и дальше
 увеличиваются независимо.
 
 Server сохраняет foreground service, Poweramp Intent API, REST/WebSocket API, Bearer/session auth,
@@ -48,10 +48,10 @@ Permission-модель соответствует официальным рук
 автоподключению, Phone Client показывает конкретное состояние и действие. После восстановления
 обычной сети LAN discovery и reconnect запускаются автоматически.
 
-Phone Client держит NSD, P2P channel/group, reconnect и WebSocket в собственном `connectedDevice`
-foreground service с постоянным уведомлением. Сворачивание Activity и блокировка телефона не
-останавливают соединение. Явный Stop в уведомлении завершает runtime; keep-screen-on, wakelock и
-Wi-Fi lock не используются.
+Phone Client держит NSD, P2P channel/group, reconnect, WebSocket и системную MediaSession в одном
+`connectedDevice|mediaPlayback` foreground service с постоянным уведомлением. Сворачивание Activity
+и блокировка телефона не останавливают соединение. Явный Stop в уведомлении завершает runtime;
+keep-screen-on, wakelock и Wi-Fi lock не используются.
 
 Первая привязка остаётся LAN-only: Wi-Fi Direct fallback принимает только уже проверенный Server
 `id`, чтобы не предлагать токен неизвестному nearby-устройству.
@@ -63,8 +63,14 @@ rate, bitrate, источник и позицию списка. Bitrate отоб
 человекочитаемое `current / total`, без `raw`. API v1 при этом продолжает передавать исходные
 Poweramp `bitRate` и `positionInList` без изменения.
 
-Доступны Previous, Play/Pause, Next, one-shot seek, rating `0…5`, Like, Dislike и Shuffle. Команды
-идут через REST, а подтверждённое состояние — полными WebSocket snapshots без polling.
+Доступны Previous, Play/Pause, Next, one-shot seek, rating `0…5`, Like, Dislike, Shuffle и компактная
+громкость Android media stream на Player device. Команды идут через REST, а подтверждённое
+состояние — полными WebSocket snapshots без polling. Phone Client не меняет громкость телефона.
+
+Phone Client также публикует title, artist, album, artwork, playing/paused, duration и position через
+Media3 MediaSession. Системные Android/lock-screen и совместимые Wear OS controls отправляют
+Previous, Play/Pause, Next и Seek тому же Server. Клиент не содержит ExoPlayer, не воспроизводит
+аудио и не запрашивает audio focus.
 
 ## Web UI
 
@@ -75,7 +81,8 @@ http://<SERVER-IP>:8765/
 ```
 
 Введите токен с экрана Server. Страница обменяет его через `POST /api/v1/session` на
-`HttpOnly; SameSite=Strict` cookie. Токен не сохраняется в browser storage.
+`HttpOnly; SameSite=Strict` cookie. Токен не сохраняется в browser storage. Web UI сохраняет все
+прежние controls и добавляет синхронизированный slider громкости Player device.
 
 ## API v1
 
@@ -116,13 +123,20 @@ curl.exe -H "Authorization: Bearer $token" "$base/api/v1/state"
 {"action":"shuffle_on"}
 {"action":"shuffle_off"}
 {"action":"set_rating","value":4}
+{"action":"set_volume","value":7}
 ```
 
 `202 Accepted` подтверждает передачу валидной команды активному Android-клиенту, а не уже
 применённое Poweramp-состояние. Результат приходит через событие Poweramp и WebSocket snapshot.
 
 `bitRate` и `positionInList` остаются исходными значениями Poweramp: их точная единица/индексная
-база публично не гарантированы. Преобразование для удобства выполняется только в UI.
+база публично не гарантированы. Преобразование для удобства выполняется только в UI. Новые optional
+поля `volume`, `volumeMax` и `volumeControlAvailable` дополняют прежний объект API v1, поэтому старые
+клиенты могут их игнорировать.
+
+В проверенной публичной версии Poweramp Intent API нет команды volume. Поэтому Server использует
+только системный `AudioManager.STREAM_MUSIC` Player device и отслеживает его изменения; внутренние
+Poweramp DSP-константы не используются.
 
 ## Discovery
 
@@ -133,7 +147,9 @@ Wi-Fi Direct DNS-SD публикует тот же `id`, `api=1` и `port=8765`.
 Server после публикации запускает и периодически обновляет `discoverPeers()`. Phone запускает
 `discoverPeers()`, затем добавляет DNS-SD request и вызывает `discoverServices()`. Оба приложения
 наблюдают discovery/connection/channel state в течение жизни foreground service и автоматически
-возобновляют discovery после временной остановки или потери уже установленной группы.
+возобновляют discovery после временной остановки или потери уже установленной группы. При исчезновении
+общей Wi-Fi/Ethernet сети Phone инвалидирует старый LAN endpoint и пересоздаёт P2P channel/discovery,
+а Server переопубликовывает DNS-SD service; наличие мобильной сети больше не блокирует fallback.
 
 После формирования P2P-группы Phone Client использует group-owner address и тот же HTTP/WebSocket
 API v1. Server должен стать group owner; клиент запрашивает минимальный phone group-owner intent,
@@ -151,8 +167,8 @@ API v1. Server должен стать group owner; клиент запраши�
 
 APK:
 
-- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.8.1`;
-- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.2.1`.
+- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.9.0`;
+- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.3.0`.
 
 Исторические `applicationId` `dev.r4remote.poweramp` и `dev.r4remote.poweramp.phone` сохранены ради
 обновления существующих установок без потери Server token и Phone pairing. Исходные namespace,

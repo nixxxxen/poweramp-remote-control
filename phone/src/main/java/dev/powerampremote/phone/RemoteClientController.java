@@ -5,13 +5,17 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -50,6 +54,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         void onPairingSucceeded(String serviceName);
         void onStateChanged(RemoteState state);
         void onArtworkChanged(Bitmap artwork);
+        default void onArtworkBytesChanged(byte[] artwork) { }
         void onCommandError(boolean authenticationError);
     }
 
@@ -71,6 +76,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         return thread;
     });
     private final Map<String, DiscoveredServer> candidates = new LinkedHashMap<>();
+    private final Set<Network> lanNetworks = new HashSet<>();
     private final Runnable reconnectRunnable = this::runReconnect;
     private final Runnable discoveryRestartRunnable = this::restartDiscovery;
     private final Runnable directFallbackRunnable = this::startDirectFallback;
@@ -79,13 +85,16 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
-                    scheduleNetworkRecovery(true);
+                    lanNetworks.add(network);
+                    scheduleNetworkRecovery("LAN-capable network available");
                 }
 
                 @Override
                 public void onLost(Network network) {
-                    scheduleNetworkRecovery(false);
+                    lanNetworks.remove(network);
+                    scheduleNetworkRecovery("LAN-capable network lost");
                 }
+
             };
 
     private PairingCredentials credentials;
@@ -103,7 +112,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private long connectionLastRevision = -1L;
     private String artworkRequestKey;
     private boolean networkMonitorRegistered;
-    private boolean recoveredNetworkAvailable;
+    private boolean lanNetworkAvailable;
 
     RemoteClientController(Context context, Listener listener) {
         this.listener = listener;
@@ -197,6 +206,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         artworkRequestKey = null;
         artworkGeneration++;
         listener.onArtworkChanged(null);
+        listener.onArtworkBytesChanged(null);
         pairingCandidate = firstCandidate();
         if (pairingCandidate != null) {
             notifyStatus(Status.PAIRING, 0L);
@@ -214,6 +224,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     void seek(int seconds) { sendControl(RemoteCommandJson.seek(seconds)); }
     void setRating(int rating) { sendControl(RemoteCommandJson.rating(rating)); }
     void setShuffle(boolean enabled) { sendControl(RemoteCommandJson.shuffle(enabled)); }
+    void setVolume(int volume) { sendControl(RemoteCommandJson.volume(volume)); }
 
     void retryDirectConnection() {
         if (!active || credentials == null) return;
@@ -482,6 +493,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             if (artworkRequestKey != null) {
                 artworkRequestKey = null;
                 artworkGeneration++;
+                listener.onArtworkBytesChanged(null);
                 listener.onArtworkChanged(null);
             }
             return;
@@ -491,6 +503,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         if (currentCredentials == null || currentEndpoint == null) return;
         String requestKey = currentEndpoint.addressLabel() + '\u0000' + stateKey;
         if (requestKey.equals(artworkRequestKey)) return;
+        listener.onArtworkBytesChanged(null);
         listener.onArtworkChanged(null);
         artworkRequestKey = requestKey;
         int generation = ++artworkGeneration;
@@ -504,10 +517,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                     );
                     Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                     if (bitmap == null) throw new IOException("Unable to decode artwork");
+                    byte[] sessionArtwork = RemoteSessionArtwork.encode(bitmap);
                     mainHandler.post(() -> {
                         if (active && generation == artworkGeneration
                                 && requestKey.equals(artworkRequestKey)) {
+                            listener.onArtworkBytesChanged(sessionArtwork);
                             listener.onArtworkChanged(bitmap);
+                        } else {
+                            bitmap.recycle();
                         }
                     });
                 } catch (IOException exception) {
@@ -603,7 +620,11 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private void startNetworkMonitor() {
         if (networkMonitorRegistered || connectivityManager == null) return;
         try {
-            connectivityManager.registerDefaultNetworkCallback(networkCallback, mainHandler);
+            NetworkRequest request = new NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    .build();
+            connectivityManager.registerNetworkCallback(request, networkCallback, mainHandler);
             networkMonitorRegistered = true;
         } catch (RuntimeException ignored) {
             networkMonitorRegistered = false;
@@ -613,6 +634,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private void stopNetworkMonitor() {
         if (!networkMonitorRegistered || connectivityManager == null) return;
         networkMonitorRegistered = false;
+        lanNetworks.clear();
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback);
         } catch (RuntimeException ignored) {
@@ -620,37 +642,65 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
     }
 
-    private void scheduleNetworkRecovery(boolean networkAvailable) {
-        recoveredNetworkAvailable = networkAvailable;
-        Log.d(TAG, "Default network callback available=" + networkAvailable);
+    private void scheduleNetworkRecovery(String reason) {
+        Log.d(TAG, "Scheduling transport recovery: " + reason);
         mainHandler.removeCallbacks(networkRecoveryRunnable);
         if (active) mainHandler.postDelayed(networkRecoveryRunnable, 500L);
     }
 
     private void handleNetworkRecovery() {
         if (!active) return;
-        if (connectivityManager != null) {
-            try {
-                recoveredNetworkAvailable = connectivityManager.getActiveNetwork() != null;
-            } catch (RuntimeException ignored) {
-                // Keep the latest callback value when the platform cannot answer the query.
-            }
-        }
-        if (!recoveredNetworkAvailable
-                && endpoint != null
-                && endpoint.transport == DiscoveredServer.Transport.LAN) {
+        lanNetworkAvailable = hasLanCapableNetwork();
+        Log.i(TAG, "Transport recovery evaluation: lanNetworkAvailable="
+                + lanNetworkAvailable + ", endpoint="
+                + (endpoint == null ? "none" : endpoint.transport));
+        if (endpoint != null && TransportRecoveryPolicy.shouldInvalidateEndpoint(
+                endpoint.transport,
+                lanNetworkAvailable
+        )) {
+            Log.w(TAG, "LAN route disappeared; invalidating endpoint and resetting P2P fallback");
+            candidates.values().removeIf(
+                    server -> server.transport == DiscoveredServer.Transport.LAN
+            );
             endpoint = null;
             disconnectSocket();
             notifyStatus(Status.SEARCHING, 0L);
         }
         restartDiscovery();
         if (credentials != null && !connected) {
-            scheduleDirectFallback(recoveredNetworkAvailable
-                    ? DIRECT_FALLBACK_DELAY_MILLISECONDS : 0L);
+            if (!lanNetworkAvailable && directClient.isActive()) {
+                directClient.reinitializeDiscovery("LAN route transition");
+            }
+            scheduleDirectFallback(TransportRecoveryPolicy.directFallbackDelayMilliseconds(
+                    lanNetworkAvailable,
+                    DIRECT_FALLBACK_DELAY_MILLISECONDS
+            ));
+        }
+    }
+
+    private boolean hasLanCapableNetwork() {
+        if (connectivityManager == null) return false;
+        if (!lanNetworks.isEmpty()) return true;
+        try {
+            Network activeNetwork = connectivityManager.getActiveNetwork();
+            NetworkCapabilities capabilities = activeNetwork == null
+                    ? null : connectivityManager.getNetworkCapabilities(activeNetwork);
+            return capabilities != null
+                    && (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
+        } catch (RuntimeException exception) {
+            Log.w(TAG, "Unable to evaluate LAN transport", exception);
+            return false;
         }
     }
 
     private void runReconnect() {
+        if (endpoint != null && endpoint.transport == DiscoveredServer.Transport.LAN
+                && !hasLanCapableNetwork()) {
+            Log.w(TAG, "Skipping stale LAN reconnect; running transport recovery immediately");
+            handleNetworkRecovery();
+            return;
+        }
         if (active && credentials != null && endpoint != null) {
             Log.i(TAG, "Running scheduled WebSocket reconnect over " + endpoint.transport);
             connectSocket(true);
