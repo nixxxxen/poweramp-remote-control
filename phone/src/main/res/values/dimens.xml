@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_padding">20dp</dimen>
+    <dimen name="album_art_size">260dp</dimen>
+    <dimen name="album_placeholder_padding">38dp</dimen>
+    <dimen name="transport_button_size">56dp</dimen>
+    <dimen name="transport_primary_size">66dp</dimen>
+    <dimen name="secondary_button_size">50dp</dimen>
+</resources>

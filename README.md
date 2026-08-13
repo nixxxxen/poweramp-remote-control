@@ -1,10 +1,27 @@
-# R4 Poweramp Remote 0.6.0
+# Poweramp Remote 0.7.0
 
-Нативный Android-клиент для HiBy R4, который показывает состояние Poweramp, управляет воспроизведением и публикует тот же state/control API в локальной сети.
+Репозиторий содержит два нативных Android-приложения:
 
-Версия `0.6.0` переносит Poweramp-интеграцию и локальный сервер в корректный Android foreground service и дополняет Web UI всеми уже доступными метаданными и командами. Lyrics по-прежнему не реализованы.
+- `:app` — сервер для HiBy R4 с Poweramp-интеграцией, foreground service, REST/WebSocket API и сохранённым Web UI;
+- `:phone` — новый телефонный клиент, использующий тот же API после автоматического NSD/mDNS discovery.
 
-Отдельного Android-приложения для телефона нет: на телефоне используется обычный браузер.
+Версия `0.7.0` добавляет нативный Android-клиент, pairing через существующий Bearer-токен и reconnect, не удаляя и не меняя контракт Web UI/API 0.6.0. Lyrics по-прежнему не реализованы.
+
+## Нативный Android-клиент
+
+1. Установите серверный APK на HiBy R4 и телефонный APK на Android-телефон.
+2. Откройте приложение на R4 и оставьте сервер запущенным.
+3. Подключите оба устройства к одной IP-сети и откройте Poweramp Remote на телефоне.
+4. Телефон автоматически найдёт R4 через Android NSD/mDNS. IP-адрес вводить не нужно.
+5. Скопируйте 43-символьный Bearer-токен с экрана R4 в форму телефона.
+
+Токен проверяется через `GET /api/v1/state` и сохраняется в приватных, исключённых из backup preferences только после успешной аутентификации. Сохраняются NSD identity и token, но не IP-адрес. При следующих запусках клиент находит известный R4, открывает Bearer WebSocket и восстанавливает соединение с ограниченной экспоненциальной задержкой.
+
+Первый экран показывает artwork, title, artist, album, время и seekbar, codec/file type, bit depth, sample rate, raw bitrate, источник и raw позицию/размер списка. Доступны Previous, Play/Pause, Next, рейтинг `0…5`, Like, Dislike и Shuffle. Seek отправляется один раз после отпускания ползунка и ждёт подтверждённый event snapshot.
+
+Обычные обновления приходят только через существующий WebSocket. Локально продвигается лишь отображаемая позиция; heartbeat ping/pong проверяет живость TCP, но не опрашивает playback state.
+
+Wi-Fi Direct и Local Only Hotspot в `0.7.0` не реализованы: устройства должны находиться в одной IP-сети. Дальнейшие этапы перечислены в [`ROADMAP.md`](ROADMAP.md).
 
 ## Встроенный Web UI
 
@@ -145,6 +162,8 @@ websocat -H="Authorization: Bearer $TOKEN" \
 
 `RemotePlaybackService` владеет `PowerampClient`, единым immutable snapshot, artwork-кэшем, browser sessions и `RemoteApiServer`. Он продолжает слушать broadcasts `TRACK_CHANGED`, `STATUS_CHANGED`, `PLAYING_MODE_CHANGED` и `TPOS_SYNC`, когда Activity свёрнута или экран заблокирован. Android UI только bind'ится к этому же состоянию; HTTP-сервер не создаёт второй слой интеграции с Poweramp.
 
+После успешного bind порта сервер публикует `_poweramp-remote._tcp.` с TXT-полями `api=1` и стабильным публичным `id`; токен в mDNS не публикуется. Телефонный модуль не содержит Poweramp API и использует только Bearer REST/artwork/WebSocket endpoints сервера.
+
 Сетевые команды проходят whitelist/JSON-валидацию и ставятся на главный Android-поток, где вызываются уже существующие методы `PowerampClient`. Like/Dislike используют точный `SET_RATING`, а seek — публичный `Commands.SEEK` с extra `pos` в секундах.
 
 Обложка по-прежнему читается из content provider Poweramp и отдельно кодируется в JPEG для authenticated endpoint. Сервер построен без тяжёлого framework и ограничивает размеры запросов, frames и число соединений.
@@ -157,7 +176,8 @@ Foreground service имеет тип `connectedDevice`, соответствую
 
 ## Ограничения прототипа
 
-- реальная устойчивость REST/WebSocket при длительном выключенном экране ещё должна быть подтверждена на HiBy R4; версия `0.6.0` не запрашивает wakelock/Wi-Fi lock и не просит исключение из battery optimization;
+- реальная устойчивость REST/WebSocket при длительном выключенном экране ещё должна быть подтверждена на HiBy R4; версия `0.7.0` не запрашивает wakelock/Wi-Fi lock и не просит исключение из battery optimization;
+- автоматическое discovery требует общей IP-сети; Wi-Fi Direct и Local Only Hotspot оставлены следующему этапу;
 - Android force-stop, явная кнопка «Остановить» и перезагрузка устройства прекращают service до следующего запуска приложения;
 - HTTP и `ws://` не шифруются: использовать только в доверенной локальной сети и не открывать порт в интернет;
 - проверен стандартный package Poweramp `com.maxmpz.audioplayer`;
@@ -174,12 +194,16 @@ Foreground service имеет тип `connectedDevice`, соответствую
 ./gradlew.bat clean testDebugUnitTest lintDebug assembleDebug
 ```
 
-APK появится в `app/build/outputs/apk/debug/app-debug.apk`.
+Будут собраны два APK:
 
-Установка через ADB:
+- сервер R4: `app/build/outputs/apk/debug/app-debug.apk`;
+- клиент телефона: `phone/build/outputs/apk/debug/phone-debug.apk`.
+
+Установка через ADB (выберите соответствующее устройство для каждой команды):
 
 ```powershell
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r phone/build/outputs/apk/debug/phone-debug.apk
 ```
 
-После установки откройте Poweramp и R4 Poweramp Remote, затем используйте адрес и токен из диагностического блока приложения на втором устройстве той же сети.
+После установки откройте Poweramp и серверное приложение на R4. Затем откройте телефонный клиент в той же сети и введите только токен; либо продолжайте использовать сохранённый Web UI по адресу из диагностического блока R4.

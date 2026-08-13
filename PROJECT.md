@@ -2,26 +2,37 @@
 
 ## Project goal
 
-Develop a reliable native Android client for HiBy R4 that reads Poweramp state, controls supported Poweramp functions, and exposes that same state and control surface to trusted devices on the local network.
+Develop a reliable native Android server for HiBy R4 that integrates with Poweramp and exposes the same state and controls to the retained Web UI and a native Android phone client on the trusted local network.
 
-Current version: `0.6.0`.
+Current version: `0.7.0`.
 
 ## Actual architecture
 
-The repository contains one native Android application with a started-and-bound
-`RemotePlaybackService`. The service owns:
+The repository contains two native Android application modules.
+
+The `:app` module runs on HiBy R4. Its started-and-bound `RemotePlaybackService` owns:
 
 - `PowerampClient`, the existing adapter for Poweramp's public Intent API;
 - `PlaybackStateStore`, the thread-safe immutable state shared by the screen and network API;
 - `RemoteApiServer`, a small bounded HTTP/WebSocket server implemented with Android/JDK socket APIs;
 - `RemoteArtworkCache`, which encodes the already loaded artwork for authenticated delivery;
 - `BrowserSessionStore`, a bounded in-memory cookie-session store derived from the existing API token;
+- `RemoteNsdPublisher`, which advertises the bound API listener through Android NSD/mDNS;
 - `WebUiAssets`, the dependency-free embedded HTML/CSS/JavaScript remote.
 
-`MainActivity` is now only the local presentation/control surface. It starts the service from a
+The R4 `MainActivity` is only the local presentation/control surface. It starts the service from a
 visible app launch, binds while its UI is visible, and unbinds in `onStop()` without stopping the
-Poweramp receivers or network server. There is no separate phone application, WebView, cloud
-service, or duplicate integration path. The Web UI is served by the same local server.
+Poweramp receivers, NSD advertisement, or network server. The Web UI is served by the same local
+server and remains fully supported.
+
+The `:phone` module is the first separate native Android client. It contains no Poweramp integration
+and no server. `NsdDiscoveryClient` discovers/resolves API v1 services; `PairingStore` retains only a
+verified server identity, service name, and Bearer token; `RemoteApiClient` submits authenticated
+REST controls and artwork requests; and `RemoteWebSocket` receives complete event-driven state
+snapshots. `RemoteClientController` reconnects with bounded exponential backoff and matches a known
+R4 by its stable NSD identity instead of persisting an IP address.
+
+There is no WebView, cloud service, polling state loop, or duplicate Poweramp integration path.
 
 The service is an Android `connectedDevice` foreground service with an ongoing low-importance
 notification. It returns `START_STICKY`, treats repeated start commands idempotently, and can retry
@@ -30,7 +41,7 @@ server and receivers; `onDestroy()` closes sockets, WebSockets, browser sessions
 artwork state, and Poweramp receivers. Removing the Activity from the foreground or locking the
 screen does not invoke that shutdown path.
 
-No partial wakelock or Wi-Fi lock is requested in version `0.6.0`: there is no target-device
+No partial wakelock or Wi-Fi lock is requested in version `0.7.0`: there is no target-device
 evidence that either is necessary, and the foreground service plus TCP keepalive is the least
 invasive baseline. Screen-off behavior still requires a real HiBy R4 verification pass before any
 lock or battery-optimization exception is considered.
@@ -42,6 +53,11 @@ No external server framework is used. Connections, request sizes, WebSocket fram
 ## Local API v1
 
 The fixed port is `8765`. The server listens on the device's local interfaces and the Android UI shows the current IPv4 address, port, server status, WebSocket client count, and token.
+
+When the socket is successfully bound, the server publishes `_poweramp-remote._tcp.` through
+Android NSD on port `8765`. TXT attributes contain `api=1` and a random stable `id`; they never
+contain the Bearer token. Publication stops with the listener. The phone resolves the current
+address each launch/network recovery, so users do not enter or persist an R4 IP address.
 
 External API clients continue to authenticate protected routes with:
 
@@ -161,6 +177,26 @@ position locally between events; it does not poll the state endpoint. Artwork is
 
 If WebSocket disconnects, the page performs one authenticated state probe. A `401` returns it to the token form; a network outage uses bounded exponential reconnect backoff. Session expiry, logout, and session eviction close associated WebSockets so they cannot retain one of the four client slots.
 
+### Native Android phone client
+
+Install the `:phone` APK on a phone in the same IP network as the R4. On first launch it discovers
+published Poweramp Remote servers through Android NSD/mDNS. The user copies the existing 43-character
+Bearer token from the R4 screen; the client validates it with one `GET /api/v1/state` request and
+persists it in private, backup-excluded preferences only after a successful authenticated response.
+
+Subsequent launches look for the saved NSD server identity, resolve its current address, and open
+the Bearer-authenticated event WebSocket automatically. Disconnects use bounded exponential retry
+while discovery remains active, so a newly resolved address replaces a stale one. A reset action
+deletes the local association. Wi-Fi Direct and Local Only Hotspot are intentionally not part of
+version `0.7.0`; both devices must still share one IP network.
+
+The first screen provides artwork; title, artist, and album; elapsed position and duration; codec,
+file type, bit depth, sample rate, raw bitrate, source category, and raw list position/size;
+Previous, state-aware Play/Pause, Next, one-shot seek, rating `0…5`, Like, Dislike, and binary
+Shuffle. Commands use the existing REST route and wait for event snapshots rather than changing
+confirmed state optimistically. Only the displayed elapsed position advances locally. The WebSocket
+uses ping/pong only to detect a dead TCP connection; it never polls playback state.
+
 ## Implemented Poweramp capabilities
 
 - title, artist, album, artwork;
@@ -172,12 +208,20 @@ If WebSocket disconnects, the page performs one authenticated state probe. A `40
 - binary shuffle with preserved raw mode;
 - automatic event-driven updates;
 - embedded phone-sized Web UI using the existing REST/artwork/WebSocket endpoints.
+- native phone UI using the same Bearer REST/artwork/WebSocket endpoints and NSD discovery.
 
 Lyrics remain intentionally out of scope because the public Intent API exposes `lyricsState`, not the lyrics text.
 
 ## Security model
 
-Version `0.6.0` is a trusted-LAN prototype. Authentication prevents casual unauthorised commands, but HTTP and `ws://` are not encrypted, so the initial token login, cookie, and metadata can be observed on an untrusted network. The Web UI uses no browser storage for the token, serves external script/style assets under a restrictive CSP, and uses one state auth probe only after a WebSocket disconnect; normal state updates remain event-driven. Do not expose port `8765` to the internet. TLS/pairing remains future work.
+Version `0.7.0` remains a trusted-LAN prototype. Authentication prevents casual unauthorised
+commands, but HTTP and `ws://` are not encrypted, so the initial token verification, cookie/token,
+and metadata can be observed on an untrusted network. NSD advertises only API version and a public
+random server identity, never the credential. Phone credentials use private preferences excluded
+from cloud backup and device transfer; the phone never persists the resolved IP address. The Web UI
+uses no browser storage for the token and retains its restrictive CSP, cookie/session bounds, and
+same-origin checks. Do not expose port `8765` to the internet. Stronger pairing and transport
+security are future roadmap work.
 
 ## Known semantic uncertainties
 
@@ -185,6 +229,11 @@ The exact unit of Poweramp `bitRate` and index base of `posInList` still require
 
 ## Verification baseline
 
-Version `0.6.0` keeps the version `0.5.0` API/auth regression suite and adds foreground-service
-lifecycle and complete Web UI coverage. The latest exact test, lint, clean-build, manifest, and APK
-results are recorded in `STATUS.md`.
+Version `0.7.0` keeps the full R4 API/auth/service/Web UI regression suite and adds server NSD
+identity coverage plus phone parser, command, credential, reconnect, REST, and WebSocket loopback
+coverage. The latest exact test, lint, clean-build, manifest, and APK results are recorded in
+`STATUS.md`.
+
+## Roadmap
+
+Future planned work is maintained in [`ROADMAP.md`](ROADMAP.md).

@@ -16,4 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "R4PowerampRemote"
 include ':app'
+include ':phone'
 

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Poweramp Remote</string>
+    <string name="screen_title">Poweramp Remote</string>
+    <string name="screen_subtitle">Нативный клиент · LAN API v1</string>
+    <string name="status_searching">Ищу Poweramp Remote Server…</string>
+    <string name="status_pairing">Сервер найден · нужна привязка</string>
+    <string name="status_verifying">Проверяю токен…</string>
+    <string name="status_connecting">Подключаюсь к R4…</string>
+    <string name="status_connected">Подключено · WebSocket</string>
+    <string name="status_retrying">Связь потеряна · повтор через %1$d с</string>
+    <string name="status_auth_required">Токен отклонён · повторите привязку</string>
+    <string name="status_error">Соединение недоступно</string>
+    <string name="known_server">Известный сервер: %1$s</string>
+    <string name="endpoint_value">%1$s · %2$s</string>
+
+    <string name="pairing_title">Подключение к HiBy R4</string>
+    <string name="pairing_scanning">Телефон автоматически ищет сервер через NSD/mDNS. Оба устройства должны быть в одной IP-сети.</string>
+    <string name="pairing_instruction">Откройте Poweramp Remote на R4, скопируйте показанный Bearer-токен и вставьте его ниже. IP-адрес вводить не нужно.</string>
+    <string name="pairing_found_server">Найдено: %1$s</string>
+    <string name="token_hint">Bearer-токен с R4</string>
+    <string name="pair_button">Проверить и сохранить</string>
+    <string name="pairing_invalid_token">Токен должен быть полной 43-символьной строкой с экрана R4.</string>
+    <string name="pairing_unauthorized">Сервер отклонил токен. Проверьте строку и повторите.</string>
+    <string name="pairing_network_error">Не удалось проверить токен: сервер временно недоступен.</string>
+    <string name="pairing_storage_error">Не удалось сохранить привязку в приватном хранилище.</string>
+    <string name="pairing_success">Привязка к %1$s сохранена</string>
+
+    <string name="waiting_title">Нет текущего трека</string>
+    <string name="waiting_artist">Запустите Poweramp на R4</string>
+    <string name="waiting_album">Состояние обновится через WebSocket</string>
+    <string name="unknown_title">Без названия</string>
+    <string name="unknown_artist">Неизвестный исполнитель</string>
+    <string name="unknown_album">Неизвестный альбом</string>
+    <string name="album_art_description">Обложка текущего трека</string>
+    <string name="elapsed_placeholder">0:00</string>
+    <string name="duration_placeholder">0:00</string>
+    <string name="previous_track">Предыдущий трек</string>
+    <string name="play">Воспроизвести</string>
+    <string name="pause">Пауза</string>
+    <string name="next_track">Следующий трек</string>
+    <string name="dislike">Не нравится</string>
+    <string name="remove_dislike">Убрать «Не нравится»</string>
+    <string name="like">Нравится</string>
+    <string name="remove_like">Убрать «Нравится»</string>
+    <string name="shuffle_enable">Включить перемешивание</string>
+    <string name="shuffle_disable">Выключить перемешивание</string>
+    <string name="rating_value">%1$d/5</string>
+    <string name="rating_unknown">—/5</string>
+    <string name="rating_change">Изменить рейтинг</string>
+    <string name="rating_dialog_title">Оценка трека</string>
+    <string name="cancel">Отмена</string>
+    <string name="command_error">Команда не отправлена · соединение восстанавливается</string>
+    <string name="forget_pairing">Сбросить привязку к R4</string>
+    <string name="forget_pairing_title">Сбросить привязку?</string>
+    <string name="forget_pairing_message">Сохранённый токен будет удалён только с этого телефона.</string>
+    <string name="forget_confirm">Сбросить</string>
+
+    <string-array name="rating_options">
+        <item>Без оценки · 0/5</item>
+        <item>Не нравится · 1/5</item>
+        <item>2 звезды · 2/5</item>
+        <item>3 звезды · 3/5</item>
+        <item>4 звезды · 4/5</item>
+        <item>Нравится · 5/5</item>
+    </string-array>
+</resources>

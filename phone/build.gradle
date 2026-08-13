@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'dev.r4remote.poweramp'
+    namespace 'dev.r4remote.poweramp.phone'
     compileSdk 36
 
     defaultConfig {
-        applicationId 'dev.r4remote.poweramp'
+        applicationId 'dev.r4remote.poweramp.phone'
         minSdk 26
         targetSdk 36
         versionCode 7
@@ -31,7 +31,6 @@ android {
     buildFeatures {
         buildConfig = false
     }
-
 }
 
 dependencies {

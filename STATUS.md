@@ -1,105 +1,118 @@
 # Current project status
 
-Current version: `0.6.0`
+Current version: 0.7.0
 
 ## Stage
 
-Native Android Poweramp client with one started-and-bound foreground service, an authenticated
-local HTTP/WebSocket API, and a compact embedded Web UI. There is no separate phone application,
-WebView, or cloud component.
+The repository now builds two native Android applications:
 
-## Implemented in version 0.6.0
+- :app is the HiBy R4 foreground server, Poweramp integration, authenticated REST/WebSocket API,
+  NSD publisher, and retained embedded Web UI.
+- :phone is the first separate Android phone client. It discovers the server through NSD/mDNS,
+  pairs with the existing Bearer token, stores the verified association locally, and consumes API
+  v1 without integrating with Poweramp directly.
 
-- Added `RemotePlaybackService`, the single owner of `PowerampClient`, `PlaybackStateStore`,
-  `RemoteArtworkCache`, `RemoteApiServer`, browser sessions, and WebSocket connections.
-- Declared and started it as a `connectedDevice` foreground service with the matching Android
-  permissions and an ongoing low-importance notification. Android 13+ notification permission is
-  requested by the Activity.
-- The service returns `START_STICKY`; repeated starts are idempotent and also retry a failed server
-  bind or Poweramp availability check. A tested generation guard drops commands queued across a
-  stop/restart boundary.
-- `MainActivity` starts the service, binds only while visible, and unbinds without stopping it.
-  Backgrounding the Activity, removing it from recent apps, or locking the screen no longer closes
-  REST/WebSocket sockets or unregisters Poweramp receivers.
-- The notification Stop action immediately stops the network runtime and Poweramp receivers.
-  `onDestroy()` closes server sockets, WebSockets, sessions, executors, artwork state, and receivers.
-- Enabled TCP keepalive on accepted sockets. No partial wakelock, Wi-Fi lock, wake permission, or
-  battery-optimization exemption was added; target-device evidence is required before adding one.
-- Expanded the mobile-first Web UI with album, codec/file type, bit depth, sample rate, bitrate,
-  source category, list position/size, Like, Dislike, rating reset, and Shuffle OFF/ON while
-  retaining artwork, transport controls, seek, and local elapsed-position rendering.
-- Web UI state remains one initial REST snapshot plus complete event-driven WebSocket snapshots.
-  Controls use the existing REST command endpoint and do not poll or create a WebSocket command
-  channel.
+Wi-Fi Direct and Local Only Hotspot are intentionally not implemented. Both devices must be on the
+same IP network.
 
-## Preserved API and security contract
+## Implemented in version 0.7.0
 
-- Port, paths, JSON state schema, command bodies, and HTTP status semantics are unchanged.
-- External `Authorization: Bearer <token>` clients remain compatible.
-- Same-origin browser session login, `HttpOnly; SameSite=Strict` cookie authentication, Origin
-  checks, bounded sessions, logout/expiry/eviction behavior, artwork auth, and CSP remain intact.
-- Raw `bitRate` and raw `positionInList` remain unchanged in REST/WebSocket JSON.
-- HTTP and `ws://` remain plaintext and must be used only on a trusted LAN; do not forward port
-  `8765` to the internet.
-- Sessions remain process-local. Activity recreation/backgrounding keeps them; process death,
-  explicit service stop followed by destruction, or token rotation does not.
+- Added _poweramp-remote._tcp. publication on the R4 after the API listener binds. The TXT record
+  contains only api=1 and a stable random public server id; it never contains the token.
+- Kept NSD lifecycle inside the existing RemotePlaybackService. Publication stops and retries with
+  the server runtime and does not create another foreground service or Poweramp integration path.
+- Added the :phone application with Android NSD discovery/resolution. It matches a paired R4 by
+  stable server identity and resolves the current address instead of storing an IP address.
+- First connection accepts the existing 43-character Bearer token and persists it only after a
+  successful authenticated GET /api/v1/state. Credentials use private preferences excluded from
+  backup and device transfer; the reset action deletes the association.
+- Subsequent launches automatically discover the known R4 and reconnect with bounded exponential
+  backoff after a temporary network or WebSocket failure.
+- Added a dependency-free Bearer REST/artwork client and RFC 6455 WebSocket client. Playback state
+  comes from the initial WebSocket snapshot and subsequent complete event-driven snapshots; there
+  is no periodic state polling. Ping/pong is used only to detect a dead connection.
+- Added the native phone player screen with artwork, title, artist, album, elapsed/duration seekbar,
+  Previous, state-aware Play/Pause, Next, one-shot seek, rating 0-5, Like, Dislike, Shuffle, and
+  the main codec/file/source/list metadata from API v1.
+- Phone commands reuse the existing REST command bodies and wait for confirmed WebSocket state
+  instead of optimistically changing the authoritative state.
+- Added parser, credential, discovery-contract, command, reconnect, formatting, REST loopback, and
+  real WebSocket-upgrade tests for the phone client, plus server identity/NSD contract tests.
+
+## Preserved 0.6.0 behavior
+
+- The R4 remains one started-and-bound connectedDevice foreground service.
+- API port 8765, all API v1 paths, JSON fields, command bodies, and HTTP status semantics are
+  unchanged.
+- External Bearer clients and the same-origin Web UI cookie/session authentication continue to use
+  the existing implementation.
+- The embedded Web UI, artwork endpoint, WebSocket client bounds, CSP, Origin checks, sessions, and
+  transport/seek/rating/shuffle controls remain present.
+- Poweramp metadata, artwork, transport, rating, shuffle, and event-driven refresh paths remain in
+  the server module. Raw bitRate and raw positionInList are still passed through unchanged.
 
 ## Verification completed
 
-Final clean verification completed on 2026-08-12:
+Final clean verification completed on 2026-08-13 with JDK 17 and Android SDK 36:
 
-- `clean testDebugUnitTest lintDebug assembleDebug` succeeded with all `50` Gradle tasks executed.
-- `59/59` JVM tests passed; `0` failures, `0` errors, `0` skipped across `13` suites.
-- Added lifecycle coverage for idempotent start, stale-command invalidation, restart, and final close.
-- Expanded Web UI assertions cover every required metadata field and rating/shuffle command while
-  retaining loopback REST/WebSocket/session/auth regression coverage.
-- Embedded production JavaScript passed a separate Node syntax check; the production assets were
-  also served successfully by a loopback preview on `127.0.0.1`.
-- Automated visual browser interaction could not run because the available browser runtime could
-  not access its local profile (`EPERM`); no visual viewport pass is claimed.
-- `lintDebug` passed with `0` errors and one non-blocking warning that Gradle `8.14.5` is available
-  while the verified wrapper remains `8.14.3`.
-- Fresh debug APK size: `107,770` bytes.
-- APK reports `versionCode=6`, `versionName=0.6.0`, `minSdk=26`, `targetSdk=36`.
-- Merged/APK manifests contain `RemotePlaybackService`, `foregroundServiceType="connectedDevice"`,
-  `stopWithTask="false"`, and the required foreground/notification/network permissions.
-- APK Signature Scheme v2 verification succeeded with one Android debug signer.
-- APK SHA-256: `797876314D7EDAFBD727B917C12A39461CB1D73256A466E327F8F5B104E4C166`.
-- Source search confirms no `WAKE_LOCK`, `WifiLock`, or `CHANGE_WIFI_STATE` declaration/use.
+    ./gradlew.bat clean :app:testDebugUnitTest :phone:testDebugUnitTest
+      :app:lintDebug :phone:lintDebug :app:assembleDebug :phone:assembleDebug
+      --no-build-cache --console=plain
 
-APK: `outputs/R4-Poweramp-Remote-v0.6.0-debug.apk` (delivery copy) and
-`app/build/outputs/apk/debug/app-debug.apk` (standard Gradle output).
+- Build succeeded with 100/100 Gradle tasks executed from a clean state.
+- 76/76 JVM tests passed with no failures, errors, or skips across 19 suites:
+  - R4/server module: 61/61 tests across 14 suites.
+  - Phone module: 15/15 tests across 5 suites.
+- Both lint reports say "No issues found."
+- Loopback coverage verifies Bearer headers, state parsing, exact control JSON, artwork routing, a
+  real WebSocket upgrade, and the initial full-state event.
+- Source inspection confirms the phone module has no direct Poweramp integration and has only the
+  one pairing-time REST state request; normal playback updates use WebSocket events.
+- R4 APK: versionCode=7, versionName=0.7.0, minSdk=26, targetSdk=36, size 110,810 bytes,
+  SHA-256 C8599311CAD22073753EC8475FE0ACDE1A60B39E0C259AB342CED927A9B24877.
+- Phone APK: package dev.r4remote.poweramp.phone, versionCode=7, versionName=0.7.0,
+  minSdk=26, targetSdk=36, size 71,881 bytes,
+  SHA-256 45768DE9B0CD3159FF013805F8E6BDA5E87A24C3918B66284C02CB9D2F3D0F5C.
+- APK manifests/badging confirm the separate packages, required network/multicast permissions, and
+  the existing R4 connectedDevice foreground service.
+- Both APKs verify with APK Signature Scheme v2 and one Android debug signer.
 
-## HiBy R4 device checks still required
+Delivery copies:
 
-- Install the `0.6.0` debug APK, grant notifications, and confirm the ongoing service notification
-  appears with a working Open and Stop path.
-- Open the Web UI from an ordinary phone and confirm the player fits without vertical scrolling,
-  artwork/metadata formatting, all transport/seek/rating/shuffle controls, and session login.
-- Keep `websocat` or the browser connected, then background/remove the Activity and lock/turn off
-  the R4 screen. Verify REST, the existing WebSocket, and direct Poweramp events after 5, 30, and
-  60 minutes, both while music is playing and while paused.
-- Confirm the notification Stop action closes the listening port and WebSockets, then reopening the
-  app starts a clean server and reconnects to current Poweramp state.
-- If the R4 reproducibly suspends network/CPU with the screen off, capture duration, playback state,
-  battery settings, and logs before considering a narrowly scoped lock. Do not add both locks by
-  default.
-- Compare raw `bitRate` against known files and check first/middle/last raw `posInList`; do not
-  change units or offsets before that evidence exists.
+- outputs/R4-Poweramp-Remote-Server-v0.7.0-debug.apk
+- outputs/Poweramp-Remote-Phone-v0.7.0-debug.apk
 
-## Regression-sensitive functionality
+## Real-device checks still required
 
-Do not break:
+No HiBy R4/phone hardware pass is claimed by the automated verification. Before treating 0.7.0 as
+device-validated:
 
-- background foreground-service ownership and clean repeated start/stop;
-- metadata/artwork and audio/source details;
-- play/pause/previous/next, absolute seek, rating `0…5`, Like/Dislike/reset, and shuffle;
-- automatic updates from `TRACK_CHANGED`, `STATUS_CHANGED`, `PLAYING_MODE_CHANGED`, and `TPOS_SYNC`;
-- Bearer-authenticated REST/WebSocket clients;
-- session-authenticated embedded Web UI and its exact-origin protections.
+- install both APKs, start Poweramp and the R4 server, and confirm the phone discovers the R4
+  without entering an IP address;
+- pair with the displayed token, restart the phone client, and verify automatic reconnection to the
+  saved server identity;
+- toggle Wi-Fi and change the R4 DHCP address, then confirm NSD supplies the new endpoint and the
+  WebSocket recovers without duplicate commands or stale artwork;
+- verify artwork, all metadata, seek, transport, rating/Like/Dislike, and Shuffle against Poweramp;
+- keep the native client and existing Web UI connected together and repeat the 0.6.0 Web UI,
+  Bearer/session, service-backgrounding, and R4 screen-off regression matrix;
+- compare raw bitRate with known files and verify first/middle/last raw posInList before changing any
+  units or index offsets.
+
+## Known limitations
+
+- HTTP and ws:// are plaintext. Version 0.7.0 is for a trusted local network only; do not expose
+  port 8765 to the internet.
+- Discovery currently requires one shared IP network. Direct Wi-Fi connection is future work.
+- The phone connection lives with its Activity; MediaSession, a media notification, lock-screen
+  controls, and watch control are roadmap items.
+- Android force-stop, the R4 notification Stop action, or a device reboot stops the server until the
+  server app is launched again.
+- Exact public semantics of Poweramp bitRate units and the posInList index base remain unverified.
+- Lyrics remain intentionally unimplemented in 0.7.0.
 
 ## Next scope
 
-The next required work is the HiBy R4 screen-off/device matrix above. Add a wakelock or Wi-Fi lock
-only if that matrix demonstrates a specific failure that the foreground service alone does not
-solve. TLS/pairing remains future work. A separate phone client and lyrics remain out of scope.
+Continue 0.7.x with real-device discovery/pairing/reconnect fixes first. The longer-term sequence,
+including Wi-Fi Direct/Local Only Hotspot research, MediaSession, volume, library/Queue, lyrics, and
+security/UI/stability work, is recorded in [ROADMAP.md](ROADMAP.md).

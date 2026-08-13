@@ -112,6 +112,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
     private RemoteArtworkCache artworkCache;
     private PowerampClient powerampClient;
     private RemoteApiServer remoteApiServer;
+    private RemoteNsdPublisher nsdPublisher;
     private NotificationManager notificationManager;
     private String apiToken;
     private RemoteApiServer.Status serverStatus;
@@ -201,6 +202,17 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                     SystemClock::elapsedRealtime
             );
         }
+        try {
+            nsdPublisher = new RemoteNsdPublisher(
+                    this,
+                    mainHandler,
+                    ServerIdentityStore.loadOrCreate(this)
+            );
+        } catch (RuntimeException exception) {
+            // Discovery is additive: its failure must not stop the existing API server.
+            Log.e(TAG, "Unable to initialize NSD publication", exception);
+            nsdPublisher = null;
+        }
     }
 
     @Override
@@ -238,6 +250,9 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         if (stateStore != null) {
             stateStore.removeListener(stateListener);
         }
+        if (nsdPublisher != null) {
+            nsdPublisher.close();
+        }
         if (remoteApiServer != null) {
             remoteApiServer.close();
         }
@@ -267,6 +282,9 @@ public final class RemotePlaybackService extends Service implements PowerampClie
 
     private void stopRuntime() {
         lifecycle.stop();
+        if (nsdPublisher != null) {
+            nsdPublisher.stop();
+        }
         if (remoteApiServer != null) {
             remoteApiServer.stop();
         }
@@ -404,6 +422,13 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                 return;
             }
             serverStatus = status;
+            if (nsdPublisher != null) {
+                if (status.running) {
+                    nsdPublisher.start();
+                } else {
+                    nsdPublisher.stop();
+                }
+            }
             for (Listener listener : listeners) {
                 listener.onRemoteServerStatusChanged(status);
             }

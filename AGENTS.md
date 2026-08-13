@@ -4,9 +4,11 @@
 
 This repository contains a native Android foreground client that integrates with Poweramp.
 
-The current project version is `0.6.0`.
+The current project version is `0.7.0`.
 
-The project is focused on Poweramp integration and includes an authenticated local HTTP/WebSocket server plus a compact same-origin Web UI owned by an Android foreground service. There is no separate phone application.
+The project is focused on Poweramp integration and contains two Android applications: the HiBy R4
+server app with its authenticated local HTTP/WebSocket server and same-origin Web UI, plus a native
+phone client that consumes that existing API after NSD discovery and token pairing.
 
 ## Read first
 
@@ -21,11 +23,16 @@ Before any non-trivial change:
 
 ## Current architecture
 
-The actual project is a native Android client with one in-process foreground service and local API.
+The `:app` module is the native HiBy R4 application. It owns one in-process started-and-bound
+foreground service, the Poweramp integration, local API, NSD publication, and embedded Web UI.
+
+The `:phone` module is a separate native Android client. It never integrates with Poweramp
+directly: it discovers `_poweramp-remote._tcp` through Android NSD, verifies and stores the existing
+Bearer token, then consumes API v1 REST/artwork/WebSocket routes. It does not replace the Web UI.
 
 Version `0.2.0` did not contain a separate Android server or web client, so version `0.3.0` extended the existing native foreground client.
 
-Version `0.4.0` added the HTTP/WebSocket layer. Version `0.5.0` added the embedded Web UI and browser-cookie sessions. Version `0.6.0` moves the existing Poweramp/network runtime into one started-and-bound `connectedDevice` foreground service so it survives Activity backgrounding and screen lock. Do not introduce a phone client, cloud dependency, duplicate service, or unrelated architectural rewrite unless explicitly requested.
+Version `0.4.0` added the HTTP/WebSocket layer. Version `0.5.0` added the embedded Web UI and browser-cookie sessions. Version `0.6.0` moved the existing Poweramp/network runtime into one started-and-bound `connectedDevice` foreground service so it survives Activity backgrounding and screen lock. Version `0.7.0` adds the separate phone module and NSD publication/discovery without changing API v1 or removing the Web UI. Do not introduce a cloud dependency, duplicate Poweramp integration path, duplicate R4 service, or unrelated architectural rewrite unless explicitly requested.
 
 ## Regression-sensitive baseline: version 0.3.0
 
@@ -114,7 +121,7 @@ Version `0.3.0` baseline passed:
 - APK signing;
 - successful rebuild from an unpacked source ZIP.
 
-Version `0.4.0` additionally passed 39/39 JVM tests (including loopback REST/WebSocket coverage), lint with 0 errors, a clean debug APK build, and APK Signature Scheme v2 verification. See `STATUS.md` for the latest `0.6.0` verification results.
+Version `0.4.0` additionally passed 39/39 JVM tests (including loopback REST/WebSocket coverage), lint with 0 errors, a clean debug APK build, and APK Signature Scheme v2 verification. See `STATUS.md` for the latest `0.7.0` verification results across both Android modules.
 
 For future changes:
 
