@@ -1,209 +1,160 @@
-# Poweramp Remote 0.7.0
+# Poweramp Remote
 
-Репозиторий содержит два нативных Android-приложения:
+Два нативных Android-приложения с независимыми версиями:
 
-- `:app` — сервер для HiBy R4 с Poweramp-интеграцией, foreground service, REST/WebSocket API и сохранённым Web UI;
-- `:phone` — новый телефонный клиент, использующий тот же API после автоматического NSD/mDNS discovery.
+- Server `0.8.0` (`:app`) — устанавливается на Android-устройство с Poweramp;
+- Phone Client `0.2.0` (`:phone`) — управляет Server через неизменный API `v1`.
 
-Версия `0.7.0` добавляет нативный Android-клиент, pairing через существующий Bearer-токен и reconnect, не удаляя и не меняя контракт Web UI/API 0.6.0. Lyrics по-прежнему не реализованы.
+Оба APK сейчас используют `versionCode 8`, поскольку прежние Server и Phone APK уже выпускались с
+кодом `7`. Счётчики объявлены отдельно в модулях и дальше увеличиваются независимо.
 
-## Нативный Android-клиент
+Server сохраняет foreground service, Poweramp Intent API, REST/WebSocket API, Bearer/session auth,
+LAN NSD и встроенный Web UI. Phone Client предпочитает обычную LAN, а для уже привязанного Server
+может автоматически перейти к Wi-Fi Direct.
 
-1. Установите серверный APK на HiBy R4 и телефонный APK на Android-телефон.
-2. Откройте приложение на R4 и оставьте сервер запущенным.
-3. Подключите оба устройства к одной IP-сети и откройте Poweramp Remote на телефоне.
-4. Телефон автоматически найдёт R4 через Android NSD/mDNS. IP-адрес вводить не нужно.
-5. Скопируйте 43-символьный Bearer-токен с экрана R4 в форму телефона.
+## Быстрый старт
 
-Токен проверяется через `GET /api/v1/state` и сохраняется в приватных, исключённых из backup preferences только после успешной аутентификации. Сохраняются NSD identity и token, но не IP-адрес. При следующих запусках клиент находит известный R4, открывает Bearer WebSocket и восстанавливает соединение с ограниченной экспоненциальной задержкой.
+### Первая привязка
 
-Первый экран показывает artwork, title, artist, album, время и seekbar, codec/file type, bit depth, sample rate, raw bitrate, источник и raw позицию/размер списка. Доступны Previous, Play/Pause, Next, рейтинг `0…5`, Like, Dislike и Shuffle. Seek отправляется один раз после отпускания ползунка и ждёт подтверждённый event snapshot.
+1. Установите Server APK на Player device и Phone Client APK на телефон.
+2. Запустите Poweramp и Poweramp Remote Server.
+3. Подключите оба устройства к одной IP-сети.
+4. Откройте Phone Client: он найдёт Server через NSD/mDNS.
+5. Скопируйте 43-символьный Bearer-токен с экрана Server и вставьте его в Phone Client.
 
-Обычные обновления приходят только через существующий WebSocket. Локально продвигается лишь отображаемая позиция; heartbeat ping/pong проверяет живость TCP, но не опрашивает playback state.
+Клиент проверяет токен запросом `GET /api/v1/state`, затем сохраняет только стабильный публичный
+Server `id`, имя сервиса и токен в приватных preferences без backup. IP-адрес не сохраняется.
 
-Wi-Fi Direct и Local Only Hotspot в `0.7.0` не реализованы: устройства должны находиться в одной IP-сети. Дальнейшие этапы перечислены в [`ROADMAP.md`](ROADMAP.md).
+### Автоматическое соединение
 
-## Встроенный Web UI
+При следующих запусках Phone Client сначала ищет известный `id` через обычный LAN NSD. Если Server
+не найден, запускается Wi-Fi Direct DNS-SD и одна автоматическая попытка соединения. Android может
+показать системное подтверждение на одном из устройств — его нужно принять вручную. Приложение не
+обходит обязательные диалоги.
 
-1. Откройте приложение на HiBy R4, разрешите уведомления и скопируйте показанный токен.
-2. На телефоне в той же локальной сети откройте `http://<IP_R4>:8765/`.
-3. Введите токен один раз.
+Для Wi-Fi Direct нужны:
 
-Компактная mobile-first страница показывает обложку, title/artist/album, codec/file type, bit depth, sample rate, bitrate, источник и позицию/размер списка. Доступны Previous, актуальный Play/Pause, Next, seekbar, Like, Dislike, сброс rating и Shuffle OFF/ON. На обычном портретном экране смартфона основной плеер рассчитан без вертикальной прокрутки.
+- Android 13+: разрешение «Устройства поблизости»;
+- Android 8–12L: разрешения геолокации и включённый системный режим Location;
+- включённый Wi-Fi на обоих устройствах;
+- поддержка Wi-Fi Direct производителем.
 
-После отпускания seekbar отправляется ровно одна команда seek. После первоначального REST snapshot всё состояние обновляется через WebSocket, без постоянного polling; отображаемая позиция между событиями продвигается локально.
+Permission-модель соответствует официальным руководствам Android по
+[Nearby Wi-Fi devices](https://developer.android.com/develop/connectivity/wifi/wifi-permissions) и
+[Wi-Fi Direct service discovery](https://developer.android.com/develop/connectivity/wifi/nsd-wifi-direct).
 
-## Локальный API
+Если permission, Wi-Fi, Location Mode, group negotiation или системное подтверждение мешают
+автоподключению, Phone Client показывает конкретное состояние и действие. После восстановления
+обычной сети LAN discovery и reconnect запускаются автоматически.
 
-Приложение показывает на основном экране:
+Первая привязка остаётся LAN-only: Wi-Fi Direct fallback принимает только уже проверенный Server
+`id`, чтобы не предлагать токен неизвестному nearby-устройству.
 
-- запущен ли сервер;
-- адрес вида `http://192.168.1.24:8765`;
-- число WebSocket-клиентов;
-- Bearer-токен и кнопку его копирования.
+## Phone Client UI
 
-Порт фиксирован: `8765`. Для внешних API-клиентов защищённые endpoints, включая artwork и WebSocket upgrade, по-прежнему принимают заголовок:
+Экран показывает artwork, title, artist, album, elapsed/duration, codec/file type, bit depth, sample
+rate, bitrate, источник и позицию списка. Bitrate отображается в `кбит/с`; позиция — как
+человекочитаемое `current / total`, без `raw`. API v1 при этом продолжает передавать исходные
+Poweramp `bitRate` и `positionInList` без изменения.
+
+Доступны Previous, Play/Pause, Next, one-shot seek, rating `0…5`, Like, Dislike и Shuffle. Команды
+идут через REST, а подтверждённое состояние — полными WebSocket snapshots без polling.
+
+## Web UI
+
+Встроенный Web UI не удалён. В общей LAN откройте:
+
+```text
+http://<SERVER-IP>:8765/
+```
+
+Введите токен с экрана Server. Страница обменяет его через `POST /api/v1/session` на
+`HttpOnly; SameSite=Strict` cookie. Токен не сохраняется в browser storage.
+
+## API v1
+
+Порт: `8765`.
+
+| Method | Path | Назначение |
+|---|---|---|
+| `GET` | `/` | Встроенный Web UI |
+| `POST` | `/api/v1/session` | Browser session login |
+| `DELETE` | `/api/v1/session` | Logout |
+| `GET` | `/api/v1/state` | Полный state JSON |
+| `POST` | `/api/v1/control` | Команда, успех — `202 Accepted` |
+| WebSocket `GET` | `/api/v1/events` | Начальный и последующие полные snapshots |
+| `GET` | `/api/v1/artwork` | Текущая JPEG-обложка |
+
+Bearer-аутентификация:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-Токен создаётся автоматически, сохраняется локально и не принимается через query string. Web UI отправляет его в `POST /api/v1/session` с того же origin и получает случайную `HttpOnly; SameSite=Strict` cookie на 12 часов. Токен не сохраняется в browser storage. REST, artwork и WebSocket принимают как прежний Bearer, так и валидную cookie.
+Пример:
 
-### Получение состояния
-
-```bash
-BASE="http://192.168.1.24:8765"
-TOKEN="вставьте-токен-с-экрана-R4"
-
-curl -H "Authorization: Bearer $TOKEN" \
-  "$BASE/api/v1/state"
+```powershell
+$base = "http://192.168.1.24:8765"
+$token = "токен-с-экрана-Server"
+curl.exe -H "Authorization: Bearer $token" "$base/api/v1/state"
 ```
 
-Недоступные поля возвращаются как `null`. Полный JSON-формат зафиксирован в `PROJECT.md`. `bitRate` и `positionInList` передаются как raw-значения Poweramp без пересчёта.
+Команды:
 
-Если поле `artwork` равно `/api/v1/artwork`, обложку можно получить так:
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  "$BASE/api/v1/artwork" \
-  --output artwork.jpg
+```json
+{"action":"play"}
+{"action":"pause"}
+{"action":"previous"}
+{"action":"next"}
+{"action":"seek","value":37}
+{"action":"shuffle_on"}
+{"action":"shuffle_off"}
+{"action":"set_rating","value":4}
 ```
 
-### Play и pause
+`202 Accepted` подтверждает передачу валидной команды активному Android-клиенту, а не уже
+применённое Poweramp-состояние. Результат приходит через событие Poweramp и WebSocket snapshot.
 
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"play"}' \
-  "$BASE/api/v1/control"
+`bitRate` и `positionInList` остаются исходными значениями Poweramp: их точная единица/индексная
+база публично не гарантированы. Преобразование для удобства выполняется только в UI.
 
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"pause"}' \
-  "$BASE/api/v1/control"
-```
+## Discovery
 
-### Next и previous
+LAN NSD публикует `_poweramp-remote._tcp.` с TXT `api=1` и стабильным публичным `id`.
+Wi-Fi Direct DNS-SD публикует тот же `id`, `api=1` и `port=8765`. Bearer-токен не публикуется ни в
+одном discovery transport.
 
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"next"}' \
-  "$BASE/api/v1/control"
-
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"previous"}' \
-  "$BASE/api/v1/control"
-```
-
-### Seek
-
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"seek","value":37}' \
-  "$BASE/api/v1/control"
-```
-
-`value` — абсолютная позиция в целых секундах. Подтверждённая позиция приходит обратно через существующую синхронизацию Poweramp.
-
-### Shuffle
-
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"shuffle_on"}' \
-  "$BASE/api/v1/control"
-
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"shuffle_off"}' \
-  "$BASE/api/v1/control"
-```
-
-### Rating, Like и Dislike
-
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"action":"set_rating","value":4}' \
-  "$BASE/api/v1/control"
-```
-
-Допустимы значения `0…5`: Like — `5`, Dislike — `1`, сброс оценки — `0`.
-
-Успешная команда отвечает `202 Accepted`. Это подтверждает передачу команды активному Android-клиенту, а не уже произошедшее изменение в Poweramp.
-
-## WebSocket
-
-Endpoint: `ws://<R4-IP>:8765/api/v1/events`.
-
-Ручная проверка с `websocat`:
-
-```bash
-websocat -H="Authorization: Bearer $TOKEN" \
-  "ws://192.168.1.24:8765/api/v1/events"
-```
-
-Сразу после подключения придёт полный JSON state. Затем такой же полный объект будет приходить после событий Poweramp `TRACK_CHANGED`, `STATUS_CHANGED` и `PLAYING_MODE_CHANGED` (а также некоторых связанных изменений snapshot). Постоянного polling нет.
-
-Для проверки:
-
-1. Оставить `websocat` подключённым.
-2. Сменить трек, поставить pause/play, изменить rating или shuffle непосредственно в Poweramp.
-3. Убедиться, что приходит новый объект с увеличенным `revision` и актуальными полями.
-4. Свернуть R4 Poweramp Remote и заблокировать экран R4: WebSocket должен остаться подключённым, а изменения из Poweramp должны продолжить приходить.
-
-Встроенная страница подключает browser `WebSocket` через session cookie. Bearer-аутентификация для `websocat` и других внешних клиентов сохранена.
-
-## Как это работает
-
-`RemotePlaybackService` владеет `PowerampClient`, единым immutable snapshot, artwork-кэшем, browser sessions и `RemoteApiServer`. Он продолжает слушать broadcasts `TRACK_CHANGED`, `STATUS_CHANGED`, `PLAYING_MODE_CHANGED` и `TPOS_SYNC`, когда Activity свёрнута или экран заблокирован. Android UI только bind'ится к этому же состоянию; HTTP-сервер не создаёт второй слой интеграции с Poweramp.
-
-После успешного bind порта сервер публикует `_poweramp-remote._tcp.` с TXT-полями `api=1` и стабильным публичным `id`; токен в mDNS не публикуется. Телефонный модуль не содержит Poweramp API и использует только Bearer REST/artwork/WebSocket endpoints сервера.
-
-Сетевые команды проходят whitelist/JSON-валидацию и ставятся на главный Android-поток, где вызываются уже существующие методы `PowerampClient`. Like/Dislike используют точный `SET_RATING`, а seek — публичный `Commands.SEEK` с extra `pos` в секундах.
-
-Обложка по-прежнему читается из content provider Poweramp и отдельно кодируется в JPEG для authenticated endpoint. Сервер построен без тяжёлого framework и ограничивает размеры запросов, frames и число соединений.
-
-Web UI встроен как три статических asset без WebView и стороннего frontend framework. Cookie-сессии хранятся только в памяти, ограничены 16 записями и не заменяют Bearer API.
-
-Service запускается из видимой Activity, публикует постоянное уведомление, возвращает `START_STICKY` и не останавливается при `Activity.onStop()` или удалении Activity из recent apps. Повторный start безопасен. Кнопка «Остановить» в уведомлении закрывает server/WebSocket/receivers; после явной остановки или перезагрузки устройства приложение нужно открыть снова.
-
-Foreground service имеет тип `connectedDevice`, соответствующий локальному сетевому взаимодействию с телефоном. Wakelock и Wi-Fi lock не используются: добавлять их следует только после воспроизводимого screen-off сбоя на HiBy R4.
-
-## Ограничения прототипа
-
-- реальная устойчивость REST/WebSocket при длительном выключенном экране ещё должна быть подтверждена на HiBy R4; версия `0.7.0` не запрашивает wakelock/Wi-Fi lock и не просит исключение из battery optimization;
-- автоматическое discovery требует общей IP-сети; Wi-Fi Direct и Local Only Hotspot оставлены следующему этапу;
-- Android force-stop, явная кнопка «Остановить» и перезагрузка устройства прекращают service до следующего запуска приложения;
-- HTTP и `ws://` не шифруются: использовать только в доверенной локальной сети и не открывать порт в интернет;
-- проверен стандартный package Poweramp `com.maxmpz.audioplayer`;
-- для рейтинга требуется Poweramp build 995 или новее;
-- точные единицы `bitRate` и индексная база `posInList` ещё проверяются на R4;
-- это debug-сборка, не production-релиз;
-- lyrics не реализованы.
+После формирования P2P-группы Phone Client использует group-owner address и тот же HTTP/WebSocket
+API v1. Server должен стать group owner; клиент запрашивает минимальный phone group-owner intent,
+но итог выбирает Android. Если владельцем группы стал телефон, UI предлагает повторить попытку.
 
 ## Сборка
 
-Требуются JDK 17 и Android SDK 36.
+Нужны JDK 17 и Android SDK 36. Из корня проекта:
 
 ```powershell
-./gradlew.bat clean testDebugUnitTest lintDebug assembleDebug
+./gradlew.bat clean :app:testDebugUnitTest :phone:testDebugUnitTest `
+  :app:lintDebug :phone:lintDebug :app:assembleDebug :phone:assembleDebug `
+  --no-build-cache --console=plain
 ```
 
-Будут собраны два APK:
+APK:
 
-- сервер R4: `app/build/outputs/apk/debug/app-debug.apk`;
-- клиент телефона: `phone/build/outputs/apk/debug/phone-debug.apk`.
+- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.8.0`;
+- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.2.0`.
 
-Установка через ADB (выберите соответствующее устройство для каждой команды):
+Исторические `applicationId` `dev.r4remote.poweramp` и `dev.r4remote.poweramp.phone` сохранены ради
+обновления существующих установок без потери Server token и Phone pairing. Исходные namespace,
+названия продукта и UI больше не привязаны к конкретной модели устройства.
 
-```powershell
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb install -r phone/build/outputs/apk/debug/phone-debug.apk
-```
+## Ограничения
 
-После установки откройте Poweramp и серверное приложение на R4. Затем откройте телефонный клиент в той же сети и введите только токен; либо продолжайте использовать сохранённый Web UI по адресу из диагностического блока R4.
+- HTTP и `ws://` не имеют application-layer encryption; используйте доверенную локальную сеть и не
+  открывайте порт `8765` в интернет.
+- Wi-Fi Direct, vendor group-owner behavior и reconnect требуют проверки на реальных устройствах.
+- Force-stop, Stop в уведомлении или перезагрузка останавливают Server до следующего запуска.
+- Wakelock и Wi-Fi lock не используются без воспроизводимого device-specific сбоя.
+- Lyrics намеренно не реализованы.
+
+Подробная архитектура — в [`PROJECT.md`](PROJECT.md), текущая проверка — в
+[`STATUS.md`](STATUS.md), дальнейшая работа — в [`ROADMAP.md`](ROADMAP.md).

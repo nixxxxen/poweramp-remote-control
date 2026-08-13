@@ -1,35 +1,48 @@
 # Poweramp Remote Roadmap
 
-This document outlines the project's future stages following the release of version `0.7.0`. The current confirmed status of implementation and verification can be found in `STATUS.md`.
+Current releases are Server `0.8.0` and Phone Client `0.2.0`; API remains `v1`. Confirmed
+implementation and verification are tracked in `STATUS.md`.
 
-## 0.7.x — Native Android Client
+## 0.8.x Server / 0.2.x Phone — Connection hardening
 
-- Development of a standalone Android client for phones;
-- NSD/mDNS server discovery on the local network;
-- Pairing and secure local credential storage;
-- Automatic connection to a known R4 and robust reconnection logic;
-- Fixes based on testing with actual phones and the HiBy R4.
+- Validate LAN-first discovery and automatic Wi-Fi Direct fallback on real Android devices.
+- Cover Android 8–12L location permissions/Location Mode and Android 13+ Nearby devices permission.
+- Verify first system approval, reconnect to a persistent P2P group, denial, timeout, Wi-Fi off/on,
+  and vendor-specific group-owner selection.
+- Verify automatic recovery when LAN returns, DHCP changes, or a direct group disappears.
+- Improve diagnostics without exposing the token or persisting transient addresses.
+- Investigate a standards-based fallback for devices that repeatedly select the phone as group
+  owner; do not hard-code the conventional Wi-Fi Direct IPv4 address.
+- Evaluate Local Only Hotspot only if Wi-Fi Direct proves unreliable on target devices. It must be
+  an explicit user-visible fallback and must not replace ordinary LAN/NSD.
 
-## Direct Connection Without Manual Hotspot
+## Pairing and transport security
 
-Investigate Wi-Fi Direct and Local Only Hotspot to enable direct local connections between devices without a pre-configured shared Wi-Fi network or manual hotspot activation. This feature is intentionally omitted from `0.7.0`; the server and phone must still reside on the same IP network.
+- Replace manual token copying with a stronger authenticated pairing UX when a compatible API
+  evolution is designed.
+- Investigate application-layer encrypted transport while keeping API v1 compatibility for current
+  trusted-LAN clients.
 
-## MediaSession in Android Client
+## MediaSession in Phone Client
 
-Implement MediaSession, media notifications, and lock-screen controls in the phone client, including playback control via smartwatches.
+Add MediaSession, media notifications, lock-screen controls, and smartwatch playback control.
 
-## Volume Control
+## Volume control
 
-Investigate the volume control method supported by Poweramp/Android and implement it across the server API, Web UI, and Android client, avoiding unverified "magic constants."
+Research a documented Poweramp/Android volume mechanism and implement it across Server API, Web UI,
+and Phone Client without unverified constants.
 
-## Library and Queue
+## Library and queue
 
-Add support for browsing and searching the Poweramp library, playing selected tracks, viewing the queue, and performing queue operations using documented or verified integration mechanisms.
+Add documented/verified library browsing, search, selected-track playback, queue viewing, and queue
+operations.
 
 ## Lyrics
 
-Add support for LRC and embedded lyrics, followed by synchronized lyrics display. Until a verified lyrics source is available, do not rely solely on the `lyricsState` from the public Intent API.
+Add LRC and embedded lyrics only after a verified lyrics source is available; Poweramp's public
+`lyricsState` alone is not lyrics content.
 
-## Further Refinement
+## Further refinement
 
-Continue improving the UI, pairing security, network change handling, diagnostics, and overall connection stability, while maintaining compatibility with the REST/WebSocket API and the existing Web UI.
+Continue UI, accessibility, connection diagnostics, battery behavior, long-running stability, and
+security improvements while preserving REST/WebSocket API v1 and the embedded Web UI.

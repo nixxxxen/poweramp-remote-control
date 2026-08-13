@@ -3,15 +3,17 @@ plugins {
 }
 
 android {
-    namespace 'dev.r4remote.poweramp.phone'
+    namespace 'dev.powerampremote.phone'
     compileSdk 36
 
     defaultConfig {
+        // Legacy ID retained so upgrades keep the verified server identity and Bearer token.
         applicationId 'dev.r4remote.poweramp.phone'
         minSdk 26
         targetSdk 36
-        versionCode 7
-        versionName '0.7.0'
+        // The legacy 0.7.0 phone APK already shipped code 7; keep upgrades monotonic.
+        versionCode 8
+        versionName '0.2.0'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }

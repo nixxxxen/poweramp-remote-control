@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">R4 Poweramp Remote</string>
+    <string name="app_name">Poweramp Remote Server</string>
     <string name="screen_title">Сейчас играет</string>
     <string name="api_caption">Poweramp Intent API</string>
     <string name="status_checking">Проверяю Poweramp…</string>

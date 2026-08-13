@@ -2,13 +2,20 @@
 
 ## Purpose
 
-This repository contains a native Android foreground client that integrates with Poweramp.
+This repository contains Poweramp Remote for Android: a native foreground Server installed on an
+Android player device with Poweramp, plus a separate native Phone Client.
 
-The current project version is `0.7.0`.
+Current application versions are independent:
 
-The project is focused on Poweramp integration and contains two Android applications: the HiBy R4
-server app with its authenticated local HTTP/WebSocket server and same-origin Web UI, plus a native
-phone client that consumes that existing API after NSD discovery and token pairing.
+- Server: `0.8.0` (`versionCode 8`);
+- Phone Client: `0.2.0` (`versionCode 8`);
+- local API: `v1` (unchanged).
+
+The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
+in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
+Both legacy apps previously shipped `versionCode 7`, so their current independent counters happen
+to be `8`; future Server and Phone codes must advance separately. The legacy IDs are not the current
+product or source namespace.
 
 ## Read first
 
@@ -16,23 +23,46 @@ Before any non-trivial change:
 
 1. Read `PROJECT.md`.
 2. Read `STATUS.md`.
-3. Inspect the existing implementation before adding a new integration path.
-4. Preserve all functionality that is already confirmed working in version `0.3.0`.
-5. Prefer documented/public Poweramp APIs, intents, broadcasts, constants, and already-used integration mechanisms.
-6. Do not assume that an API field, unit, index base, event, or command behaves a certain way unless it is verified by documentation, source/API definitions, tests, or device behavior.
+3. Read `ROADMAP.md` when changing planned scope.
+4. Inspect the existing implementation before adding a new integration path.
+5. Preserve all functionality confirmed working in version `0.3.0`.
+6. Prefer documented/public Poweramp and Android APIs.
+7. Do not assume an API field, unit, index base, event, command, permission, or network behavior
+   unless verified by documentation, source/API definitions, tests, or device behavior.
 
 ## Current architecture
 
-The `:app` module is the native HiBy R4 application. It owns one in-process started-and-bound
-foreground service, the Poweramp integration, local API, NSD publication, and embedded Web UI.
+The `:app` module is Poweramp Remote Server. Its one in-process started-and-bound
+`RemotePlaybackService` owns Poweramp integration, playback state, local API v1, embedded Web UI,
+LAN NSD publication, and Wi-Fi Direct DNS-SD publication. Do not create another foreground service
+or a second Poweramp integration path.
 
-The `:phone` module is a separate native Android client. It never integrates with Poweramp
-directly: it discovers `_poweramp-remote._tcp` through Android NSD, verifies and stores the existing
-Bearer token, then consumes API v1 REST/artwork/WebSocket routes. It does not replace the Web UI.
+The `:phone` module is the native Phone Client. It never integrates with Poweramp directly. It
+discovers `_poweramp-remote._tcp` through ordinary LAN NSD first, verifies and stores the existing
+Bearer token during initial pairing, and consumes the existing API v1 REST/artwork/WebSocket routes.
 
-Version `0.2.0` did not contain a separate Android server or web client, so version `0.3.0` extended the existing native foreground client.
+For a previously paired Server only, the Phone Client starts Wi-Fi Direct service discovery when
+the known identity is not found through LAN NSD. The Server advertises the same public stable
+identity, API version, and listener port through pre-association Wi-Fi Direct DNS-SD. The credential
+is never advertised. After Android forms a P2P group, the Phone Client uses the group-owner address
+with the unchanged API v1 client.
 
-Version `0.4.0` added the HTTP/WebSocket layer. Version `0.5.0` added the embedded Web UI and browser-cookie sessions. Version `0.6.0` moved the existing Poweramp/network runtime into one started-and-bound `connectedDevice` foreground service so it survives Activity backgrounding and screen lock. Version `0.7.0` adds the separate phone module and NSD publication/discovery without changing API v1 or removing the Web UI. Do not introduce a cloud dependency, duplicate Poweramp integration path, duplicate R4 service, or unrelated architectural rewrite unless explicitly requested.
+LAN remains preferred. Network callbacks restart NSD after network changes; a recovered LAN
+endpoint replaces a direct endpoint. Wi-Fi Direct connection requests must respect runtime
+permissions, Location Mode requirements, platform group-owner selection, and any system approval
+shown on either device. Never try to bypass or automate those dialogs.
+
+Version history:
+
+- `0.4.0` added the authenticated HTTP/WebSocket API;
+- `0.5.0` added the embedded same-origin Web UI and browser sessions;
+- `0.6.0` moved the runtime into one `connectedDevice` foreground service;
+- Server `0.7.0` introduced LAN NSD and the initial Phone Client;
+- Server `0.8.0` / Phone Client `0.2.0` add automatic Wi-Fi Direct fallback while retaining LAN,
+  pairing, authentication, Web UI, and API v1.
+
+Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
+fork, or unrelated architectural rewrite unless explicitly requested.
 
 ## Regression-sensitive baseline: version 0.3.0
 
@@ -70,7 +100,7 @@ The following functionality is implemented and working:
 - rating values `0…5`;
 - Like;
 - Dislike;
-- exact Poweramp `SET_RATING` command is used.
+- exact Poweramp `SET_RATING` command.
 
 ### Shuffle
 
@@ -81,76 +111,54 @@ The following functionality is implemented and working:
 
 - lyrics.
 
-Lyrics were intentionally left out in version `0.3.0`. Do not add them unless explicitly requested in a future task.
+Lyrics remain out of scope unless explicitly requested.
 
 ## Known unresolved details
 
-The following values work in the implementation, but their exact public semantics are not fully guaranteed by Poweramp documentation:
+The exact public semantics of these Poweramp fields are not fully guaranteed:
 
 - units of `bitRate`;
 - index base of `posInList`.
 
-These should be checked on the target R4 device/environment, especially:
-
-- bitrate values for known files;
-- first item of a list;
-- last item of a list.
-
-Do not silently change conversions or index offsets without evidence.
+API v1 must continue to preserve both raw values. Presentation code may format bitrate and remove
+diagnostic labels from list position, but must not invent an unverified index offset or alter the
+network payload.
 
 ## Implementation rules
 
 For every new capability:
 
-1. Locate the existing Poweramp integration path first.
-2. Reuse the current event/update architecture where possible.
-3. Keep Poweramp-specific constants and parsing isolated from presentation code.
-4. Handle absent or unsupported optional values gracefully.
-5. Preserve automatic refresh behavior.
-6. Avoid polling when an existing Poweramp event can provide the update reliably.
-7. Avoid magic numbers when official constants already exist.
-8. Keep changes focused on the requested feature.
+1. Locate and reuse the existing integration and event/update paths.
+2. Keep Poweramp-specific constants and parsing isolated from presentation code.
+3. Handle absent or unsupported optional values gracefully.
+4. Preserve automatic event-driven refresh and avoid polling when an event is available.
+5. Avoid magic numbers when official constants exist.
+6. Keep API v1 routes, payloads, authentication, and status semantics compatible.
+7. Keep LAN NSD active and preferred when changing direct-connect behavior.
+8. Match Wi-Fi Direct peers by the already verified stable Server identity before connecting.
+9. Never advertise or persist a resolved address as pairing identity.
+10. Treat Android permission denial, Location Mode off, Wi-Fi off, unsupported P2P, approval
+    timeout, or unfavorable group-owner selection as user-visible recoverable states.
 
 ## Verification
 
-Version `0.3.0` baseline passed:
+For meaningful changes:
 
-- 12/12 unit tests;
-- lint with 0 errors;
-- debug APK build;
-- APK signing;
-- successful rebuild from an unpacked source ZIP.
+- run both modules' unit tests;
+- run lint for both modules;
+- perform a clean debug build of both APKs;
+- verify manifests, version metadata, and APK signatures;
+- preserve the Poweramp metadata/control and Web UI regression suites;
+- add tests for new pure contracts, parsing, formatting, and state policies;
+- update `STATUS.md` with exact results and remaining real-device checks.
 
-Version `0.4.0` additionally passed 39/39 JVM tests (including loopback REST/WebSocket coverage), lint with 0 errors, a clean debug APK build, and APK Signature Scheme v2 verification. See `STATUS.md` for the latest `0.7.0` verification results across both Android modules.
-
-For future changes:
-
-- run the existing unit tests;
-- run lint;
-- build the debug APK;
-- verify regressions in existing Poweramp metadata and controls;
-- test any newly added event handling or commands;
-- update `STATUS.md` with the result.
-
-If repository scripts or build commands already exist, use them instead of inventing a new workflow.
+Use repository build scripts and the pinned wrapper. Do not invent a parallel build workflow.
 
 ## Project memory
 
-`PROJECT.md` contains durable project scope, architecture, and integration behavior.
-
-`STATUS.md` is the current handoff document and must reflect the latest confirmed implementation state.
-
-After a meaningful completed task, update `STATUS.md` with:
-
-- version, if changed;
-- what was added or changed;
-- files/components affected;
-- tests/build verification;
-- device-specific findings;
-- known limitations;
-- next unresolved work, if any.
-
-Keep `STATUS.md` concise enough for a fresh Codex session to read quickly.
+`PROJECT.md` is durable architecture and behavior documentation. `STATUS.md` is the concise current
+handoff. `ROADMAP.md` records future scope. After a meaningful completed task, update all affected
+documents with versions, implementation, verification, limitations, and next unresolved work.
 
 ## Decision priority
 

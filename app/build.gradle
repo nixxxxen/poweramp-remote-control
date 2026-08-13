@@ -3,15 +3,16 @@ plugins {
 }
 
 android {
-    namespace 'dev.r4remote.poweramp'
+    namespace 'dev.powerampremote.server'
     compileSdk 36
 
     defaultConfig {
+        // Legacy ID retained so existing installs keep their API token and upgrade in place.
         applicationId 'dev.r4remote.poweramp'
         minSdk 26
         targetSdk 36
-        versionCode 7
-        versionName '0.7.0'
+        versionCode 8
+        versionName '0.8.0'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
