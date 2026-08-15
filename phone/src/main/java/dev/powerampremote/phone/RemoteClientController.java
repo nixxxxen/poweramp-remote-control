@@ -20,11 +20,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
-/** Coordinates discovery transports, QR exchange, event streaming, controls, and reconnect. */
+/** Coordinates discovery transports, pairing, event streaming, controls, and reconnect. */
 final class RemoteClientController implements NsdDiscoveryClient.Listener,
-        WifiDirectConnectionClient.Listener, AutoCloseable {
+        WifiDirectConnectionClient.Listener, PairingRequest.Target, AutoCloseable {
     private static final String TAG = "RemoteClientController";
     private static final long DIRECT_FALLBACK_DELAY_MILLISECONDS = 8_000L;
+    private static final long MANUAL_PAIRING_TIMEOUT_MILLISECONDS = 15_000L;
 
     enum Status {
         SEARCHING,
@@ -45,7 +46,17 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         ERROR
     }
 
-    enum PairingError { INVALID_QR, REJECTED, NETWORK, STORAGE }
+    enum PairingError {
+        INVALID_QR,
+        INVALID_TOKEN,
+        QR_REJECTED,
+        TOKEN_REJECTED,
+        NETWORK,
+        MANUAL_NETWORK,
+        STORAGE
+    }
+
+    enum PairingMode { NONE, QR, MANUAL_TOKEN }
 
     interface Listener {
         void onStatusChanged(Status status, long retryDelayMilliseconds);
@@ -80,6 +91,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private final Runnable discoveryRestartRunnable = this::restartDiscovery;
     private final Runnable directFallbackRunnable = this::startDirectFallback;
     private final Runnable networkRecoveryRunnable = this::handleNetworkRecovery;
+    private final Runnable manualPairingTimeoutRunnable = this::finishManualPairingTimeout;
     private final ConnectivityManager.NetworkCallback networkCallback =
             new ConnectivityManager.NetworkCallback() {
                 @Override
@@ -99,12 +111,15 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private PairingCredentials credentials;
     private DiscoveredServer endpoint;
     private PairingQrPayload pendingPairing;
+    private String pendingManualToken;
+    private final Set<String> attemptedManualServerIds = new HashSet<>();
     private RemoteWebSocket webSocket;
     private boolean active;
     private boolean closed;
     private boolean connecting;
     private boolean connected;
     private boolean pairingExchangeInFlight;
+    private boolean manualPairingSawRejectedToken;
     private int connectionGeneration;
     private int operationGeneration;
     private int reconnectFailures;
@@ -144,7 +159,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     boolean isPairingInProgress() {
-        return pendingPairing != null;
+        return pendingPairing != null || pendingManualToken != null;
+    }
+
+    PairingMode pairingMode() {
+        if (pendingPairing != null) return PairingMode.QR;
+        if (pendingManualToken != null) return PairingMode.MANUAL_TOKEN;
+        return PairingMode.NONE;
     }
 
     void start() {
@@ -165,23 +186,28 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         mainHandler.removeCallbacks(discoveryRestartRunnable);
         mainHandler.removeCallbacks(directFallbackRunnable);
         mainHandler.removeCallbacks(networkRecoveryRunnable);
+        mainHandler.removeCallbacks(manualPairingTimeoutRunnable);
         stopNetworkMonitor();
         discoveryClient.stop();
         directClient.stop();
         candidates.clear();
         pendingPairing = null;
+        pendingManualToken = null;
+        attemptedManualServerIds.clear();
         pairingExchangeInFlight = false;
         endpoint = null;
         disconnectSocket();
     }
 
-    void pair(PairingQrPayload payload) {
+    @Override
+    public void pairQr(PairingQrPayload payload) {
         if (!active || payload == null) {
             listener.onPairingFailed(PairingError.INVALID_QR);
             return;
         }
         operationGeneration++;
         pendingPairing = payload;
+        clearManualPairingState();
         pairingExchangeInFlight = false;
         mainHandler.removeCallbacks(reconnectRunnable);
         mainHandler.removeCallbacks(directFallbackRunnable);
@@ -198,6 +224,34 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
     }
 
+    @Override
+    public void pairManually(String enteredToken) {
+        String token = enteredToken == null ? "" : enteredToken.trim();
+        if (!active || !PairingCredentials.isValidToken(token)) {
+            listener.onPairingFailed(PairingError.INVALID_TOKEN);
+            return;
+        }
+        operationGeneration++;
+        pendingPairing = null;
+        pendingManualToken = token;
+        attemptedManualServerIds.clear();
+        manualPairingSawRejectedToken = false;
+        pairingExchangeInFlight = false;
+        mainHandler.removeCallbacks(reconnectRunnable);
+        mainHandler.removeCallbacks(directFallbackRunnable);
+        mainHandler.removeCallbacks(manualPairingTimeoutRunnable);
+        disconnectSocket();
+        directClient.stop();
+        endpoint = null;
+        notifyStatus(Status.PAIRING, 0L);
+        restartDiscovery();
+        beginNextManualPairingVerification();
+        mainHandler.postDelayed(
+                manualPairingTimeoutRunnable,
+                MANUAL_PAIRING_TIMEOUT_MILLISECONDS
+        );
+    }
+
     boolean forgetPairing() {
         if (closed) return false;
         try {
@@ -209,6 +263,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         credentials = null;
         operationGeneration++;
         pendingPairing = null;
+        clearManualPairingState();
         pairingExchangeInFlight = false;
         mainHandler.removeCallbacks(directFallbackRunnable);
         directClient.stop();
@@ -267,6 +322,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 directClient.stop();
                 beginPairingExchange(server);
             }
+            return;
+        }
+        if (pendingManualToken != null) {
+            beginNextManualPairingVerification();
             return;
         }
         if (credentials == null) return;
@@ -329,7 +388,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                     mainHandler.post(() -> finishPairing(operation, server, response));
                 } catch (RemoteApiClient.HttpStatusException exception) {
                     PairingError error = exception.statusCode == 401
-                            ? PairingError.REJECTED : PairingError.NETWORK;
+                            ? PairingError.QR_REJECTED : PairingError.NETWORK;
                     mainHandler.post(() -> failPairing(operation, error));
                 } catch (IOException exception) {
                     mainHandler.post(() -> failPairing(operation, PairingError.NETWORK));
@@ -360,16 +419,110 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         credentials = paired;
         pendingPairing = null;
+        clearManualPairingState();
         pairingExchangeInFlight = false;
         endpoint = server;
         listener.onPairingSucceeded(response.deviceName);
         connectSocket(false);
     }
 
+    private void beginNextManualPairingVerification() {
+        if (!active || pendingManualToken == null || pairingExchangeInFlight) return;
+        for (DiscoveredServer candidate : candidates.values()) {
+            if (candidate.transport != DiscoveredServer.Transport.LAN
+                    || !attemptedManualServerIds.add(candidate.serverId)) {
+                continue;
+            }
+            beginManualPairingVerification(candidate);
+            return;
+        }
+        notifyStatus(Status.PAIRING, 0L);
+    }
+
+    private void beginManualPairingVerification(DiscoveredServer server) {
+        String token = pendingManualToken;
+        if (!active || token == null || pairingExchangeInFlight) return;
+        int operation = operationGeneration;
+        pairingExchangeInFlight = true;
+        endpoint = server;
+        notifyStatus(Status.VERIFYING, 0L);
+        try {
+            controlExecutor.execute(() -> {
+                try {
+                    RemoteState verifiedState = apiClient.getState(server, token);
+                    mainHandler.post(() -> finishManualPairing(
+                            operation,
+                            server,
+                            token,
+                            verifiedState
+                    ));
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    boolean rejected = exception.statusCode == 401;
+                    mainHandler.post(() -> continueManualPairing(operation, rejected));
+                } catch (IOException exception) {
+                    mainHandler.post(() -> continueManualPairing(operation, false));
+                }
+            });
+        } catch (RejectedExecutionException exception) {
+            continueManualPairing(operation, false);
+        }
+    }
+
+    private void continueManualPairing(int operation, boolean rejectedToken) {
+        if (!active || operation != operationGeneration || pendingManualToken == null) return;
+        pairingExchangeInFlight = false;
+        endpoint = null;
+        manualPairingSawRejectedToken |= rejectedToken;
+        beginNextManualPairingVerification();
+    }
+
+    private void finishManualPairing(
+            int operation,
+            DiscoveredServer server,
+            String token,
+            RemoteState verifiedState
+    ) {
+        if (!active || operation != operationGeneration
+                || pendingManualToken == null || !pendingManualToken.equals(token)) {
+            return;
+        }
+        PairingCredentials paired = new PairingCredentials(
+                server.serverId,
+                server.serviceName,
+                server.serviceName,
+                token
+        );
+        try {
+            pairingStore.save(paired);
+        } catch (IllegalStateException exception) {
+            failPairing(operation, PairingError.STORAGE);
+            return;
+        }
+        credentials = paired;
+        pendingPairing = null;
+        clearManualPairingState();
+        pairingExchangeInFlight = false;
+        endpoint = server;
+        listener.onPairingSucceeded(server.serviceName);
+        listener.onStateChanged(verifiedState);
+        requestArtwork(verifiedState);
+        connectSocket(false);
+    }
+
+    private void finishManualPairingTimeout() {
+        if (!active || pendingManualToken == null) return;
+        failPairing(
+                operationGeneration,
+                manualPairingSawRejectedToken
+                        ? PairingError.TOKEN_REJECTED : PairingError.MANUAL_NETWORK
+        );
+    }
+
     private void failPairing(int operation, PairingError error) {
         if (!active || operation != operationGeneration) return;
         operationGeneration++;
         pendingPairing = null;
+        clearManualPairingState();
         pairingExchangeInFlight = false;
         endpoint = null;
         directClient.stop();
@@ -384,6 +537,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         } else {
             scheduleDirectFallback(DIRECT_FALLBACK_DELAY_MILLISECONDS);
         }
+    }
+
+    private void clearManualPairingState() {
+        pendingManualToken = null;
+        attemptedManualServerIds.clear();
+        manualPairingSawRejectedToken = false;
+        mainHandler.removeCallbacks(manualPairingTimeoutRunnable);
     }
 
     private void connectSocket(boolean retry) {
@@ -492,6 +652,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         credentials = null;
         operationGeneration++;
         pendingPairing = null;
+        clearManualPairingState();
         pairingExchangeInFlight = false;
         notifyStatus(Status.AUTH_REQUIRED, 0L);
     }
@@ -753,7 +914,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             handleNetworkRecovery();
             return;
         }
-        if (active && credentials != null && pendingPairing == null && endpoint != null) {
+        if (active && credentials != null && pendingPairing == null
+                && pendingManualToken == null && endpoint != null) {
             Log.i(TAG, "Running scheduled WebSocket reconnect over " + endpoint.transport);
             connectSocket(true);
         }
@@ -766,6 +928,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private String targetServerId() {
+        if (pendingManualToken != null) return null;
         return pendingPairing != null
                 ? pendingPairing.serverId
                 : credentials == null ? null : credentials.serverId;

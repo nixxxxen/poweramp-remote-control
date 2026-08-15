@@ -38,6 +38,10 @@ public final class PhoneConnectionService extends MediaSessionService
             "dev.powerampremote.phone.action.START_CONNECTION_SERVICE";
     static final String ACTION_STOP =
             "dev.powerampremote.phone.action.STOP_CONNECTION_SERVICE";
+    private static final String ACTION_PAIR_QR =
+            "dev.powerampremote.phone.action.PAIR_QR";
+    private static final String ACTION_PAIR_MANUAL =
+            "dev.powerampremote.phone.action.PAIR_MANUAL";
     private static final String ACTION_LOCAL_BIND =
             "dev.powerampremote.phone.action.BIND_CONNECTION_SERVICE";
     private static final String ACTION_NOTIFICATION_PREVIOUS =
@@ -48,6 +52,8 @@ public final class PhoneConnectionService extends MediaSessionService
             "dev.powerampremote.phone.action.NOTIFICATION_NEXT";
     private static final String EXTRA_INTERNAL_TOKEN =
             "dev.powerampremote.phone.extra.INTERNAL_TOKEN";
+    private static final String EXTRA_PAIRING_VALUE =
+            "dev.powerampremote.phone.extra.PAIRING_VALUE";
     private static final String PROCESS_START_TOKEN = UUID.randomUUID().toString();
 
     private static final String TAG = "PhoneConnectionService";
@@ -76,12 +82,19 @@ public final class PhoneConnectionService extends MediaSessionService
             return controller != null && controller.hasPairing();
         }
 
-        void pair(PairingQrPayload payload) {
-            if (controller != null) controller.pair(payload);
-        }
-
         boolean isPairingInProgress() {
             return controller != null && controller.isPairingInProgress();
+        }
+
+        RemoteClientController.PairingMode pairingMode() {
+            return controller == null
+                    ? RemoteClientController.PairingMode.NONE : controller.pairingMode();
+        }
+
+        RemoteClientController.PairingError consumePairingError() {
+            RemoteClientController.PairingError error = currentPairingError;
+            currentPairingError = null;
+            return error;
         }
 
         PlayerDeviceSnapshot playerDeviceSnapshot() {
@@ -150,6 +163,7 @@ public final class PhoneConnectionService extends MediaSessionService
     private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
     private final LocalBinder binder = new LocalBinder();
     private final String notificationActionToken = UUID.randomUUID().toString();
+    private final PairingRequestState pairingRequestState = new PairingRequestState();
 
     private RemoteClientController controller;
     private NotificationManager notificationManager;
@@ -160,23 +174,39 @@ public final class PhoneConnectionService extends MediaSessionService
     private PlaybackUiSnapshot currentPlaybackSnapshot;
     private Bitmap currentArtwork;
     private byte[] currentArtworkData;
+    private RemoteClientController.PairingError currentPairingError;
     private RemoteSessionPlayer remoteSessionPlayer;
     private MediaSession mediaSession;
     private boolean foreground;
     private boolean destroyed;
 
     static void start(Context context) {
-        Intent intent = new Intent(context, PhoneConnectionService.class)
-                .setAction(ACTION_START)
-                .setPackage(context.getPackageName())
-                .putExtra(EXTRA_INTERNAL_TOKEN, PROCESS_START_TOKEN);
-        context.startForegroundService(intent);
+        startWithIntent(context, ACTION_START, null);
+    }
+
+    static void requestQrPairing(Context context, String scannedContents) {
+        PairingRequest request = PairingRequest.qr(scannedContents);
+        startWithIntent(context, ACTION_PAIR_QR, request.value);
+    }
+
+    static void requestManualPairing(Context context, String enteredToken) {
+        PairingRequest request = PairingRequest.manualToken(enteredToken);
+        startWithIntent(context, ACTION_PAIR_MANUAL, request.value);
     }
 
     static Intent bindingIntent(Context context) {
         return new Intent(context, PhoneConnectionService.class)
                 .setAction(ACTION_LOCAL_BIND)
                 .setPackage(context.getPackageName());
+    }
+
+    private static void startWithIntent(Context context, String action, String pairingValue) {
+        Intent intent = new Intent(context, PhoneConnectionService.class)
+                .setAction(action)
+                .setPackage(context.getPackageName())
+                .putExtra(EXTRA_INTERNAL_TOKEN, PROCESS_START_TOKEN);
+        if (pairingValue != null) intent.putExtra(EXTRA_PAIRING_VALUE, pairingValue);
+        context.startForegroundService(intent);
     }
 
     @Override
@@ -231,9 +261,9 @@ public final class PhoneConnectionService extends MediaSessionService
     public int onStartCommand(Intent intent, int flags, int startId) {
         int inheritedResult = super.onStartCommand(intent, flags, startId);
         String action = intent == null ? null : intent.getAction();
-        if (ACTION_START.equals(action)
+        if (isInternalRuntimeAction(action)
                 && !PROCESS_START_TOKEN.equals(intent.getStringExtra(EXTRA_INTERNAL_TOKEN))) {
-            Log.w(TAG, "Rejected external connection-service start action");
+            Log.w(TAG, "Rejected external connection-service runtime action");
             stopSelfResult(startId);
             return START_NOT_STICKY;
         }
@@ -241,7 +271,7 @@ public final class PhoneConnectionService extends MediaSessionService
             Log.w(TAG, "Rejected untrusted notification action=" + action);
             return inheritedResult;
         }
-        if (intent != null && !ACTION_START.equals(action)
+        if (intent != null && !isInternalRuntimeAction(action)
                 && !isNotificationAction(action)
                 && !Intent.ACTION_MEDIA_BUTTON.equals(action)) {
             Log.w(TAG, "Rejected unsupported external service start action=" + action);
@@ -260,7 +290,7 @@ public final class PhoneConnectionService extends MediaSessionService
         }
 
         try {
-            if (ACTION_START.equals(action)) createMediaSessionRuntime();
+            if (isInternalRuntimeAction(action)) createMediaSessionRuntime();
             if (mediaSession == null || remoteSessionPlayer == null) {
                 Log.w(TAG, "Ignoring media start after explicit Stop");
                 stopSelfResult(startId);
@@ -268,6 +298,8 @@ public final class PhoneConnectionService extends MediaSessionService
             }
             promoteToForeground();
             controller.start();
+            submitPairingRequest(intent, action);
+            pairingRequestState.dispatchTo(controller);
             dispatchTrustedNotificationAction(action);
             Log.i(TAG, "Connection runtime started or already active");
             return START_STICKY;
@@ -277,6 +309,21 @@ public final class PhoneConnectionService extends MediaSessionService
             removeForegroundNotification();
             stopSelfResult(startId);
             return START_NOT_STICKY;
+        }
+    }
+
+    private void submitPairingRequest(Intent intent, String action) {
+        if (!ACTION_PAIR_QR.equals(action) && !ACTION_PAIR_MANUAL.equals(action)) return;
+        try {
+            String value = intent == null ? null : intent.getStringExtra(EXTRA_PAIRING_VALUE);
+            PairingRequest request = ACTION_PAIR_QR.equals(action)
+                    ? PairingRequest.qr(value) : PairingRequest.manualToken(value);
+            currentPairingError = null;
+            pairingRequestState.submit(request);
+        } catch (IllegalArgumentException exception) {
+            onPairingFailed(ACTION_PAIR_QR.equals(action)
+                    ? RemoteClientController.PairingError.INVALID_QR
+                    : RemoteClientController.PairingError.INVALID_TOKEN);
         }
     }
 
@@ -362,11 +409,13 @@ public final class PhoneConnectionService extends MediaSessionService
 
     @Override
     public void onPairingFailed(RemoteClientController.PairingError error) {
+        currentPairingError = error;
         for (Listener listener : listeners) listener.onPairingFailed(error);
     }
 
     @Override
     public void onPairingSucceeded(String serviceName) {
+        currentPairingError = null;
         for (Listener listener : listeners) listener.onPairingSucceeded(serviceName);
         updateNotification();
     }
@@ -624,6 +673,12 @@ public final class PhoneConnectionService extends MediaSessionService
                 || ACTION_NOTIFICATION_PREVIOUS.equals(action)
                 || ACTION_NOTIFICATION_PLAY_PAUSE.equals(action)
                 || ACTION_NOTIFICATION_NEXT.equals(action);
+    }
+
+    private static boolean isInternalRuntimeAction(String action) {
+        return ACTION_START.equals(action)
+                || ACTION_PAIR_QR.equals(action)
+                || ACTION_PAIR_MANUAL.equals(action);
     }
 
     private void dispatchTrustedNotificationAction(String action) {

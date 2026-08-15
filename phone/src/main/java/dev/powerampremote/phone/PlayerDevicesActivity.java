@@ -12,9 +12,15 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.provider.Settings;
+import android.text.InputFilter;
+import android.text.InputType;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,12 +53,15 @@ public final class PlayerDevicesActivity extends ComponentActivity
     private TextView pairingProgressMessage;
     private Button connectionActionButton;
     private TextView errorMessage;
-    private Button pairNewButton;
+    private Button scanQrButton;
+    private Button manualPairingButton;
     private Button repairButton;
     private Button forgetButton;
 
     private PhoneConnectionService.LocalBinder controller;
     private RemoteClientController.Status status = RemoteClientController.Status.SEARCHING;
+    private RemoteClientController.PairingMode pairingMode =
+            RemoteClientController.PairingMode.NONE;
     private ConnectionAction connectionAction = ConnectionAction.NONE;
     private boolean bindingRequested;
     private boolean permissionRequestAttempted;
@@ -75,6 +84,8 @@ public final class PlayerDevicesActivity extends ComponentActivity
             }
             controller = (PhoneConnectionService.LocalBinder) service;
             controller.addListener(PlayerDevicesActivity.this);
+            RemoteClientController.PairingError pendingError = controller.consumePairingError();
+            if (pendingError != null) onPairingFailed(pendingError);
             renderDevice();
             setActionsEnabled(true);
         }
@@ -97,9 +108,11 @@ public final class PlayerDevicesActivity extends ComponentActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        SafeDrawingInsets.enableEdgeToEdge(getWindow());
         permissionRequestAttempted = savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_PERMISSION_REQUEST_ATTEMPTED, false);
         setContentView(R.layout.activity_player_devices);
+        SafeDrawingInsets.apply(findViewById(R.id.player_devices_root));
         bindViews();
         configureActions();
         setActionsEnabled(false);
@@ -157,17 +170,16 @@ public final class PlayerDevicesActivity extends ComponentActivity
     private void onScanResult(ScanIntentResult result) {
         if (result.getContents() == null) return;
         try {
-            PairingQrPayload payload = PairingQrPayload.parse(result.getContents());
             hideError();
-            if (controller == null) {
-                showError(R.string.connection_service_error);
-                return;
-            }
-            controller.pair(payload);
+            PhoneConnectionService.requestQrPairing(this, result.getContents());
+            pairingMode = RemoteClientController.PairingMode.QR;
             pairingProgressPanel.setVisibility(View.VISIBLE);
             pairingProgressMessage.setText(R.string.pairing_searching_target);
+            setActionsEnabled(controller != null);
         } catch (IllegalArgumentException exception) {
             showError(R.string.pairing_invalid_qr);
+        } catch (RuntimeException exception) {
+            showError(R.string.connection_service_error);
         }
     }
 
@@ -187,19 +199,24 @@ public final class PlayerDevicesActivity extends ComponentActivity
         pairingProgressMessage = findViewById(R.id.pairing_progress_message);
         connectionActionButton = findViewById(R.id.connection_action);
         errorMessage = findViewById(R.id.devices_error_message);
-        pairNewButton = findViewById(R.id.pair_new_player_button);
+        scanQrButton = findViewById(R.id.scan_qr_button);
+        manualPairingButton = findViewById(R.id.manual_pairing_button);
         repairButton = findViewById(R.id.repair_player_button);
         forgetButton = findViewById(R.id.forget_device_button);
     }
 
     private void configureActions() {
-        pairNewButton.setOnClickListener(view -> {
+        scanQrButton.setOnClickListener(view -> {
             haptic(view);
             launchScanner();
         });
+        manualPairingButton.setOnClickListener(view -> {
+            haptic(view);
+            showManualPairingDialog();
+        });
         repairButton.setOnClickListener(view -> {
             haptic(view);
-            launchScanner();
+            showPairingMethodDialog();
         });
         forgetButton.setOnClickListener(view -> {
             haptic(view);
@@ -214,6 +231,12 @@ public final class PlayerDevicesActivity extends ComponentActivity
     private void launchScanner() {
         hideError();
         try {
+            PhoneConnectionService.start(this);
+        } catch (RuntimeException exception) {
+            showError(R.string.connection_service_error);
+            return;
+        }
+        try {
             ScanOptions options = new ScanOptions()
                     .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                     .setPrompt(getString(R.string.pairing_scan_prompt))
@@ -222,7 +245,78 @@ public final class PlayerDevicesActivity extends ComponentActivity
                     .setOrientationLocked(false);
             barcodeLauncher.launch(options);
         } catch (RuntimeException exception) {
-            showError(R.string.pairing_invalid_qr);
+            showError(R.string.pairing_scanner_unavailable);
+        }
+    }
+
+    private void showPairingMethodDialog() {
+        CharSequence[] methods = {
+                getText(R.string.scan_qr_code),
+                getText(R.string.enter_token_manually)
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.repair_player)
+                .setItems(methods, (dialog, which) -> {
+                    if (which == 0) launchScanner();
+                    else showManualPairingDialog();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
+    private void showManualPairingDialog() {
+        hideError();
+        EditText tokenInput = new EditText(this);
+        tokenInput.setHint(R.string.token_hint);
+        tokenInput.setSingleLine(true);
+        tokenInput.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        tokenInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        tokenInput.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        tokenInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(64)});
+
+        int dialogInset = Math.round(20f * getResources().getDisplayMetrics().density);
+        FrameLayout inputContainer = new FrameLayout(this);
+        inputContainer.setPadding(dialogInset, 0, dialogInset, 0);
+        inputContainer.addView(tokenInput, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.manual_pairing_title)
+                .setMessage(R.string.manual_pairing_instruction)
+                .setView(inputContainer)
+                .setPositiveButton(R.string.manual_pairing_submit, null)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(view -> submitManualPairing(dialog, tokenInput)));
+        tokenInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId != EditorInfo.IME_ACTION_DONE) return false;
+            submitManualPairing(dialog, tokenInput);
+            return true;
+        });
+        dialog.show();
+    }
+
+    private void submitManualPairing(AlertDialog dialog, EditText tokenInput) {
+        try {
+            PhoneConnectionService.requestManualPairing(
+                    this,
+                    tokenInput.getText().toString()
+            );
+            pairingMode = RemoteClientController.PairingMode.MANUAL_TOKEN;
+            pairingProgressPanel.setVisibility(View.VISIBLE);
+            pairingProgressMessage.setText(R.string.pairing_searching_manual);
+            setActionsEnabled(controller != null);
+            hideError();
+            dialog.dismiss();
+        } catch (IllegalArgumentException exception) {
+            tokenInput.setError(getString(R.string.pairing_invalid_token));
+        } catch (RuntimeException exception) {
+            showError(R.string.connection_service_error);
+            dialog.dismiss();
         }
     }
 
@@ -249,12 +343,24 @@ public final class PlayerDevicesActivity extends ComponentActivity
             long retryDelayMilliseconds
     ) {
         status = newStatus;
-        boolean pairing = controller != null && controller.isPairingInProgress();
-        setActionsEnabled(controller != null && !pairing);
+        if (controller != null) pairingMode = controller.pairingMode();
+        boolean pairing = pairingMode != RemoteClientController.PairingMode.NONE;
+        setActionsEnabled(controller != null);
         if (pairing) {
             pairingProgressPanel.setVisibility(View.VISIBLE);
-            pairingProgressMessage.setText(newStatus == RemoteClientController.Status.VERIFYING
-                    ? R.string.pairing_exchanging : R.string.pairing_searching_target);
+            if (pairingMode == RemoteClientController.PairingMode.MANUAL_TOKEN) {
+                pairingProgressMessage.setText(
+                        newStatus == RemoteClientController.Status.VERIFYING
+                                ? R.string.pairing_verifying_manual
+                                : R.string.pairing_searching_manual
+                );
+            } else {
+                pairingProgressMessage.setText(
+                        newStatus == RemoteClientController.Status.VERIFYING
+                                ? R.string.pairing_exchanging
+                                : R.string.pairing_searching_target
+                );
+            }
         } else if (newStatus != RemoteClientController.Status.DIRECT_PERMISSION_REQUIRED
                 && newStatus != RemoteClientController.Status.DIRECT_LOCATION_REQUIRED
                 && newStatus != RemoteClientController.Status.DIRECT_WIFI_REQUIRED
@@ -274,13 +380,24 @@ public final class PlayerDevicesActivity extends ComponentActivity
 
     @Override
     public void onPairingFailed(RemoteClientController.PairingError error) {
+        if (controller != null) controller.consumePairingError();
+        pairingMode = RemoteClientController.PairingMode.NONE;
         pairingProgressPanel.setVisibility(View.GONE);
         switch (error) {
             case INVALID_QR:
                 showError(R.string.pairing_invalid_qr);
                 break;
-            case REJECTED:
+            case INVALID_TOKEN:
+                showError(R.string.pairing_invalid_token);
+                break;
+            case QR_REJECTED:
                 showError(R.string.pairing_secret_rejected);
+                break;
+            case TOKEN_REJECTED:
+                showError(R.string.pairing_unauthorized);
+                break;
+            case MANUAL_NETWORK:
+                showError(R.string.pairing_network_error);
                 break;
             case STORAGE:
                 showError(R.string.pairing_storage_error);
@@ -290,13 +407,16 @@ public final class PlayerDevicesActivity extends ComponentActivity
                 showError(R.string.pairing_network_error_qr);
                 break;
         }
+        setActionsEnabled(controller != null);
         renderDevice();
     }
 
     @Override
     public void onPairingSucceeded(String name) {
+        pairingMode = RemoteClientController.PairingMode.NONE;
         pairingProgressPanel.setVisibility(View.GONE);
         hideError();
+        setActionsEnabled(controller != null);
         renderDevice();
         Toast.makeText(this, getString(R.string.pairing_success_device, name),
                 Toast.LENGTH_SHORT).show();
@@ -458,9 +578,11 @@ public final class PlayerDevicesActivity extends ComponentActivity
     }
 
     private void setActionsEnabled(boolean enabled) {
-        pairNewButton.setEnabled(enabled);
-        repairButton.setEnabled(enabled);
-        forgetButton.setEnabled(enabled);
+        boolean pairing = pairingMode != RemoteClientController.PairingMode.NONE;
+        scanQrButton.setEnabled(!pairing);
+        manualPairingButton.setEnabled(!pairing);
+        repairButton.setEnabled(!pairing);
+        forgetButton.setEnabled(enabled && !pairing);
     }
 
     private void showError(int stringResource) {

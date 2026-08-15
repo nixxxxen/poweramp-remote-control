@@ -3,10 +3,10 @@
 Два нативных Android-приложения с независимыми версиями:
 
 - Server `0.10.0` (`:app`) — устанавливается на Android-устройство с Poweramp;
-- Phone Client `0.4.0` (`:phone`) — управляет Server через обратно совместимый API `v1`.
+- Phone Client `0.4.1` (`:phone`) — управляет Server через обратно совместимый API `v1`.
 
-Оба APK сейчас используют `versionCode 11`; счётчики объявлены отдельно в модулях и дальше
-увеличиваются независимо.
+Server использует `versionCode 11`, Phone Client — `versionCode 12`; счётчики объявлены отдельно в
+модулях и дальше увеличиваются независимо.
 
 Server сохраняет foreground service, Poweramp Intent API, REST/WebSocket API, Bearer/session auth,
 LAN NSD и встроенный Web UI. Phone Client предпочитает обычную LAN, а для уже привязанного Server
@@ -22,6 +22,11 @@ LAN NSD и встроенный Web UI. Phone Client предпочитает о
 4. На Phone откройте **Player devices** → **Pair new player** и отсканируйте QR.
 5. Phone найдёт именно этот Server через обычный LAN NSD или существующий Wi-Fi Direct DNS-SD
    fallback и обменяет одноразовый secret на постоянный credential.
+
+Если камеры нет или scanner недоступен, на том же экране выберите **Enter token manually** и
+вставьте 43-символьный Bearer-токен, скопированный на Server. Ручной fallback ищет Server через LAN
+NSD и проверяет токен через API v1; вводить IP-адрес не нужно. Оба варианта отправляют запрос в
+существующий foreground service и не зависят от момента завершения Activity binding.
 
 QR содержит только API version, стабильный публичный Server `id`, читаемое имя player device и
 случайный одноразовый secret. В нём нет постоянного Bearer credential и IP-адреса. Secret
@@ -77,6 +82,10 @@ Poweramp `bitRate` и `positionInList` без изменения.
 Activity resume/rebind foreground service сразу отдаёт экстраполированный playback snapshot, поэтому
 seekbar продолжает с актуальной позиции. Phone Client не меняет громкость телефона.
 
+Оба Phone-экрана учитывают status/navigation bars, gesture area и display cutout через динамические
+window insets. На компактной высоте artwork уменьшается первым; seek, transport, secondary controls
+и volume остаются в фиксированной обязательной части layout.
+
 Отдельный экран **Player devices** показывает имя сохранённого устройства, Connected/Disconnected,
 LAN/Wi-Fi Direct, API/server/endpoint diagnostics и действия **Pair new player**, **Re-pair**,
 **Forget device**. Модель экрана device-neutral, но текущий release намеренно хранит один слот, без
@@ -96,8 +105,8 @@ http://<SERVER-IP>:8765/
 ```
 
 На Server нажмите **Копировать credential для Web UI** и введите его в браузере. Постоянный
-credential не показывается на экране и не используется для ручной Phone pairing. Страница обменяет
-его через `POST /api/v1/session` на
+credential не показывается открытым текстом; действие копирования также служит fallback для ручной
+Phone pairing и входа в Web UI. Страница обменяет его через `POST /api/v1/session` на
 `HttpOnly; SameSite=Strict` cookie. Токен не сохраняется в browser storage. Web UI сохраняет все
 прежние controls и добавляет синхронизированный slider громкости Player device.
 
@@ -186,7 +195,7 @@ API v1. Server должен стать group owner; клиент запраши�
 APK:
 
 - `app/build/outputs/apk/debug/app-debug.apk` — Server `0.10.0`;
-- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.4.0`.
+- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.4.1`.
 
 Исторические `applicationId` `dev.r4remote.poweramp` и `dev.r4remote.poweramp.phone` сохранены ради
 обновления существующих установок без потери Server token и Phone pairing. Исходные namespace,

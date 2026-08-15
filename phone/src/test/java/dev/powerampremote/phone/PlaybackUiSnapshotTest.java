@@ -36,6 +36,21 @@ public final class PlaybackUiSnapshotTest {
         assertEquals(42, paused.capturedAt(90_000L).positionSeconds);
     }
 
+    @Test
+    public void repeatedActivityRebindCapturesDoNotResetTheServiceAnchor() {
+        PlaybackUiSnapshot serviceSnapshot = PlaybackUiSnapshot.anchor(
+                state("playing", 12, 180),
+                1_000L
+        );
+
+        PlaybackUiSnapshot firstActivity = serviceSnapshot.capturedAt(11_900L);
+        PlaybackUiSnapshot secondActivity = serviceSnapshot.capturedAt(31_900L);
+
+        assertEquals(22, firstActivity.positionSeconds);
+        assertEquals(42, secondActivity.positionSeconds);
+        assertEquals(31_900L, secondActivity.capturedRealtimeMilliseconds);
+    }
+
     private static RemoteState state(String playbackState, int position, int duration) {
         return new RemoteState(
                 1L, true, true,

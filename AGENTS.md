@@ -8,14 +8,14 @@ Android player device with Poweramp, plus a separate native Phone Client.
 Current application versions are independent:
 
 - Server: `0.10.0` (`versionCode 11`);
-- Phone Client: `0.4.0` (`versionCode 11`);
+- Phone Client: `0.4.1` (`versionCode 12`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
-Both legacy apps previously shipped `versionCode 7`; their independent counters have now advanced
-to `11`. Future Server and Phone codes must continue to advance separately. The legacy IDs are not
-the current product or source namespace.
+Both legacy apps previously shipped `versionCode 7`; the Server counter is now `11` and the Phone
+counter is `12`. Future Server and Phone codes must continue to advance separately. The legacy IDs
+are not the current product or source namespace.
 
 ## Read first
 
@@ -48,6 +48,12 @@ through existing LAN or Wi-Fi Direct paths, exchanges the secret through API v1,
 stores the returned Bearer credential. Normal operation consumes the existing API v1
 REST/artwork/WebSocket routes.
 
+Scanner results and manual-token fallback requests are submitted as private start commands to that
+same service and pass through its service-owned request state; they must never depend on whether an
+Activity binder happens to be connected. Manual pairing verifies the existing persistent Bearer
+credential against LAN-discovered Servers and does not introduce address entry or a second
+connection runtime.
+
 For a previously paired Server or the exact identity in an active QR offer, the Phone Client starts
 Wi-Fi Direct service discovery when the target is not found through LAN NSD. The Server advertises the same public stable
 identity, API version, and listener port through pre-association Wi-Fi Direct DNS-SD. The credential
@@ -77,11 +83,14 @@ Version history:
   LAN/P2P discovery paths, service-owned playback-position restoration after Activity rebind, a
   separate Player devices surface, and a compact playback-only Phone UI while keeping API v1
   backward compatible.
+- Phone Client `0.4.1` fixes the scanner-result/service-binding race, restores manual Bearer-token
+  pairing fallback, applies safe system/cutout/navigation insets, and guarantees the compact player
+  keeps its volume control visible. Server remains `0.10.0` and API remains `v1`.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
 
-## Regression-sensitive baseline: version 0.4.0
+## Regression-sensitive baseline: version 0.4.1
 
 The following functionality is implemented and working:
 
@@ -133,9 +142,11 @@ The following functionality is implemented and working:
 ### Pairing and Phone surfaces
 
 - short-lived, one-time QR pairing with no persistent credential or address in the QR;
+- manual Bearer-token fallback for devices without a usable camera;
 - exact target discovery through LAN first and Wi-Fi Direct fallback;
 - separate generic `Player devices` screen with status, transport, diagnostics, re-pair, and forget;
-- playback-only, non-scrolling main Phone screen with metadata chips and compact controls.
+- playback-only, non-scrolling main Phone screen with metadata chips and compact controls;
+- safe system-bar/display-cutout/navigation insets on both Phone screens.
 
 ### Intentionally not implemented
 

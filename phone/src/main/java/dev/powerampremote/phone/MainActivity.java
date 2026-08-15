@@ -112,9 +112,11 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        SafeDrawingInsets.enableEdgeToEdge(getWindow());
         openedDevicesForMissingPairing = savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_OPENED_DEVICES, false);
         setContentView(R.layout.activity_main);
+        SafeDrawingInsets.apply(findViewById(R.id.player_root));
         bindViews();
         configureControls();
         try {
@@ -431,7 +433,10 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     private void renderVolume() {
         if (state == null || state.volume == null || state.volumeMax == null
                 || state.volumeMax <= 0) {
-            volumePanel.setVisibility(View.GONE);
+            volumePanel.setVisibility(View.VISIBLE);
+            volumeSeek.setMax(1);
+            if (!draggingVolume) volumeSeek.setProgress(0);
+            volumeValue.setText(R.string.volume_value_placeholder);
             return;
         }
         volumePanel.setVisibility(View.VISIBLE);

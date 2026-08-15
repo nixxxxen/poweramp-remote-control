@@ -1,22 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/player_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:gravity="center_horizontal"
     android:orientation="vertical"
     android:paddingLeft="@dimen/screen_padding"
-    android:paddingTop="6dp"
+    android:paddingTop="4dp"
     android:paddingRight="@dimen/screen_padding"
-    android:paddingBottom="10dp">
+    android:paddingBottom="4dp">
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="44dp">
+        android:layout_height="40dp">
 
         <ImageButton
             android:id="@+id/player_devices_button"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_gravity="end|center_vertical"
             android:background="@drawable/control_button_background"
             android:contentDescription="@string/player_devices"
@@ -30,7 +31,6 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:minHeight="180dp"
         android:background="@drawable/album_art_background">
 
         <ImageView
@@ -47,13 +47,13 @@
         android:id="@+id/track_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="6dp"
         android:ellipsize="end"
         android:gravity="center"
         android:maxLines="1"
         android:text="@string/waiting_title"
         android:textColor="@color/text_primary"
-        android:textSize="21sp"
+        android:textSize="19sp"
         android:textStyle="bold" />
 
     <TextView
@@ -66,7 +66,7 @@
         android:maxLines="1"
         android:text="@string/waiting_artist"
         android:textColor="@color/text_secondary"
-        android:textSize="15sp" />
+        android:textSize="14sp" />
 
     <TextView
         android:id="@+id/track_album"
@@ -77,13 +77,13 @@
         android:maxLines="1"
         android:text="@string/waiting_album"
         android:textColor="@color/text_secondary"
-        android:textSize="13sp" />
+        android:textSize="12sp" />
 
     <HorizontalScrollView
         android:id="@+id/metadata_chips"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="7dp"
+        android:layout_marginTop="4dp"
         android:fillViewport="true"
         android:scrollbars="none">
 
@@ -96,11 +96,11 @@
             <TextView
                 android:id="@+id/codec_chip"
                 android:layout_width="wrap_content"
-                android:layout_height="26dp"
+                android:layout_height="22dp"
                 android:background="@drawable/chip_green_background"
                 android:gravity="center"
-                android:paddingLeft="9dp"
-                android:paddingRight="9dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp"
                 android:textStyle="bold"
@@ -109,12 +109,12 @@
             <TextView
                 android:id="@+id/bit_depth_chip"
                 android:layout_width="wrap_content"
-                android:layout_height="26dp"
-                android:layout_marginStart="6dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="5dp"
                 android:background="@drawable/chip_blue_background"
                 android:gravity="center"
-                android:paddingLeft="9dp"
-                android:paddingRight="9dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp"
                 android:textStyle="bold"
@@ -123,12 +123,12 @@
             <TextView
                 android:id="@+id/sample_rate_chip"
                 android:layout_width="wrap_content"
-                android:layout_height="26dp"
-                android:layout_marginStart="6dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="5dp"
                 android:background="@drawable/chip_violet_background"
                 android:gravity="center"
-                android:paddingLeft="9dp"
-                android:paddingRight="9dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp"
                 android:textStyle="bold"
@@ -137,12 +137,12 @@
             <TextView
                 android:id="@+id/bitrate_chip"
                 android:layout_width="wrap_content"
-                android:layout_height="26dp"
-                android:layout_marginStart="6dp"
+                android:layout_height="22dp"
+                android:layout_marginStart="5dp"
                 android:background="@drawable/chip_amber_background"
                 android:gravity="center"
-                android:paddingLeft="9dp"
-                android:paddingRight="9dp"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp"
                 android:textStyle="bold"
@@ -154,7 +154,7 @@
         android:id="@+id/source_info"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
+        android:layout_marginTop="1dp"
         android:ellipsize="end"
         android:gravity="center"
         android:maxLines="1"
@@ -165,8 +165,8 @@
     <SeekBar
         android:id="@+id/track_seek"
         android:layout_width="match_parent"
-        android:layout_height="30dp"
-        android:layout_marginTop="3dp"
+        android:layout_height="34dp"
+        android:layout_marginTop="1dp"
         android:max="1"
         android:paddingLeft="2dp"
         android:paddingRight="2dp"
@@ -177,7 +177,7 @@
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="18dp"
+        android:layout_height="16dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -204,22 +204,21 @@
     <LinearLayout
         android:id="@+id/volume_panel"
         android:layout_width="match_parent"
-        android:layout_height="34dp"
+        android:layout_height="30dp"
         android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:visibility="gone">
+        android:orientation="horizontal">
 
         <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:contentDescription="@null"
             android:src="@drawable/ic_volume" />
 
         <SeekBar
             android:id="@+id/volume_seek"
             android:layout_width="0dp"
-            android:layout_height="28dp"
-            android:layout_marginStart="7dp"
+            android:layout_height="26dp"
+            android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:contentDescription="@string/remote_volume_description"
@@ -243,7 +242,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="@dimen/transport_primary_size"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:gravity="center"
         android:orientation="horizontal">
 
@@ -288,7 +287,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="@dimen/secondary_button_size"
-        android:layout_marginTop="5dp"
+        android:layout_marginTop="3dp"
         android:gravity="center"
         android:orientation="horizontal">
 
@@ -352,7 +351,7 @@
         android:id="@+id/error_message"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:accessibilityLiveRegion="polite"
         android:ellipsize="end"
         android:gravity="center"

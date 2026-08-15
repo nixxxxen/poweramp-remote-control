@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <dimen name="screen_padding">18dp</dimen>
-    <dimen name="album_placeholder_padding">48dp</dimen>
-    <dimen name="transport_button_size">58dp</dimen>
-    <dimen name="transport_primary_size">72dp</dimen>
-    <dimen name="secondary_button_size">42dp</dimen>
+    <dimen name="album_placeholder_padding">32dp</dimen>
+    <dimen name="transport_button_size">54dp</dimen>
+    <dimen name="transport_primary_size">64dp</dimen>
+    <dimen name="secondary_button_size">40dp</dimen>
 </resources>

@@ -6,12 +6,12 @@ Poweramp Remote provides a reliable native Android Server for any compatible And
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
 - Server: `0.10.0` (`versionCode 11`)
-- Phone Client: `0.4.0` (`versionCode 11`)
+- Phone Client: `0.4.1` (`versionCode 12`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; both counters have independently advanced to `11`. This preserves Android upgrade
-compatibility while later Server and Phone codes continue to advance independently. The existing Android
+`versionCode 7`; the Server counter is now `11` and the Phone counter is `12`. This preserves
+Android upgrade compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
 
@@ -54,13 +54,14 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - `RemoteApiClient` for REST state/control/artwork requests;
 - `RemoteWebSocket` for complete event-driven state snapshots;
 - `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
+- `PairingRequestState` for binder-independent QR/manual requests delivered to that controller;
 - `PlaybackUiSnapshot`, the service-owned position anchor replayed to a rebound Activity;
 - `RemoteSessionPlayer`, a Media3 `SimpleBasePlayer` facade over the remote state and commands;
 - one Media3 `MediaSession` exposed to Android System UI, lock screen, and compatible Wear OS
   controllers.
 
 `MainActivity` binds only while visible and is a playback-only presentation/control surface.
-`PlayerDevicesActivity` owns saved-device diagnostics, QR scanning, re-pair/forget actions, and
+`PlayerDevicesActivity` owns saved-device diagnostics, QR/manual pairing, re-pair/forget actions, and
 recoverable permission/settings actions. Neither Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
@@ -87,6 +88,15 @@ path is used for this scanned identity; Android/OEM permissions, Location Mode, 
 and approval remain mandatory where applicable. Once an endpoint is reachable, unauthenticated
 `POST /api/v1/pair` atomically consumes the secret and returns the existing persistent API
 credential. Reuse, expiry, a mismatched identity, or a mismatched API version is rejected.
+
+The scanner result is submitted as a private explicit start command to the already existing
+`PhoneConnectionService`. A service-owned request handoff keeps the work independent of the
+Activity's asynchronous bind state, including cold launch and the scanner Activity's stop/start
+transition. Devices without a usable camera can instead enter the existing 43-character Bearer
+token. That fallback discovers Servers through ordinary LAN NSD, verifies the token with the
+unchanged authenticated `GET /api/v1/state`, and saves the verified identity; it does not accept an
+IP address or add another connection path. QR remains the only initial pairing route that can target
+Wi-Fi Direct before credentials exist because its payload supplies the stable Server identity.
 
 Only after a successful exchange does Phone replace its saved association with the stable Server
 `id`, service/device names, and Bearer credential in private backup-excluded preferences. It never
@@ -272,6 +282,11 @@ haptics. Seek and volume use player-specific tracks/thumbs, and codec/file type,
 rate, and bitrate use muted metadata chips. Connection transport, API diagnostics, pairing,
 re-pair, and forget actions live on the separate **Player devices** screen. The current data model
 exposes a generic saved-device snapshot but intentionally persists only one slot in this release.
+Both Phone Activities use one edge-to-edge View path and add system-bar plus display-cutout insets
+to their root padding. The player keeps required controls in a fixed no-scroll budget and gives only
+the artwork the remaining height; volume remains represented by a disabled placeholder before its
+first remote snapshot. The platform `SeekBar` continues to own touch/accuracy semantics while its
+playback track is rendered at `8dp` with a compact `14dp` thumb.
 
 ## Security model
 

@@ -1,8 +1,21 @@
 # Poweramp Remote Roadmap
 
-Current releases are Server `0.10.0` and Phone Client `0.4.0`; API remains backward-compatible `v1`.
+Current releases are Server `0.10.0` and Phone Client `0.4.1`; API remains backward-compatible `v1`.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
+
+## 0.4.1 Phone — regression fixes
+
+Implemented without a Server or API version change:
+
+- QR scanner results enter the existing `PhoneConnectionService` through a private service-owned
+  request handoff, eliminating the Activity rebind race on cold launch and scanner return;
+- **Enter token manually** restores the LAN-discovered persistent Bearer-token fallback alongside
+  **Scan QR code**, without adding address entry or another connection architecture;
+- both Phone screens explicitly handle system bars, display cutouts, and navigation/gesture insets;
+- the playback track is thicker, the compact no-scroll layout reserves space for volume, and
+  artwork flexes with available height instead of forcing controls below the viewport;
+- service-request and repeated playback-rebind contracts have JVM regression coverage.
 
 ## 0.10.0 Server / 0.4.0 Phone — QR pairing and Phone surfaces
 
