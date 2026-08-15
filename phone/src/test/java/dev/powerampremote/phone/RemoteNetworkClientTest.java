@@ -85,6 +85,52 @@ public final class RemoteNetworkClientTest {
     }
 
     @Test
+    public void pairingExchangeUsesOneTimeSecretWithoutBearerHeader() throws Exception {
+        try (ServerSocket serverSocket = loopbackServer()) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            Future<?> server = executor.submit(() -> {
+                try {
+                    HttpRequest pairing = acceptHttp(serverSocket);
+                    assertEquals("POST", pairing.method);
+                    assertEquals(RemoteApiClient.PAIRING_PATH, pairing.path);
+                    assertEquals(null, pairing.headers.get("authorization"));
+                    assertEquals(
+                            "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
+                                    + "\",\"secret\":\"" + TOKEN + "\"}",
+                            new String(pairing.body, StandardCharsets.UTF_8)
+                    );
+                    String response = "{\"apiVersion\":1,\"serverId\":\""
+                            + SERVER_ID + "\",\"deviceName\":\"HiBy R4\",\"token\":\""
+                            + TOKEN + "\"}";
+                    writeHttp(
+                            pairing.socket,
+                            200,
+                            "OK",
+                            "application/json; charset=utf-8",
+                            response.getBytes(StandardCharsets.UTF_8)
+                    );
+                } catch (IOException exception) {
+                    throw new AssertionError(exception);
+                }
+            });
+
+            PairingQrPayload payload = PairingQrPayload.parse(
+                    "powerampremote://pair?api=1&id=" + SERVER_ID
+                            + "&secret=" + TOKEN + "&name=HiBy+R4"
+            );
+            PairingExchangeResponse response = new RemoteApiClient().exchangePairing(
+                    endpoint(serverSocket),
+                    payload
+            );
+            assertEquals(SERVER_ID, response.serverId);
+            assertEquals("HiBy R4", response.deviceName);
+            assertEquals(TOKEN, response.token);
+            server.get(10, TimeUnit.SECONDS);
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void websocketPerformsBearerUpgradeAndDeliversStateEvent() throws Exception {
         try (ServerSocket serverSocket = loopbackServer()) {
             ExecutorService executor = Executors.newSingleThreadExecutor();

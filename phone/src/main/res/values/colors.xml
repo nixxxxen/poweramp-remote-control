@@ -10,4 +10,12 @@
     <color name="warning">#F3C969</color>
     <color name="error">#FF8A80</color>
     <color name="primary_icon">#0C1117</color>
+    <color name="chip_green">#5AAE98</color>
+    <color name="chip_green_surface">#2523443C</color>
+    <color name="chip_blue">#729BC7</color>
+    <color name="chip_blue_surface">#25273A50</color>
+    <color name="chip_violet">#9A8BC4</color>
+    <color name="chip_violet_surface">#253B3450</color>
+    <color name="chip_amber">#C1A46A</color>
+    <color name="chip_amber_surface">#25463A25</color>
 </resources>

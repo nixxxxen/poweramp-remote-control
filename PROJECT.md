@@ -5,12 +5,12 @@
 Poweramp Remote provides a reliable native Android Server for any compatible Android player device
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
-- Server: `0.9.0` (`versionCode 10`)
-- Phone Client: `0.3.0` (`versionCode 10`)
+- Server: `0.10.0` (`versionCode 11`)
+- Phone Client: `0.4.0` (`versionCode 11`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; both counters have independently advanced to `10`. This preserves Android upgrade
+`versionCode 7`; both counters have independently advanced to `11`. This preserves Android upgrade
 compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
@@ -29,6 +29,7 @@ The Server runs on the Poweramp device. One started-and-bound `RemotePlaybackSer
 - `RemoteApiServer`, the bounded HTTP/WebSocket API listener;
 - `RemoteArtworkCache`, which encodes already loaded artwork for authenticated delivery;
 - `BrowserSessionStore`, the bounded in-memory same-origin cookie store;
+- `PairingSecretStore`, the one-active-offer owner for short-lived, one-time QR pairing;
 - `RemoteNsdPublisher`, ordinary LAN NSD/mDNS publication;
 - `RemoteWifiDirectPublisher`, pre-association Wi-Fi Direct DNS-SD publication;
 - `WebUiAssets`, the dependency-free embedded HTML/CSS/JavaScript remote.
@@ -49,17 +50,19 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 
 - `NsdDiscoveryClient` for ordinary LAN discovery/resolution;
 - `WifiDirectConnectionClient` for known-server Wi-Fi Direct discovery and group negotiation;
-- `PairingStore` for a verified stable Server identity, service name, and Bearer token;
+- `PairingStore` for a verified stable Server identity, device/service names, and Bearer token;
 - `RemoteApiClient` for REST state/control/artwork requests;
 - `RemoteWebSocket` for complete event-driven state snapshots;
 - `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
+- `PlaybackUiSnapshot`, the service-owned position anchor replayed to a rebound Activity;
 - `RemoteSessionPlayer`, a Media3 `SimpleBasePlayer` facade over the remote state and commands;
 - one Media3 `MediaSession` exposed to Android System UI, lock screen, and compatible Wear OS
   controllers.
 
-`MainActivity` binds only while visible and is solely the presentation, controls, permission, and
-settings surface. Its `onPause()`, `onStop()`, and destruction do not cancel P2P negotiation,
-remove a group, close the P2P channel, stop NSD, or close the API WebSocket. The notification's
+`MainActivity` binds only while visible and is a playback-only presentation/control surface.
+`PlayerDevicesActivity` owns saved-device diagnostics, QR scanning, re-pair/forget actions, and
+recoverable permission/settings actions. Neither Activity lifecycle cancels P2P negotiation,
+removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
 
 The Phone does not play or decode audio and never changes its own volume. The custom player forwards
@@ -72,11 +75,23 @@ integration path.
 
 ### Initial pairing
 
-Initial pairing remains LAN-only. Both devices join one IP network, the Phone Client discovers
-`_poweramp-remote._tcp.` through Android NSD, and the user enters the existing 43-character Bearer
-token shown by the Server. One authenticated `GET /api/v1/state` verifies the token before the
-Phone Client stores the stable public Server `id`, service name, and token in private,
-backup-excluded preferences. It never persists a resolved IP address.
+The Server issues one active pairing offer with a two-minute lifetime and renders it as a QR code.
+The address-free `powerampremote://pair` payload contains API version `1`, the persistent public
+Server `id`, a random 256-bit one-time secret, and a non-secret player-device name. It contains
+neither the persistent Bearer token nor a LAN/P2P address.
+
+After **Pair new player** or **Re-pair**, the Phone Client scans and strictly validates that payload,
+then targets only its exact public Server `id`. Ordinary LAN NSD remains the first search path. If
+the identity is not found during the LAN grace period, the same pre-association Wi-Fi Direct DNS-SD
+path is used for this scanned identity; Android/OEM permissions, Location Mode, group-owner choice,
+and approval remain mandatory where applicable. Once an endpoint is reachable, unauthenticated
+`POST /api/v1/pair` atomically consumes the secret and returns the existing persistent API
+credential. Reuse, expiry, a mismatched identity, or a mismatched API version is rejected.
+
+Only after a successful exchange does Phone replace its saved association with the stable Server
+`id`, service/device names, and Bearer credential in private backup-excluded preferences. It never
+persists a resolved address. Existing `0.3.0` preferences migrate in place by using the saved NSD
+service name as the initial device label.
 
 ### Preferred LAN connection
 
@@ -89,8 +104,9 @@ fallback; a new DHCP address can replace it automatically.
 
 ### Wi-Fi Direct fallback
 
-When a paired Server is not found through LAN NSD after a short grace period, the Phone Client
-starts Wi-Fi Direct pre-association DNS-SD. The Server publishes:
+When a paired Server, or the exact identity from an active QR offer, is not found through LAN NSD
+after a short grace period, the Phone Client starts Wi-Fi Direct pre-association DNS-SD. The Server
+publishes:
 
 - instance name `Poweramp Remote Server`;
 - service type `_poweramp-remote._tcp`;
@@ -98,8 +114,8 @@ starts Wi-Fi Direct pre-association DNS-SD. The Server publishes:
 - TXT `id=<stable public identity>`;
 - TXT `port=8765`.
 
-No token is published. The Phone Client ignores every record whose `id` is not the already verified
-pairing identity or whose API/port is invalid. It initiates one P2P connection with minimum phone
+No token or pairing secret is published. The Phone Client ignores every record whose `id` is not
+the saved or currently scanned target identity, or whose API/port is invalid. It initiates one P2P connection with minimum phone
 group-owner intent so the Poweramp device is normally selected as group owner. This is a preference,
 not a bypass: Android controls group negotiation and may show mandatory system confirmations on
 either device. The app never auto-accepts or suppresses them.
@@ -154,7 +170,9 @@ Authorization: Bearer <token>
 ```
 
 The Server generates a 256-bit Base64URL token with `SecureRandom`, keeps it in private
-backup-excluded preferences, displays it locally, and never accepts it in a query string.
+backup-excluded preferences, and never places it in the QR or a query string. The local Server UI
+does not display it; an explicit sensitive-clipboard action remains solely so the unchanged Web UI
+and external API v1 clients can obtain their credential.
 
 The public page at `/` exchanges the token only through `POST /api/v1/session`. Successful
 same-origin login creates a random 256-bit `HttpOnly; SameSite=Strict` cookie scoped to `/api/v1/`
@@ -166,8 +184,9 @@ for 12 hours. Cookie-authenticated controls, logout, and WebSocket require exact
 | Method | Path | Result |
 |---|---|---|
 | `GET` | `/` | Public embedded Web UI plus `/app.css` and `/app.js` |
-| `POST` | `/api/v1/session` | Exchange the displayed token for a browser session |
+| `POST` | `/api/v1/session` | Exchange a browser-supplied credential for a session |
 | `DELETE` | `/api/v1/session` | End the current browser session |
+| `POST` | `/api/v1/pair` | Consume the active one-time QR secret and issue credentials |
 | `GET` | `/api/v1/state` | Current complete state JSON |
 | `POST` | `/api/v1/control` | Validate and enqueue one command; success is `202` |
 | WebSocket `GET` | `/api/v1/events` | Initial state, then complete event-driven snapshots |
@@ -234,19 +253,35 @@ hardware buttons. WebSocket revisions are monotonic and slow clients may receive
 snapshots. There is no elapsed-second state polling; UIs and MediaSession only advance displayed
 time locally from a confirmed position anchor.
 
+On Phone, `PhoneConnectionService` owns a playback UI anchor in parallel with its MediaSession
+state. Every fresh WebSocket state re-anchors it; a listener added after Activity resume/rebind gets
+the cached complete state followed immediately by a position extrapolated from that original
+service anchor. Disconnect freezes the anchor. This makes a recreated player screen agree with the
+still-running notification without introducing network or UI polling.
+
 The embedded Web UI remains available on either reachable Server address and retains cookie
 sessions, CSP, Origin checks, artwork, transport, seek, rating, Like/Dislike, shuffle, and a compact
 remote-volume slider. The native Phone Client adds the same volume control and a MediaSession while
 using the same Bearer routes and waiting for confirmed snapshots rather than making authoritative
 optimistic state changes.
 
+The Phone main screen is deliberately player-only and non-scrolling on a typical smartphone:
+rounded artwork receives the flexible space; Previous/Play-Pause/Next remain primary; rating,
+Like/Dislike, and Shuffle are compact secondary controls with selected states, ripple feedback, and
+haptics. Seek and volume use player-specific tracks/thumbs, and codec/file type, bit depth, sample
+rate, and bitrate use muted metadata chips. Connection transport, API diagnostics, pairing,
+re-pair, and forget actions live on the separate **Player devices** screen. The current data model
+exposes a generic saved-device snapshot but intentionally persists only one slot in this release.
+
 ## Security model
 
 This remains a trusted-local-link prototype. Wi-Fi Direct provides link encryption, but API HTTP
-and `ws://` are not end-to-end encrypted; LAN traffic and credentials can be observed on an
-untrusted network. Never expose port `8765` to the internet. Discovery advertises public identity,
-API version, and (for P2P) listener port only. Credentials remain private and backup-excluded.
-Stronger pairing and application-layer transport security remain future work.
+and `ws://` are not end-to-end encrypted; LAN traffic and the one-time exchange/credentials can be
+observed on an untrusted network. Never expose port `8765` to the internet. Discovery advertises
+public identity, API version, and (for P2P) listener port only. The QR never carries an address or
+persistent credential; its secret is random, short-lived, one-time, and invalidated atomically.
+Persistent credentials remain private and backup-excluded. Application-layer encrypted transport
+remains future work.
 
 ## Known uncertainties and real-device requirements
 

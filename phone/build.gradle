@@ -12,8 +12,8 @@ android {
         minSdk 26
         targetSdk 36
         // The legacy 0.7.0 phone APK already shipped code 7; keep upgrades monotonic.
-        versionCode 10
-        versionName '0.3.0'
+        versionCode 11
+        versionName '0.4.0'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
@@ -36,6 +36,9 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.activity:activity:1.13.0'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    implementation 'com.google.zxing:core:3.5.4'
     // 1.10.1 is the current stable release; lint flattens the 1.11.0 RC metadata.
     //noinspection GradleDependency
     implementation 'androidx.media3:media3-common:1.10.1'

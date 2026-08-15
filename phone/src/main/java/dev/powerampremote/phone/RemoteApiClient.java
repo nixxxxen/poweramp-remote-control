@@ -13,6 +13,7 @@ final class RemoteApiClient {
     static final String STATE_PATH = "/api/v1/state";
     static final String CONTROL_PATH = "/api/v1/control";
     static final String ARTWORK_PATH = "/api/v1/artwork";
+    static final String PAIRING_PATH = "/api/v1/pair";
 
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 5_000;
     private static final int READ_TIMEOUT_MILLISECONDS = 10_000;
@@ -25,6 +26,32 @@ final class RemoteApiClient {
         HttpStatusException(int statusCode) {
             super("HTTP " + statusCode);
             this.statusCode = statusCode;
+        }
+    }
+
+    PairingExchangeResponse exchangePairing(
+            DiscoveredServer server,
+            PairingQrPayload payload
+    ) throws IOException {
+        byte[] body = payload.requestJson().getBytes(StandardCharsets.UTF_8);
+        Response response = request(
+                server,
+                null,
+                "POST",
+                PAIRING_PATH,
+                body,
+                MAX_JSON_BYTES
+        );
+        if (response.statusCode != HttpURLConnection.HTTP_OK) {
+            throw new HttpStatusException(response.statusCode);
+        }
+        try {
+            return PairingExchangeResponse.parse(
+                    new String(response.body, StandardCharsets.UTF_8),
+                    payload.serverId
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Invalid pairing response", exception);
         }
     }
 
@@ -73,7 +100,7 @@ final class RemoteApiClient {
             byte[] requestBody,
             int maxResponseBytes
     ) throws IOException {
-        if (!PairingCredentials.isValidToken(token)) {
+        if (token != null && !PairingCredentials.isValidToken(token)) {
             throw new IOException("Invalid Bearer token");
         }
         HttpURLConnection connection = (HttpURLConnection) server.httpUrl(path).openConnection();
@@ -83,7 +110,9 @@ final class RemoteApiClient {
             connection.setInstanceFollowRedirects(false);
             connection.setUseCaches(false);
             connection.setRequestMethod(method);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
+            if (token != null) {
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+            }
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Cache-Control", "no-store");
             connection.setRequestProperty("Connection", "close");

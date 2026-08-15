@@ -8,6 +8,7 @@ final class PairingStore {
     private static final String PREFERENCES_NAME = "paired_server";
     private static final String KEY_SERVER_ID = "server_id";
     private static final String KEY_SERVICE_NAME = "service_name";
+    private static final String KEY_DEVICE_NAME = "device_name";
     private static final String KEY_TOKEN = "bearer_token";
 
     private final SharedPreferences preferences;
@@ -19,11 +20,12 @@ final class PairingStore {
     PairingCredentials load() {
         String serverId = preferences.getString(KEY_SERVER_ID, null);
         String serviceName = preferences.getString(KEY_SERVICE_NAME, null);
+        String deviceName = preferences.getString(KEY_DEVICE_NAME, serviceName);
         String token = preferences.getString(KEY_TOKEN, null);
         try {
-            return new PairingCredentials(serverId, serviceName, token);
+            return new PairingCredentials(serverId, serviceName, deviceName, token);
         } catch (IllegalArgumentException exception) {
-            if (serverId != null || serviceName != null || token != null) {
+            if (serverId != null || serviceName != null || deviceName != null || token != null) {
                 preferences.edit().clear().apply();
             }
             return null;
@@ -34,6 +36,7 @@ final class PairingStore {
         boolean saved = preferences.edit()
                 .putString(KEY_SERVER_ID, credentials.serverId)
                 .putString(KEY_SERVICE_NAME, credentials.serviceName)
+                .putString(KEY_DEVICE_NAME, credentials.deviceName)
                 .putString(KEY_TOKEN, credentials.token)
                 .commit();
         if (!saved) {

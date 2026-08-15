@@ -19,10 +19,19 @@ public final class PairingCredentialsTest {
         PairingCredentials credentials = new PairingCredentials(
                 SERVER_ID,
                 "Poweramp Remote Server",
+                "HiBy R4",
                 TOKEN
         );
         assertEquals(SERVER_ID, credentials.serverId);
+        assertEquals("HiBy R4", credentials.deviceName);
         assertEquals(TOKEN, credentials.token);
+
+        PairingCredentials migrated = new PairingCredentials(
+                SERVER_ID,
+                "Poweramp Remote Server",
+                TOKEN
+        );
+        assertEquals("Poweramp Remote Server", migrated.deviceName);
     }
 
     @Test

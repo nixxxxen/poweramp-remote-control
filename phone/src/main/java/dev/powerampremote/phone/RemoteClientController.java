@@ -20,7 +20,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 
-/** Coordinates discovery transports, token verification, event streaming, controls, and reconnect. */
+/** Coordinates discovery transports, QR exchange, event streaming, controls, and reconnect. */
 final class RemoteClientController implements NsdDiscoveryClient.Listener,
         WifiDirectConnectionClient.Listener, AutoCloseable {
     private static final String TAG = "RemoteClientController";
@@ -45,11 +45,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         ERROR
     }
 
-    enum PairingError { INVALID_TOKEN, UNAUTHORIZED, NETWORK, STORAGE }
+    enum PairingError { INVALID_QR, REJECTED, NETWORK, STORAGE }
 
     interface Listener {
         void onStatusChanged(Status status, long retryDelayMilliseconds);
-        void onPairingRequired(DiscoveredServer server, boolean tokenRejected);
         void onPairingFailed(PairingError error);
         void onPairingSucceeded(String serviceName);
         void onStateChanged(RemoteState state);
@@ -99,12 +98,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private PairingCredentials credentials;
     private DiscoveredServer endpoint;
-    private DiscoveredServer pairingCandidate;
+    private PairingQrPayload pendingPairing;
     private RemoteWebSocket webSocket;
     private boolean active;
     private boolean closed;
     private boolean connecting;
     private boolean connected;
+    private boolean pairingExchangeInFlight;
     private int connectionGeneration;
     private int operationGeneration;
     private int reconnectFailures;
@@ -131,8 +131,20 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         return credentials == null ? null : credentials.serviceName;
     }
 
-    boolean isConnected() {
-        return connected;
+    String pairedDeviceName() {
+        return credentials == null ? null : credentials.deviceName;
+    }
+
+    String pairedServerId() {
+        return credentials == null ? null : credentials.serverId;
+    }
+
+    DiscoveredServer currentEndpoint() {
+        return endpoint;
+    }
+
+    boolean isPairingInProgress() {
+        return pendingPairing != null;
     }
 
     void start() {
@@ -157,35 +169,32 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         discoveryClient.stop();
         directClient.stop();
         candidates.clear();
-        pairingCandidate = null;
+        pendingPairing = null;
+        pairingExchangeInFlight = false;
         endpoint = null;
         disconnectSocket();
     }
 
-    void pair(DiscoveredServer server, String enteredToken) {
-        if (!active || server == null) return;
-        int operation = ++operationGeneration;
-        String token = enteredToken == null ? "" : enteredToken.trim();
-        if (!PairingCredentials.isValidToken(token)) {
-            listener.onPairingFailed(PairingError.INVALID_TOKEN);
+    void pair(PairingQrPayload payload) {
+        if (!active || payload == null) {
+            listener.onPairingFailed(PairingError.INVALID_QR);
             return;
         }
-        notifyStatus(Status.VERIFYING, 0L);
-        try {
-            controlExecutor.execute(() -> {
-                try {
-                    RemoteState state = apiClient.getState(server, token);
-                    mainHandler.post(() -> finishPairing(operation, server, token, state));
-                } catch (RemoteApiClient.HttpStatusException exception) {
-                    PairingError error = exception.statusCode == 401
-                            ? PairingError.UNAUTHORIZED : PairingError.NETWORK;
-                    mainHandler.post(() -> failPairing(operation, error));
-                } catch (IOException exception) {
-                    mainHandler.post(() -> failPairing(operation, PairingError.NETWORK));
-                }
-            });
-        } catch (RejectedExecutionException exception) {
-            failPairing(operation, PairingError.NETWORK);
+        operationGeneration++;
+        pendingPairing = payload;
+        pairingExchangeInFlight = false;
+        mainHandler.removeCallbacks(reconnectRunnable);
+        mainHandler.removeCallbacks(directFallbackRunnable);
+        disconnectSocket();
+        directClient.stop();
+        endpoint = null;
+        notifyStatus(Status.PAIRING, 0L);
+        DiscoveredServer candidate = candidates.get(payload.serverId);
+        if (candidate != null) {
+            beginPairingExchange(candidate);
+        } else {
+            restartDiscovery();
+            scheduleDirectFallback(DIRECT_FALLBACK_DELAY_MILLISECONDS);
         }
     }
 
@@ -199,6 +208,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         credentials = null;
         operationGeneration++;
+        pendingPairing = null;
+        pairingExchangeInFlight = false;
         mainHandler.removeCallbacks(directFallbackRunnable);
         directClient.stop();
         endpoint = null;
@@ -207,13 +218,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         artworkGeneration++;
         listener.onArtworkChanged(null);
         listener.onArtworkBytesChanged(null);
-        pairingCandidate = firstCandidate();
-        if (pairingCandidate != null) {
-            notifyStatus(Status.PAIRING, 0L);
-            listener.onPairingRequired(pairingCandidate, false);
-        } else {
-            notifyStatus(Status.SEARCHING, 0L);
-        }
+        notifyStatus(Status.SEARCHING, 0L);
         return true;
     }
 
@@ -227,12 +232,12 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     void setVolume(int volume) { sendControl(RemoteCommandJson.volume(volume)); }
 
     void retryDirectConnection() {
-        if (!active || credentials == null) return;
+        if (!active || targetServerId() == null) return;
         restartDiscovery();
         if (directClient.isActive()) {
             directClient.retry();
         } else {
-            directClient.start(credentials.serverId, credentials.serviceName);
+            directClient.start(targetServerId(), targetServiceName());
         }
     }
 
@@ -243,7 +248,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     void onDirectPermissionOrSettingsChanged() {
-        if (!active || credentials == null) return;
+        if (!active || targetServerId() == null) return;
         if (directClient.isActive()) {
             directClient.onPermissionOrSettingsChanged();
         } else {
@@ -256,15 +261,15 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         if (!active) return;
         Log.i(TAG, "LAN NSD Server found; transport=" + server.transport);
         candidates.put(server.serverId, server);
-        if (credentials == null) {
-            if (pairingCandidate == null
-                    || pairingCandidate.serverId.equals(server.serverId)) {
-                pairingCandidate = server;
-                notifyStatus(Status.PAIRING, 0L);
-                listener.onPairingRequired(server, false);
+        if (pendingPairing != null) {
+            if (pendingPairing.serverId.equals(server.serverId)) {
+                mainHandler.removeCallbacks(directFallbackRunnable);
+                directClient.stop();
+                beginPairingExchange(server);
             }
             return;
         }
+        if (credentials == null) return;
         if (!credentials.serverId.equals(server.serverId)) return;
         if (endpoint != null
                 && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
@@ -287,9 +292,6 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         if (!active) return;
         Log.i(TAG, "LAN NSD service lost");
         candidates.values().removeIf(server -> serviceName.equals(server.serviceName));
-        if (pairingCandidate != null && serviceName.equals(pairingCandidate.serviceName)) {
-            pairingCandidate = null;
-        }
         if (endpoint != null
                 && endpoint.transport == DiscoveredServer.Transport.LAN
                 && serviceName.equals(endpoint.serviceName)) {
@@ -310,14 +312,46 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         mainHandler.postDelayed(discoveryRestartRunnable, ReconnectBackoff.delayMilliseconds(1));
     }
 
+    private void beginPairingExchange(DiscoveredServer server) {
+        PairingQrPayload offer = pendingPairing;
+        if (!active || offer == null || pairingExchangeInFlight
+                || !offer.serverId.equals(server.serverId)) {
+            return;
+        }
+        int operation = operationGeneration;
+        pairingExchangeInFlight = true;
+        endpoint = server;
+        notifyStatus(Status.VERIFYING, 0L);
+        try {
+            controlExecutor.execute(() -> {
+                try {
+                    PairingExchangeResponse response = apiClient.exchangePairing(server, offer);
+                    mainHandler.post(() -> finishPairing(operation, server, response));
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    PairingError error = exception.statusCode == 401
+                            ? PairingError.REJECTED : PairingError.NETWORK;
+                    mainHandler.post(() -> failPairing(operation, error));
+                } catch (IOException exception) {
+                    mainHandler.post(() -> failPairing(operation, PairingError.NETWORK));
+                }
+            });
+        } catch (RejectedExecutionException exception) {
+            failPairing(operation, PairingError.NETWORK);
+        }
+    }
+
     private void finishPairing(
             int operation,
             DiscoveredServer server,
-            String token,
-            RemoteState state
+            PairingExchangeResponse response
     ) {
-        if (!active || operation != operationGeneration) return;
-        PairingCredentials paired = new PairingCredentials(server.serverId, server.serviceName, token);
+        if (!active || operation != operationGeneration || pendingPairing == null) return;
+        PairingCredentials paired = new PairingCredentials(
+                server.serverId,
+                server.serviceName,
+                response.deviceName,
+                response.token
+        );
         try {
             pairingStore.save(paired);
         } catch (IllegalStateException exception) {
@@ -325,19 +359,31 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         credentials = paired;
-        pairingCandidate = null;
+        pendingPairing = null;
+        pairingExchangeInFlight = false;
         endpoint = server;
-        listener.onPairingSucceeded(server.serviceName);
-        listener.onStateChanged(state);
-        requestArtwork(state);
+        listener.onPairingSucceeded(response.deviceName);
         connectSocket(false);
     }
 
     private void failPairing(int operation, PairingError error) {
         if (!active || operation != operationGeneration) return;
-        notifyStatus(error == PairingError.UNAUTHORIZED
-                ? Status.AUTH_REQUIRED : Status.PAIRING, 0L);
+        operationGeneration++;
+        pendingPairing = null;
+        pairingExchangeInFlight = false;
+        endpoint = null;
+        directClient.stop();
+        notifyStatus(Status.SEARCHING, 0L);
         listener.onPairingFailed(error);
+        restartDiscovery();
+        DiscoveredServer previous = credentials == null
+                ? null : candidates.get(credentials.serverId);
+        if (previous != null) {
+            endpoint = previous;
+            connectSocket(false);
+        } else {
+            scheduleDirectFallback(DIRECT_FALLBACK_DELAY_MILLISECONDS);
+        }
     }
 
     private void connectSocket(boolean retry) {
@@ -445,9 +491,9 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         credentials = null;
         operationGeneration++;
-        pairingCandidate = failedEndpoint;
+        pendingPairing = null;
+        pairingExchangeInFlight = false;
         notifyStatus(Status.AUTH_REQUIRED, 0L);
-        listener.onPairingRequired(failedEndpoint, true);
     }
 
     private void sendControl(String commandJson) {
@@ -543,7 +589,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     @Override
     public void onDirectStatus(WifiDirectConnectionClient.State directState, int reason) {
-        if (!active || credentials == null || connected) return;
+        if (!active || targetServerId() == null || connected) return;
         Log.i(TAG, "Direct fallback state=" + directState + ", reason=" + reason);
         switch (directState) {
             case PERMISSION_REQUIRED:
@@ -575,10 +621,15 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     @Override
     public void onDirectEndpoint(DiscoveredServer server) {
-        if (!active || credentials == null
-                || !credentials.serverId.equals(server.serverId)) {
+        String targetServerId = targetServerId();
+        if (!active || targetServerId == null || !targetServerId.equals(server.serverId)) {
             return;
         }
+        if (pendingPairing != null) {
+            beginPairingExchange(server);
+            return;
+        }
+        if (credentials == null) return;
         if (endpoint != null
                 && endpoint.transport == DiscoveredServer.Transport.LAN
                 && (connecting || connected)) {
@@ -606,15 +657,16 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private void scheduleDirectFallback(long delayMilliseconds) {
         mainHandler.removeCallbacks(directFallbackRunnable);
-        if (active && credentials != null && !connected) {
+        if (active && targetServerId() != null && !connected) {
             mainHandler.postDelayed(directFallbackRunnable, Math.max(0L, delayMilliseconds));
         }
     }
 
     private void startDirectFallback() {
-        if (!active || credentials == null || connected || directClient.isActive()) return;
+        String targetServerId = targetServerId();
+        if (!active || targetServerId == null || connected || directClient.isActive()) return;
         Log.i(TAG, "LAN grace period expired; starting Wi-Fi Direct fallback");
-        directClient.start(credentials.serverId, credentials.serviceName);
+        directClient.start(targetServerId, targetServiceName());
     }
 
     private void startNetworkMonitor() {
@@ -667,7 +719,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             notifyStatus(Status.SEARCHING, 0L);
         }
         restartDiscovery();
-        if (credentials != null && !connected) {
+        if (targetServerId() != null && !connected) {
             if (!lanNetworkAvailable && directClient.isActive()) {
                 directClient.reinitializeDiscovery("LAN route transition");
             }
@@ -701,7 +753,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             handleNetworkRecovery();
             return;
         }
-        if (active && credentials != null && endpoint != null) {
+        if (active && credentials != null && pendingPairing == null && endpoint != null) {
             Log.i(TAG, "Running scheduled WebSocket reconnect over " + endpoint.transport);
             connectSocket(true);
         }
@@ -713,8 +765,16 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         discoveryClient.start();
     }
 
-    private DiscoveredServer firstCandidate() {
-        return candidates.isEmpty() ? null : candidates.values().iterator().next();
+    private String targetServerId() {
+        return pendingPairing != null
+                ? pendingPairing.serverId
+                : credentials == null ? null : credentials.serverId;
+    }
+
+    private String targetServiceName() {
+        return pendingPairing != null
+                ? pendingPairing.deviceName
+                : credentials == null ? "Poweramp Remote Server" : credentials.serviceName;
     }
 
     private boolean isCurrentConnection(int generation) {

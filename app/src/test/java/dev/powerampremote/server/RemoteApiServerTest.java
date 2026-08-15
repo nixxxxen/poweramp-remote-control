@@ -12,6 +12,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,13 +26,16 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public final class RemoteApiServerTest {
-    private static final String TOKEN = "test-token";
+    private static final String TOKEN =
+            "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+    private static final String SERVER_ID = "AAECAwQFBgcICQoLDA0ODw";
 
     private PlaybackStateStore stateStore;
     private RemoteArtworkCache artworkCache;
     private RemoteApiServer server;
     private AtomicReference<RemoteCommand> submittedCommand;
     private AtomicLong clock;
+    private PairingSecretStore pairingSecrets;
     private int port;
 
     @Before
@@ -65,6 +69,12 @@ public final class RemoteApiServerTest {
         artworkCache = new RemoteArtworkCache(stateStore);
         submittedCommand = new AtomicReference<>();
         clock = new AtomicLong(5_000L);
+        pairingSecrets = new PairingSecretStore(
+                SERVER_ID,
+                "Test Player",
+                new SecureRandom(),
+                clock::get
+        );
         CountDownLatch running = new CountDownLatch(1);
         server = new RemoteApiServer(
                 port,
@@ -80,7 +90,10 @@ public final class RemoteApiServerTest {
                         running.countDown();
                     }
                 },
-                clock::get
+                clock::get,
+                pairingSecrets,
+                SERVER_ID,
+                "Test Player"
         );
         server.start();
         assertTrue("Server did not start", running.await(3, TimeUnit.SECONDS));
@@ -130,6 +143,35 @@ public final class RemoteApiServerTest {
         assertStatus(http("GET", RemoteApiServer.ARTWORK_PATH, null, null, null), 401);
         assertStatus(http("GET", RemoteApiServer.ARTWORK_PATH, TOKEN, null, null), 404);
         assertStatus(http("GET", "/missing", TOKEN, null, null), 404);
+    }
+
+    @Test
+    public void oneTimePairingRouteExchangesQrSecretWithoutBearer() throws Exception {
+        PairingOffer offer = pairingSecrets.issue();
+        String request = "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
+                + "\",\"secret\":\"" + offer.secret + "\"}";
+
+        String paired = http(
+                "POST",
+                RemoteApiServer.PAIRING_PATH,
+                null,
+                "application/json; charset=utf-8",
+                request
+        );
+        assertStatus(paired, 200);
+        assertTrue(paired.contains("\"serverId\":\"" + SERVER_ID + "\""));
+        assertTrue(paired.contains("\"deviceName\":\"Test Player\""));
+        assertTrue(paired.contains("\"token\":\"" + TOKEN + "\""));
+
+        String reused = http(
+                "POST",
+                RemoteApiServer.PAIRING_PATH,
+                null,
+                "application/json",
+                request
+        );
+        assertStatus(reused, 401);
+        assertStatus(http("GET", RemoteApiServer.PAIRING_PATH, null, null, null), 405);
     }
 
     @Test

@@ -9,17 +9,31 @@ final class PairingCredentials {
 
     final String serverId;
     final String serviceName;
+    final String deviceName;
     final String token;
 
     PairingCredentials(String serverId, String serviceName, String token) {
+        this(serverId, serviceName, serviceName, token);
+    }
+
+    PairingCredentials(
+            String serverId,
+            String serviceName,
+            String deviceName,
+            String token
+    ) {
         if (!isValidServerId(serverId)
                 || serviceName == null
                 || serviceName.trim().isEmpty()
+                || deviceName == null
+                || deviceName.trim().isEmpty()
+                || deviceName.length() > 80
                 || !isValidToken(token)) {
             throw new IllegalArgumentException("invalid pairing credentials");
         }
         this.serverId = serverId;
-        this.serviceName = serviceName;
+        this.serviceName = serviceName.trim();
+        this.deviceName = deviceName.trim();
         this.token = token;
     }
 
@@ -28,6 +42,10 @@ final class PairingCredentials {
     }
 
     static boolean isValidToken(String value) {
+        return isCanonicalBase64Url(value, TOKEN_BYTES, 43);
+    }
+
+    static boolean isValidSecret(String value) {
         return isCanonicalBase64Url(value, TOKEN_BYTES, 43);
     }
 

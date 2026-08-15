@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.annotation.OptIn;
@@ -59,6 +60,7 @@ public final class PhoneConnectionService extends MediaSessionService
     private static final int NEXT_REQUEST_CODE = 705;
 
     interface Listener extends RemoteClientController.Listener {
+        void onPlaybackSnapshot(PlaybackUiSnapshot snapshot);
     }
 
     final class LocalBinder extends Binder {
@@ -74,23 +76,22 @@ public final class PhoneConnectionService extends MediaSessionService
             return controller != null && controller.hasPairing();
         }
 
-        String pairedServiceName() {
-            return controller == null ? null : controller.pairedServiceName();
+        void pair(PairingQrPayload payload) {
+            if (controller != null) controller.pair(payload);
         }
 
-        boolean isConnected() {
-            return controller != null && controller.isConnected();
+        boolean isPairingInProgress() {
+            return controller != null && controller.isPairingInProgress();
         }
 
-        void pair(DiscoveredServer server, String token) {
-            if (controller != null) controller.pair(server, token);
+        PlayerDeviceSnapshot playerDeviceSnapshot() {
+            return PhoneConnectionService.this.playerDeviceSnapshot();
         }
 
         boolean forgetPairing() {
             if (controller == null) return false;
-            pairingServer = null;
-            pairingTokenRejected = false;
             currentState = null;
+            currentPlaybackSnapshot = null;
             currentArtwork = null;
             currentArtworkData = null;
             if (remoteSessionPlayer != null) {
@@ -155,9 +156,8 @@ public final class PhoneConnectionService extends MediaSessionService
     private RemoteClientController.Status currentStatus =
             RemoteClientController.Status.SEARCHING;
     private long currentRetryDelayMilliseconds;
-    private DiscoveredServer pairingServer;
-    private boolean pairingTokenRejected;
     private RemoteState currentState;
+    private PlaybackUiSnapshot currentPlaybackSnapshot;
     private Bitmap currentArtwork;
     private byte[] currentArtworkData;
     private RemoteSessionPlayer remoteSessionPlayer;
@@ -343,6 +343,12 @@ public final class PhoneConnectionService extends MediaSessionService
             RemoteClientController.Status status,
             long retryDelayMilliseconds
     ) {
+        if (!isConnectedStatus(status) && isConnectedStatus(currentStatus)
+                && currentPlaybackSnapshot != null) {
+            currentPlaybackSnapshot = currentPlaybackSnapshot.frozenAt(
+                    SystemClock.elapsedRealtime()
+            );
+        }
         currentStatus = status;
         currentRetryDelayMilliseconds = retryDelayMilliseconds;
         if (remoteSessionPlayer != null) {
@@ -355,23 +361,12 @@ public final class PhoneConnectionService extends MediaSessionService
     }
 
     @Override
-    public void onPairingRequired(DiscoveredServer server, boolean tokenRejected) {
-        pairingServer = server;
-        pairingTokenRejected = tokenRejected;
-        for (Listener listener : listeners) {
-            listener.onPairingRequired(server, tokenRejected);
-        }
-    }
-
-    @Override
     public void onPairingFailed(RemoteClientController.PairingError error) {
         for (Listener listener : listeners) listener.onPairingFailed(error);
     }
 
     @Override
     public void onPairingSucceeded(String serviceName) {
-        pairingServer = null;
-        pairingTokenRejected = false;
         for (Listener listener : listeners) listener.onPairingSucceeded(serviceName);
         updateNotification();
     }
@@ -379,8 +374,17 @@ public final class PhoneConnectionService extends MediaSessionService
     @Override
     public void onStateChanged(RemoteState state) {
         currentState = state;
+        currentPlaybackSnapshot = PlaybackUiSnapshot.anchor(
+                state,
+                SystemClock.elapsedRealtime()
+        );
         if (remoteSessionPlayer != null) remoteSessionPlayer.updateRemoteState(state);
-        for (Listener listener : listeners) listener.onStateChanged(state);
+        for (Listener listener : listeners) {
+            listener.onStateChanged(state);
+            listener.onPlaybackSnapshot(currentPlaybackSnapshot.capturedAt(
+                    SystemClock.elapsedRealtime()
+            ));
+        }
         updateNotification();
     }
 
@@ -410,11 +414,53 @@ public final class PhoneConnectionService extends MediaSessionService
         }
         listeners.addIfAbsent(listener);
         listener.onStatusChanged(currentStatus, currentRetryDelayMilliseconds);
-        if (pairingServer != null) {
-            listener.onPairingRequired(pairingServer, pairingTokenRejected);
+        if (currentState != null) {
+            listener.onStateChanged(currentState);
+            PlaybackUiSnapshot playbackSnapshot = currentPlaybackSnapshot;
+            if (playbackSnapshot != null) {
+                listener.onPlaybackSnapshot(playbackSnapshot.capturedAt(
+                        SystemClock.elapsedRealtime()
+                ));
+            }
         }
-        if (currentState != null) listener.onStateChanged(currentState);
         listener.onArtworkChanged(currentArtwork);
+    }
+
+    private PlayerDeviceSnapshot playerDeviceSnapshot() {
+        if (controller == null || !controller.hasPairing()) {
+            return new PlayerDeviceSnapshot(
+                    false,
+                    null,
+                    null,
+                    null,
+                    PlayerDeviceSnapshot.Connection.DISCONNECTED,
+                    PlayerDeviceSnapshot.Transport.NONE,
+                    null,
+                    currentStatus,
+                    PairingQrPayload.API_VERSION
+            );
+        }
+        DiscoveredServer endpoint = controller.currentEndpoint();
+        boolean connected = isConnectedStatus(currentStatus);
+        PlayerDeviceSnapshot.Transport transport = PlayerDeviceSnapshot.Transport.NONE;
+        if (connected && endpoint != null) {
+            transport = endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                    ? PlayerDeviceSnapshot.Transport.WIFI_DIRECT
+                    : PlayerDeviceSnapshot.Transport.LAN;
+        }
+        return new PlayerDeviceSnapshot(
+                true,
+                controller.pairedDeviceName(),
+                controller.pairedServiceName(),
+                controller.pairedServerId(),
+                connected
+                        ? PlayerDeviceSnapshot.Connection.CONNECTED
+                        : PlayerDeviceSnapshot.Connection.DISCONNECTED,
+                transport,
+                endpoint == null ? null : endpoint.addressLabel(),
+                currentStatus,
+                PairingQrPayload.API_VERSION
+        );
     }
 
     private void createNotificationChannel() {

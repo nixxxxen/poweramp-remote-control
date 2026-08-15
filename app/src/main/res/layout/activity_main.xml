@@ -340,30 +340,71 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="@string/server_token"
-                android:textColor="@color/accent"
-                android:textSize="12sp"
+                android:layout_marginTop="14dp"
+                android:gravity="center"
+                android:text="@string/server_pairing_title"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/server_token"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:fontFamily="monospace"
-                android:textColor="@color/text_primary"
-                android:textIsSelectable="true"
+                android:layout_marginTop="5dp"
+                android:gravity="center"
+                android:text="@string/server_pairing_instruction"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <ImageView
+                android:id="@+id/server_pairing_qr"
+                android:layout_width="236dp"
+                android:layout_height="236dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/pairing_qr_background"
+                android:contentDescription="@string/server_pairing_qr_description"
+                android:scaleType="fitCenter" />
+
+            <TextView
+                android:id="@+id/server_pairing_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="@string/server_pairing_unavailable"
+                android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
             <Button
-                android:id="@+id/copy_token_button"
+                android:id="@+id/refresh_pairing_qr_button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:background="@drawable/sync_button_background"
                 android:minHeight="48dp"
-                android:text="@string/server_copy_token"
+                android:text="@string/server_pairing_refresh"
+                android:textAllCaps="false"
+                android:textColor="@color/accent"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/server_web_access_instruction"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/copy_web_token_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/sync_button_background"
+                android:minHeight="48dp"
+                android:text="@string/server_copy_web_token"
                 android:textAllCaps="false"
                 android:textColor="@color/accent"
                 android:textSize="14sp"

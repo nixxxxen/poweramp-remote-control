@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.security.SecureRandom;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -57,7 +58,15 @@ public final class RemotePlaybackService extends Service implements PowerampClie
             RemotePlaybackService.this.removeListener(listener);
         }
 
-        String apiToken() {
+        PairingOffer issuePairingOffer() {
+            return pairingSecrets == null ? null : pairingSecrets.issue();
+        }
+
+        boolean isPairingOfferActive(PairingOffer offer) {
+            return pairingSecrets != null && pairingSecrets.isActive(offer);
+        }
+
+        String webUiAccessToken() {
             return apiToken;
         }
 
@@ -117,6 +126,9 @@ public final class RemotePlaybackService extends Service implements PowerampClie
     private SystemMediaVolumeController volumeController;
     private NotificationManager notificationManager;
     private String apiToken;
+    private String serverId;
+    private String playerDeviceName;
+    private PairingSecretStore pairingSecrets;
     private RemoteApiServer.Status serverStatus;
     private Bitmap currentArtwork;
     private long currentArtworkId;
@@ -195,6 +207,14 @@ public final class RemotePlaybackService extends Service implements PowerampClie
             Log.e(TAG, "Unable to load the remote API token", exception);
             apiToken = null;
         }
+        try {
+            serverId = ServerIdentityStore.loadOrCreate(this);
+            playerDeviceName = PlayerDeviceName.current();
+        } catch (RuntimeException exception) {
+            Log.e(TAG, "Unable to load the public server identity", exception);
+            serverId = null;
+            playerDeviceName = null;
+        }
         powerampClient = new PowerampClient(this, this);
         serverStatus = new RemoteApiServer.Status(
                 false,
@@ -204,6 +224,14 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                 0L
         );
         if (apiToken != null) {
+            if (serverId != null && playerDeviceName != null) {
+                pairingSecrets = new PairingSecretStore(
+                        serverId,
+                        playerDeviceName,
+                        new SecureRandom(),
+                        SystemClock::elapsedRealtime
+                );
+            }
             remoteApiServer = new RemoteApiServer(
                     RemoteApiServer.PORT,
                     apiToken,
@@ -211,11 +239,13 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                     artworkCache,
                     this::submitRemoteCommand,
                     this::onServerStatusFromNetworkThread,
-                    SystemClock::elapsedRealtime
+                    SystemClock::elapsedRealtime,
+                    pairingSecrets,
+                    serverId,
+                    playerDeviceName
             );
         }
-        try {
-            String serverId = ServerIdentityStore.loadOrCreate(this);
+        if (serverId != null) {
             try {
                 nsdPublisher = new RemoteNsdPublisher(this, mainHandler, serverId);
             } catch (RuntimeException exception) {
@@ -233,8 +263,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                 Log.e(TAG, "Unable to initialize Wi-Fi Direct publication", exception);
                 wifiDirectPublisher = null;
             }
-        } catch (RuntimeException exception) {
-            Log.e(TAG, "Unable to load the public server identity", exception);
+        } else {
             nsdPublisher = null;
             wifiDirectPublisher = null;
         }

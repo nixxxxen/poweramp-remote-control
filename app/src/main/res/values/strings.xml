@@ -54,10 +54,17 @@
     <string name="server_address_value">http://%1$s:%2$d</string>
     <string name="server_address_unavailable">IP-адрес локальной сети не найден · порт %1$d</string>
     <string name="server_clients_value">WebSocket-клиентов: %1$d</string>
-    <string name="server_token">Bearer-токен</string>
-    <string name="server_token_unavailable">Недоступен</string>
-    <string name="server_copy_token">Копировать токен</string>
-    <string name="server_token_copied">Токен скопирован</string>
+    <string name="server_pairing_title">QR-привязка телефона</string>
+    <string name="server_pairing_instruction">На телефоне откройте Player devices → Pair new player и отсканируйте код. Постоянный credential и IP-адрес в QR не входят.</string>
+    <string name="server_pairing_qr_description">Одноразовый QR-код для привязки телефона</string>
+    <string name="server_pairing_active">Одноразовый код действует 2 минуты</string>
+    <string name="server_pairing_expired">Код истёк или уже использован · обновите QR</string>
+    <string name="server_pairing_unavailable">QR-привязка сейчас недоступна</string>
+    <string name="server_pairing_refresh">Обновить одноразовый QR</string>
+    <string name="server_web_access_instruction">Для входа в существующий Web UI используйте credential только для браузера. Привязка Phone Client выполняется через QR выше.</string>
+    <string name="server_copy_web_token">Копировать credential для Web UI</string>
+    <string name="server_web_token_label">Poweramp Remote Web UI credential</string>
+    <string name="server_web_token_copied">Credential для Web UI скопирован</string>
 
     <string name="remote_service_channel_name">Локальный сервер Poweramp Remote</string>
     <string name="remote_service_channel_description">Постоянная работа REST и WebSocket в фоне</string>

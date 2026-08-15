@@ -1,8 +1,34 @@
 # Poweramp Remote Roadmap
 
-Current releases are Server `0.9.0` and Phone Client `0.3.0`; API remains `v1`.
+Current releases are Server `0.10.0` and Phone Client `0.4.0`; API remains backward-compatible `v1`.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
+
+## 0.10.0 Server / 0.4.0 Phone — QR pairing and Phone surfaces
+
+Implemented:
+
+- Server renders an address-free QR containing the stable public Server ID, API version, readable
+  device name, and a random two-minute one-time secret. It contains no persistent credential or IP.
+- Phone **Pair new player** and **Re-pair** scan that QR, search only the scanned identity through
+  existing LAN-first NSD and Wi-Fi Direct fallback, then atomically exchange the secret for the
+  unchanged persistent API v1 Bearer credential.
+- A separate generic **Player devices** screen presents the saved device name, connected state,
+  current LAN/Wi-Fi Direct transport, diagnostics, re-pair, and forget actions. Persistence remains
+  one-slot in this release; a full multi-player collection/selector is still future work.
+- `PhoneConnectionService` now replays an extrapolated service-owned playback snapshot whenever the
+  player Activity rebinds. The seekbar no longer restarts from zero after resume, and no polling was
+  introduced.
+- The Phone main screen is playback-only and non-scrolling on a typical smartphone, with larger
+  rounded artwork, compact metadata chips and secondary controls, player-styled seek/volume,
+  selected states, ripple feedback, and haptics.
+- Existing REST/WebSocket routes, protected-route Bearer auth, browser sessions, LAN/P2P transport,
+  MediaSession/Wear controls, and embedded Web UI remain compatible. The additive
+  `POST /api/v1/pair` route is used only for the one-time credential exchange.
+
+Remaining release validation is the real-device/OEM matrix in `STATUS.md`, especially scanner
+camera flow, QR expiry/reuse, LAN and pre-association P2P initial pairing, Activity recreation, and
+short-screen/accessibility behavior.
 
 ## 0.9.0 Server / 0.3.0 Phone — Remote system integration
 
@@ -42,37 +68,15 @@ Remaining hardening:
 - improve diagnostics without exposing credentials or persisting transient addresses;
 - evaluate Local Only Hotspot only as a fallback if Wi-Fi Direct proves unreliable on specific devices.
 
-## Next — QR pairing and player-device management
+## Next — Multi-player foundation and pairing hardening
 
-Replace manual token copying with a simple first-run pairing flow.
-
-Target UX:
-
-1. Server displays a QR code.
-2. Phone Client selects **Pair new player** and scans it.
-3. QR identifies the Server but does not contain a permanent bearer token or fixed IP address.
-4. Phone discovers the Server through LAN/NSD or Wi-Fi Direct.
-5. A short-lived one-time pairing secret authenticates the initial exchange.
-6. Server issues persistent credentials after successful pairing.
-7. Subsequent connections remain automatic.
-
-Suggested QR payload:
-
-- persistent `serverId`;
-- protocol/API version;
-- short-lived one-time pairing secret;
-- optional non-sensitive capability/version information.
-
-Do not encode transient LAN/P2P addresses as identity.
-
-Also add basic management for saved player devices:
-
-- device name;
-- connection/pairing status;
-- forget/re-pair action;
-- support for more than one paired Server without tying the architecture to a specific player model.
-
-Mandatory Android Wi-Fi Direct confirmation dialogs must remain respected where required by the OS/OEM.
+- evolve the generic saved-device snapshot and one-slot preferences into an explicit collection;
+- add selection and deterministic connection policy for more than one paired Server;
+- retain stable identity as the key and never persist a resolved LAN/P2P address;
+- consider an explicit Server-side paired-client/revocation surface;
+- investigate application-layer authentication/encryption upgrades without breaking trusted-local
+  API v1 clients or the embedded Web UI;
+- continue respecting all mandatory Android/OEM Wi-Fi Direct confirmations.
 
 ## Library browsing and search
 
@@ -157,8 +161,8 @@ Continue supporting existing Bearer/session authentication for API v1 clients an
 
 For new pairing:
 
-- permanent credentials must not be displayed or embedded directly in reusable QR codes;
-- pairing secrets should be one-time and short-lived;
+- permanent credentials are not displayed or embedded directly in QR codes;
+- pairing secrets are one-time and short-lived;
 - persistent credentials should be stored privately and excluded from backup where appropriate;
 - avoid logging tokens or pairing secrets.
 

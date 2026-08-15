@@ -1,44 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Poweramp Remote</string>
-    <string name="screen_title">Poweramp Remote</string>
-    <string name="screen_subtitle">Нативный клиент · LAN / Wi-Fi Direct · API v1</string>
-    <string name="status_searching">Ищу Poweramp Remote Server…</string>
-    <string name="status_pairing">Сервер найден · нужна привязка</string>
-    <string name="status_verifying">Проверяю токен…</string>
-    <string name="status_connecting">Подключаюсь к Server…</string>
-    <string name="status_connected">Подключено · WebSocket</string>
-    <string name="status_direct_searching">Server не найден в LAN · ищу через Wi-Fi Direct…</string>
-    <string name="status_direct_permission_nearby">Для direct-connect разрешите доступ к устройствам поблизости.</string>
-    <string name="status_direct_permission_location">Для direct-connect разрешите доступ к геолокации.</string>
-    <string name="status_direct_location">Для Wi-Fi Direct discovery включите геолокацию Android.</string>
-    <string name="status_direct_wifi">Wi-Fi Direct недоступен · включите Wi-Fi.</string>
-    <string name="status_direct_connecting">Соединяюсь через Wi-Fi Direct · подтвердите системный запрос на устройстве с Poweramp, если он появится.</string>
-    <string name="status_connected_direct">Подключено · Wi-Fi Direct · WebSocket</string>
-    <string name="status_direct_unsupported">Wi-Fi Direct не поддерживается · используйте общую LAN.</string>
-    <string name="status_direct_action_required">Direct-connect не завершён · проверьте Wi-Fi и разрешения на Server, подтвердите системный запрос или повторите попытку.</string>
-    <string name="status_retrying">Связь потеряна · повтор через %1$d с</string>
-    <string name="status_auth_required">Токен отклонён · повторите привязку</string>
-    <string name="status_error">Соединение недоступно</string>
-    <string name="known_server">Известный сервер: %1$s</string>
-    <string name="endpoint_value">%1$s · %2$s</string>
+    <string name="player_devices">Player devices</string>
+    <string name="back">Назад</string>
+    <string name="no_player_devices">Нет сохранённых player devices. Нажмите Pair new player и отсканируйте одноразовый QR на Server.</string>
+    <string name="device_connected">Connected</string>
+    <string name="device_disconnected">Disconnected</string>
+    <string name="transport_lan">LAN</string>
+    <string name="transport_wifi_direct">Wi-Fi Direct</string>
+    <string name="transport_none">No active transport</string>
+    <string name="pair_new_player">Pair new player</string>
+    <string name="repair_player">Re-pair</string>
+    <string name="forget_device">Forget device</string>
+    <string name="forget_device_title">Forget player device?</string>
+    <string name="forget_device_message">Постоянный credential и сохранённая identity будут удалены только с этого телефона.</string>
+    <string name="forget_device_confirm">Forget</string>
+    <string name="pairing_scan_prompt">Наведите камеру на QR-код Poweramp Remote Server</string>
+    <string name="pairing_invalid_qr">Это не поддерживаемый QR-код Poweramp Remote.</string>
+    <string name="pairing_secret_rejected">Одноразовый код истёк или уже использован. Обновите QR на Server и повторите.</string>
+    <string name="pairing_searching_target">Ищу отсканированный player device через LAN и Wi-Fi Direct…</string>
+    <string name="pairing_exchanging">Обмениваю одноразовый код на постоянный credential…</string>
+    <string name="pairing_network_error_qr">Не удалось завершить QR-привязку. Обновите код на Server и повторите.</string>
+    <string name="pairing_success_device">%1$s сохранён</string>
+    <string name="device_diagnostics">Service: %1$s\nAPI: v%2$d\nServer ID: %3$s\nEndpoint: %4$s\nRuntime: %5$s</string>
+    <string name="endpoint_not_connected">—</string>
+    <string name="status_auth_required">Credential отклонён · отсканируйте новый QR в Player devices</string>
     <string name="direct_action_permission">Разрешить поиск устройств</string>
     <string name="direct_action_location">Открыть настройки геолокации</string>
     <string name="direct_action_wifi">Открыть настройки Wi-Fi</string>
     <string name="direct_action_retry">Повторить direct-connect</string>
     <string name="direct_action_retry_lan">Повторить поиск в LAN</string>
 
-    <string name="pairing_title">Подключение к Poweramp Remote Server</string>
-    <string name="pairing_scanning">Для первой привязки клиент ищет Server через NSD/mDNS. Подключите оба устройства к одной IP-сети.</string>
-    <string name="pairing_instruction">Откройте Poweramp Remote Server на устройстве с Poweramp, скопируйте показанный Bearer-токен и вставьте его ниже. IP-адрес вводить не нужно.</string>
-    <string name="pairing_found_server">Найдено: %1$s</string>
-    <string name="token_hint">Bearer-токен с Poweramp device</string>
-    <string name="pair_button">Проверить и сохранить</string>
-    <string name="pairing_invalid_token">Токен должен быть полной 43-символьной строкой с экрана Server.</string>
-    <string name="pairing_unauthorized">Сервер отклонил токен. Проверьте строку и повторите.</string>
-    <string name="pairing_network_error">Не удалось проверить токен: сервер временно недоступен.</string>
     <string name="pairing_storage_error">Не удалось сохранить привязку в приватном хранилище.</string>
-    <string name="pairing_success">Привязка к %1$s сохранена</string>
 
     <string name="waiting_title">Нет текущего трека</string>
     <string name="waiting_artist">Запустите Poweramp на Player device</string>
@@ -49,7 +42,6 @@
     <string name="album_art_description">Обложка текущего трека</string>
     <string name="elapsed_placeholder">0:00</string>
     <string name="duration_placeholder">0:00</string>
-    <string name="remote_volume">Громкость</string>
     <string name="remote_volume_description">Громкость на устройстве с Poweramp</string>
     <string name="volume_value">%1$d/%2$d</string>
     <string name="volume_value_placeholder">0/0</string>
@@ -70,10 +62,6 @@
     <string name="cancel">Отмена</string>
     <string name="command_error">Команда не отправлена · соединение восстанавливается</string>
     <string name="connection_service_error">Фоновый сервис соединения недоступен</string>
-    <string name="forget_pairing">Сбросить привязку к Server</string>
-    <string name="forget_pairing_title">Сбросить привязку?</string>
-    <string name="forget_pairing_message">Сохранённый токен будет удалён только с этого телефона.</string>
-    <string name="forget_confirm">Сбросить</string>
 
     <string name="connection_service_channel_name">Соединение Poweramp Remote</string>
     <string name="connection_service_channel_description">LAN/Wi-Fi Direct discovery, WebSocket и автоматическое восстановление связи</string>

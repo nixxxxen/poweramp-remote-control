@@ -64,12 +64,15 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
     private ImageButton shuffleButton;
     private TextView serverStatus;
     private TextView serverAddress;
-    private TextView serverToken;
     private TextView serverClients;
-    private Button copyTokenButton;
+    private ImageView serverPairingQr;
+    private TextView serverPairingStatus;
+    private Button refreshPairingQrButton;
+    private Button copyWebTokenButton;
 
     private RemotePlaybackService.LocalBinder remoteService;
-    private String apiToken;
+    private PairingOffer pairingOffer;
+    private String webUiAccessToken;
     private volatile boolean activityStarted;
     private boolean serviceBindingRequested;
     private boolean powerampInstalled;
@@ -93,12 +96,10 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
                 return;
             }
             remoteService = (RemotePlaybackService.LocalBinder) service;
-            apiToken = remoteService.apiToken();
-            serverToken.setText(apiToken != null
-                    ? apiToken
-                    : getText(R.string.server_token_unavailable));
-            copyTokenButton.setEnabled(apiToken != null);
+            webUiAccessToken = remoteService.webUiAccessToken();
+            copyWebTokenButton.setEnabled(webUiAccessToken != null);
             remoteService.addListener(MainActivity.this);
+            refreshPairingQr();
         }
 
         @Override
@@ -121,6 +122,14 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
             if (activityStarted && playbackState == PowerampContract.STATE_PLAYING) {
                 uiHandler.postDelayed(this, 1_000L);
             }
+        }
+    };
+
+    private final Runnable pairingExpiry = () -> {
+        if (remoteService == null || pairingOffer == null
+                || !remoteService.isPairingOfferActive(pairingOffer)) {
+            serverPairingQr.setAlpha(0.35f);
+            serverPairingStatus.setText(R.string.server_pairing_expired);
         }
     };
 
@@ -180,9 +189,10 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
                 showServiceUnavailable();
             }
         });
-        copyTokenButton.setOnClickListener(view -> copyApiToken());
-        copyTokenButton.setEnabled(false);
-        serverToken.setText(R.string.server_token_unavailable);
+        refreshPairingQrButton.setOnClickListener(view -> refreshPairingQr());
+        refreshPairingQrButton.setEnabled(false);
+        copyWebTokenButton.setOnClickListener(view -> copyWebUiAccessToken());
+        copyWebTokenButton.setEnabled(false);
         renderRemoteServerStatus(
                 new RemoteApiServer.Status(
                         false,
@@ -224,6 +234,7 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
             serviceBindingRequested = false;
         }
         uiHandler.removeCallbacks(progressTicker);
+        uiHandler.removeCallbacks(pairingExpiry);
         super.onStop();
     }
 
@@ -319,9 +330,11 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
         shuffleButton = findViewById(R.id.shuffle_button);
         serverStatus = findViewById(R.id.server_status);
         serverAddress = findViewById(R.id.server_address);
-        serverToken = findViewById(R.id.server_token);
         serverClients = findViewById(R.id.server_clients);
-        copyTokenButton = findViewById(R.id.copy_token_button);
+        serverPairingQr = findViewById(R.id.server_pairing_qr);
+        serverPairingStatus = findViewById(R.id.server_pairing_status);
+        refreshPairingQrButton = findViewById(R.id.refresh_pairing_qr_button);
+        copyWebTokenButton = findViewById(R.id.copy_web_token_button);
     }
 
     private void setWaitingMetadata() {
@@ -549,6 +562,13 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
                 ),
                 null
         );
+        pairingOffer = null;
+        webUiAccessToken = null;
+        serverPairingQr.setImageDrawable(null);
+        serverPairingQr.setAlpha(0.35f);
+        serverPairingStatus.setText(R.string.server_pairing_unavailable);
+        refreshPairingQrButton.setEnabled(false);
+        copyWebTokenButton.setEnabled(false);
     }
 
     private void showServiceUnavailable() {
@@ -619,22 +639,49 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
         ));
     }
 
-    private void copyApiToken() {
-        if (apiToken == null) {
+    private void refreshPairingQr() {
+        uiHandler.removeCallbacks(pairingExpiry);
+        PairingOffer offer = remoteService == null ? null : remoteService.issuePairingOffer();
+        pairingOffer = offer;
+        refreshPairingQrButton.setEnabled(remoteService != null);
+        if (offer == null) {
+            serverPairingQr.setImageDrawable(null);
+            serverPairingQr.setAlpha(0.35f);
+            serverPairingStatus.setText(R.string.server_pairing_unavailable);
             return;
         }
+        try {
+            serverPairingQr.setImageBitmap(PairingQrCode.render(offer.qrPayload(), 720));
+            serverPairingQr.setAlpha(1f);
+            serverPairingStatus.setText(R.string.server_pairing_active);
+            long delay = Math.max(
+                    1L,
+                    offer.expiresAtMilliseconds - SystemClock.elapsedRealtime()
+            );
+            uiHandler.postDelayed(pairingExpiry, delay);
+        } catch (RuntimeException exception) {
+            pairingOffer = null;
+            serverPairingQr.setImageDrawable(null);
+            serverPairingQr.setAlpha(0.35f);
+            serverPairingStatus.setText(R.string.server_pairing_unavailable);
+        }
+    }
+
+    private void copyWebUiAccessToken() {
+        if (webUiAccessToken == null) return;
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        if (clipboard == null) {
-            return;
-        }
-        ClipData clip = ClipData.newPlainText(getString(R.string.server_token), apiToken);
+        if (clipboard == null) return;
+        ClipData clip = ClipData.newPlainText(
+                getString(R.string.server_web_token_label),
+                webUiAccessToken
+        );
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             PersistableBundle extras = new PersistableBundle();
             extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
             clip.getDescription().setExtras(extras);
         }
         clipboard.setPrimaryClip(clip);
-        Toast.makeText(this, R.string.server_token_copied, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, R.string.server_web_token_copied, Toast.LENGTH_SHORT).show();
     }
 
     private void setPlayPauseStateDescription(int stringResource) {

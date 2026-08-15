@@ -49,6 +49,7 @@ final class RemoteApiServer implements AutoCloseable {
     static final String EVENTS_PATH = "/api/v1/events";
     static final String ARTWORK_PATH = RemoteStateJson.ARTWORK_PATH;
     static final String SESSION_PATH = "/api/v1/session";
+    static final String PAIRING_PATH = "/api/v1/pair";
 
     private static final String WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final int HTTP_TIMEOUT_MILLISECONDS = 10_000;
@@ -176,6 +177,9 @@ final class RemoteApiServer implements AutoCloseable {
     private final Listener listener;
     private final LongSupplier monotonicClock;
     private final BrowserSessionStore browserSessions;
+    private final PairingSecretStore pairingSecrets;
+    private final String serverId;
+    private final String playerDeviceName;
     private final Set<Socket> connections = ConcurrentHashMap.newKeySet();
     private final Set<WebSocketConnection> webSockets = ConcurrentHashMap.newKeySet();
     private final Semaphore webSocketSlots = new Semaphore(MAX_WEBSOCKET_CLIENTS);
@@ -212,6 +216,32 @@ final class RemoteApiServer implements AutoCloseable {
             Listener listener,
             LongSupplier monotonicClock
     ) {
+        this(
+                port,
+                token,
+                stateStore,
+                artworkCache,
+                commandSubmitter,
+                listener,
+                monotonicClock,
+                null,
+                null,
+                null
+        );
+    }
+
+    RemoteApiServer(
+            int port,
+            String token,
+            PlaybackStateStore stateStore,
+            RemoteArtworkCache artworkCache,
+            CommandSubmitter commandSubmitter,
+            Listener listener,
+            LongSupplier monotonicClock,
+            PairingSecretStore pairingSecrets,
+            String serverId,
+            String playerDeviceName
+    ) {
         this.port = port;
         this.token = token;
         this.stateStore = stateStore;
@@ -220,6 +250,9 @@ final class RemoteApiServer implements AutoCloseable {
         this.listener = listener;
         this.monotonicClock = monotonicClock;
         this.browserSessions = new BrowserSessionStore(token, monotonicClock);
+        this.pairingSecrets = pairingSecrets;
+        this.serverId = serverId;
+        this.playerDeviceName = playerDeviceName;
     }
 
     void start() {
@@ -358,6 +391,11 @@ final class RemoteApiServer implements AutoCloseable {
 
             if (SESSION_PATH.equals(request.path) && "POST".equals(request.method)) {
                 createBrowserSession(request, output);
+                return;
+            }
+
+            if (PAIRING_PATH.equals(request.path)) {
+                exchangePairing(request, output);
                 return;
             }
 
@@ -527,6 +565,47 @@ final class RemoteApiServer implements AutoCloseable {
         return session == null
                 ? RequestAuthorization.none()
                 : RequestAuthorization.session(session);
+    }
+
+    private void exchangePairing(HttpRequest request, OutputStream output) throws IOException {
+        if (!"POST".equals(request.method)) {
+            writeMethodNotAllowed(output, "POST");
+            return;
+        }
+        if (pairingSecrets == null || serverId == null || playerDeviceName == null) {
+            writeJsonError(output, 503, "Service Unavailable", "pairing_unavailable");
+            return;
+        }
+        String contentType = request.headers.get("content-type");
+        String mediaType = contentType == null
+                ? null
+                : contentType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+        if (!"application/json".equals(mediaType)) {
+            writeJsonError(output, 415, "Unsupported Media Type", "json_required");
+            return;
+        }
+        PairingRequest pairingRequest;
+        try {
+            pairingRequest = PairingRequest.parse(
+                    new String(request.body, StandardCharsets.UTF_8)
+            );
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_pairing_request");
+            return;
+        }
+        if (!pairingSecrets.consume(pairingRequest)) {
+            writeJsonError(output, 401, "Unauthorized", "pairing_rejected");
+            return;
+        }
+        String response = PairingResponse.toJson(serverId, playerDeviceName, token);
+        writeResponse(
+                output,
+                200,
+                "OK",
+                "application/json; charset=utf-8",
+                response.getBytes(StandardCharsets.UTF_8),
+                Collections.emptyMap()
+        );
     }
 
     private static void serveWebAsset(

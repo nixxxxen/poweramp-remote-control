@@ -34,6 +34,10 @@ public final class RemoteFormattingTest {
 
         assertEquals("FLAC · 24 бит · 96 кГц · 1411 кбит/с",
                 RemoteMetadataFormatter.audio(state));
+        assertEquals("FLAC", RemoteMetadataFormatter.codec(state));
+        assertEquals("24 бит", RemoteMetadataFormatter.bitDepth(state));
+        assertEquals("96 кГц", RemoteMetadataFormatter.sampleRate(state));
+        assertEquals("1411 кбит/с", RemoteMetadataFormatter.bitrate(state));
         assertEquals("Очередь · 3 / 2976", RemoteMetadataFormatter.source(state));
     }
 

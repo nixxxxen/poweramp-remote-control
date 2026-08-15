@@ -11,8 +11,8 @@ android {
         applicationId 'dev.r4remote.poweramp'
         minSdk 26
         targetSdk 36
-        versionCode 10
-        versionName '0.9.0'
+        versionCode 11
+        versionName '0.10.0'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
@@ -36,6 +36,7 @@ android {
 }
 
 dependencies {
+    implementation 'com.google.zxing:core:3.5.4'
     testImplementation 'junit:junit:4.13.2'
 }
 

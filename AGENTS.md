@@ -7,14 +7,14 @@ Android player device with Poweramp, plus a separate native Phone Client.
 
 Current application versions are independent:
 
-- Server: `0.9.0` (`versionCode 10`);
-- Phone Client: `0.3.0` (`versionCode 10`);
+- Server: `0.10.0` (`versionCode 11`);
+- Phone Client: `0.4.0` (`versionCode 11`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
 Both legacy apps previously shipped `versionCode 7`; their independent counters have now advanced
-to `10`. Future Server and Phone codes must continue to advance separately. The legacy IDs are not
+to `11`. Future Server and Phone codes must continue to advance separately. The legacy IDs are not
 the current product or source namespace.
 
 ## Read first
@@ -25,7 +25,7 @@ Before any non-trivial change:
 2. Read `STATUS.md`.
 3. Read `ROADMAP.md` when changing planned scope.
 4. Inspect the existing implementation before adding a new integration path.
-5. Preserve all functionality confirmed working in version `0.3.0`.
+5. Preserve all functionality confirmed working in version `0.4.0`.
 6. Prefer documented/public Poweramp and Android APIs.
 7. Do not assume an API field, unit, index base, event, command, permission, or network behavior
    unless verified by documentation, source/API definitions, tests, or device behavior.
@@ -42,11 +42,14 @@ The `:phone` module is the native Phone Client. Its one started-and-bound
 LAN discovery, Wi-Fi Direct, API/WebSocket connections, reconnect state, and one Media3
 `MediaSession` independently of the Activity. Its custom `SimpleBasePlayer` is only a remote proxy:
 it never decodes audio, requests audio focus, or integrates with Poweramp directly. It discovers
-`_poweramp-remote._tcp` through ordinary LAN NSD first, verifies and stores the existing Bearer
-token during initial pairing, and consumes the existing API v1 REST/artwork/WebSocket routes.
+`_poweramp-remote._tcp` through ordinary LAN NSD first. Initial/re-pair scans an address-free QR
+containing the stable Server identity and a short-lived one-time secret, discovers only that target
+through existing LAN or Wi-Fi Direct paths, exchanges the secret through API v1, and privately
+stores the returned Bearer credential. Normal operation consumes the existing API v1
+REST/artwork/WebSocket routes.
 
-For a previously paired Server only, the Phone Client starts Wi-Fi Direct service discovery when
-the known identity is not found through LAN NSD. The Server advertises the same public stable
+For a previously paired Server or the exact identity in an active QR offer, the Phone Client starts
+Wi-Fi Direct service discovery when the target is not found through LAN NSD. The Server advertises the same public stable
 identity, API version, and listener port through pre-association Wi-Fi Direct DNS-SD. The credential
 is never advertised. After Android forms a P2P group, the Phone Client uses the group-owner address
 with the unchanged API v1 client.
@@ -70,11 +73,15 @@ Version history:
 - Server `0.9.0` / Phone Client `0.3.0` add player-device system media volume, a remote Media3
   session for Android/Wear controls, and complete LAN-to-P2P transport reinitialization while
   keeping API v1 backward compatible.
+- Server `0.10.0` / Phone Client `0.4.0` add address-free one-time QR pairing over the existing
+  LAN/P2P discovery paths, service-owned playback-position restoration after Activity rebind, a
+  separate Player devices surface, and a compact playback-only Phone UI while keeping API v1
+  backward compatible.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
 
-## Regression-sensitive baseline: version 0.3.0
+## Regression-sensitive baseline: version 0.4.0
 
 The following functionality is implemented and working:
 
@@ -117,11 +124,27 @@ The following functionality is implemented and working:
 - binary shuffle OFF/ON control;
 - shuffle state tracking through `PLAYING_MODE_CHANGED`.
 
+### Player device and Android integration
+
+- exact player-device system media-volume state/control;
+- one remote Media3 session for Android notification/lock-screen and compatible Wear controls;
+- Activity resume/rebind restoration from the service-owned playback snapshot without polling.
+
+### Pairing and Phone surfaces
+
+- short-lived, one-time QR pairing with no persistent credential or address in the QR;
+- exact target discovery through LAN first and Wi-Fi Direct fallback;
+- separate generic `Player devices` screen with status, transport, diagnostics, re-pair, and forget;
+- playback-only, non-scrolling main Phone screen with metadata chips and compact controls.
+
 ### Intentionally not implemented
 
-- lyrics.
+- Library;
+- Queue;
+- Lyrics;
+- full multi-player persistence/selection.
 
-Lyrics remain out of scope unless explicitly requested.
+These remain out of scope unless explicitly requested.
 
 ## Known unresolved details
 

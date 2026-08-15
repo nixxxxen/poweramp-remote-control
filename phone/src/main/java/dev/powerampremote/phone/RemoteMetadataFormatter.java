@@ -29,6 +29,30 @@ final class RemoteMetadataFormatter {
         return join(values);
     }
 
+    static String codec(RemoteState state) {
+        List<String> values = new ArrayList<>();
+        add(values, state.fileTypeName);
+        if (state.codec != null
+                && (state.fileTypeName == null
+                || !state.fileTypeName.equalsIgnoreCase(state.codec))) {
+            add(values, state.codec.toUpperCase(Locale.ROOT));
+        }
+        return join(values);
+    }
+
+    static String bitDepth(RemoteState state) {
+        return state.bitsPerSample == null || state.bitsPerSample <= 0
+                ? null : state.bitsPerSample + " бит";
+    }
+
+    static String sampleRate(RemoteState state) {
+        return formatSampleRate(state.sampleRate);
+    }
+
+    static String bitrate(RemoteState state) {
+        return formatBitRate(state.bitRate);
+    }
+
     static String source(RemoteState state) {
         List<String> values = new ArrayList<>();
         add(values, state.sourceCategoryName);
