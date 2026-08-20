@@ -14,7 +14,12 @@ final class PairingStore {
     private final SharedPreferences preferences;
 
     PairingStore(Context context) {
-        preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
+        this(context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE));
+    }
+
+    PairingStore(SharedPreferences preferences) {
+        if (preferences == null) throw new IllegalArgumentException("missing preferences");
+        this.preferences = preferences;
     }
 
     PairingCredentials load() {

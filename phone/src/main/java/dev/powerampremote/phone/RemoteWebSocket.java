@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 
 /** Dependency-free RFC 6455 client for the server-push-only API v1 event stream. */
 final class RemoteWebSocket implements AutoCloseable {
@@ -28,7 +29,7 @@ final class RemoteWebSocket implements AutoCloseable {
 
     interface Listener {
         void onOpen();
-        void onState(RemoteState state);
+        void onState(RemoteState state, long receivedRealtimeMilliseconds);
         void onFailure(FailureType type, Exception exception);
     }
 
@@ -44,6 +45,7 @@ final class RemoteWebSocket implements AutoCloseable {
     private final DiscoveredServer server;
     private final String token;
     private final Listener listener;
+    private final LongSupplier monotonicClock;
     private final SecureRandom random = new SecureRandom();
     private final AtomicBoolean started = new AtomicBoolean();
     private final Object writeLock = new Object();
@@ -53,9 +55,19 @@ final class RemoteWebSocket implements AutoCloseable {
     private OutputStream output;
 
     RemoteWebSocket(DiscoveredServer server, String token, Listener listener) {
+        this(server, token, listener, android.os.SystemClock::elapsedRealtime);
+    }
+
+    RemoteWebSocket(
+            DiscoveredServer server,
+            String token,
+            Listener listener,
+            LongSupplier monotonicClock
+    ) {
         this.server = server;
         this.token = token;
         this.listener = listener;
+        this.monotonicClock = monotonicClock;
     }
 
     void start() {
@@ -177,7 +189,14 @@ final class RemoteWebSocket implements AutoCloseable {
             }
             switch (frame.opcode) {
                 case 0x01:
-                    listener.onState(RemoteStateParser.parse(decodeUtf8(frame.payload)));
+                    // Capture receipt on the socket thread. Main-looper delivery can be delayed
+                    // by Activity transitions, artwork, or system callbacks and must not become a
+                    // new position anchor.
+                    long receivedRealtimeMilliseconds = monotonicClock.getAsLong();
+                    listener.onState(
+                            RemoteStateParser.parse(decodeUtf8(frame.payload)),
+                            receivedRealtimeMilliseconds
+                    );
                     break;
                 case 0x08:
                     if (frame.payload.length == 1) throw new ProtocolException("Invalid close frame");

@@ -61,6 +61,13 @@
             android:name="dev.powerampremote.phone.PlayerDevicesActivity"
             android:exported="false" />
 
+        <activity
+            android:name="dev.powerampremote.phone.QrScannerActivity"
+            android:exported="false"
+            android:stateNotNeeded="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
         <!-- MediaSessionService must be exported so Android System UI and Wear controllers bind. -->
         <service
             android:name="dev.powerampremote.phone.PhoneConnectionService"

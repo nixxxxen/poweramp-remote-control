@@ -7,14 +7,14 @@ Android player device with Poweramp, plus a separate native Phone Client.
 
 Current application versions are independent:
 
-- Server: `0.10.0` (`versionCode 11`);
-- Phone Client: `0.4.1` (`versionCode 12`);
+- Server: `0.10.1` (`versionCode 12`);
+- Phone Client: `0.4.2` (`versionCode 13`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
-Both legacy apps previously shipped `versionCode 7`; the Server counter is now `11` and the Phone
-counter is `12`. Future Server and Phone codes must continue to advance separately. The legacy IDs
+Both legacy apps previously shipped `versionCode 7`; the Server counter is now `12` and the Phone
+counter is `13`. Future Server and Phone codes must continue to advance separately. The legacy IDs
 are not the current product or source namespace.
 
 ## Read first
@@ -54,6 +54,11 @@ Activity binder happens to be connected. Manual pairing verifies the existing pe
 credential against LAN-discovered Servers and does not introduce address entry or a second
 connection runtime.
 
+The WebSocket reader records the monotonic receipt time of each complete remote snapshot before
+posting it to the main looper. `PhoneConnectionService` turns that pair into one playback-position
+anchor shared by the rebound player UI and `RemoteSessionPlayer`; neither consumer may replace it
+with its later callback-delivery time.
+
 For a previously paired Server or the exact identity in an active QR offer, the Phone Client starts
 Wi-Fi Direct service discovery when the target is not found through LAN NSD. The Server advertises the same public stable
 identity, API version, and listener port through pre-association Wi-Fi Direct DNS-SD. The credential
@@ -86,11 +91,17 @@ Version history:
 - Phone Client `0.4.1` fixes the scanner-result/service-binding race, restores manual Bearer-token
   pairing fallback, applies safe system/cutout/navigation insets, and guarantees the compact player
   keeps its volume control visible. Server remains `0.10.0` and API remains `v1`.
+- Server `0.10.1` / Phone Client `0.4.2` replace the Android-incompatible static-regexp QR request
+  parser with validated `org.json`, keep failures behind a logged Server request boundary,
+  deduplicate each service-owned scanner-launch delivery by UUID, preserve the WebSocket receipt
+  timestamp for shared UI/MediaSession extrapolation, choose scanner orientation from the calling
+  Phone screen, and enforce square artwork. API remains `v1` and the transport/runtime architecture
+  is unchanged.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
 
-## Regression-sensitive baseline: version 0.4.1
+## Regression-sensitive baseline: Server 0.10.1 / Phone Client 0.4.2
 
 The following functionality is implemented and working:
 
@@ -137,7 +148,8 @@ The following functionality is implemented and working:
 
 - exact player-device system media-volume state/control;
 - one remote Media3 session for Android notification/lock-screen and compatible Wear controls;
-- Activity resume/rebind restoration from the service-owned playback snapshot without polling.
+- Activity resume/rebind restoration from the service-owned playback snapshot without polling;
+- one receipt-time playback-position model shared by the Phone UI and MediaSession.
 
 ### Pairing and Phone surfaces
 
@@ -146,7 +158,9 @@ The following functionality is implemented and working:
 - exact target discovery through LAN first and Wi-Fi Direct fallback;
 - separate generic `Player devices` screen with status, transport, diagnostics, re-pair, and forget;
 - playback-only, non-scrolling main Phone screen with metadata chips and compact controls;
-- safe system-bar/display-cutout/navigation insets on both Phone screens.
+- safe system-bar/display-cutout/navigation insets on both Phone screens;
+- scanner-only portrait default with landscape retained when the calling app screen is landscape;
+- square rounded artwork at every available player-screen size.
 
 ### Intentionally not implemented
 

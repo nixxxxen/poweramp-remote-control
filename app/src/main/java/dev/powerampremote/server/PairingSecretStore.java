@@ -8,8 +8,18 @@ import java.util.function.LongSupplier;
 
 /** Thread-safe owner of the one active, short-lived, one-time pairing secret. */
 final class PairingSecretStore {
+    enum ConsumeResult {
+        ACCEPTED,
+        NO_ACTIVE_OFFER,
+        EXPIRED,
+        API_VERSION_MISMATCH,
+        SERVER_ID_MISMATCH,
+        SECRET_MISMATCH
+    }
+
     static final long SECRET_TTL_MILLISECONDS = 2L * 60L * 1_000L;
     private static final int SECRET_BYTES = 32;
+    private static final int ENCODED_SECRET_LENGTH = 43;
 
     private final String serverId;
     private final String deviceName;
@@ -48,27 +58,42 @@ final class PairingSecretStore {
         return activeOffer;
     }
 
-    synchronized boolean consume(PairingRequest request) {
+    synchronized ConsumeResult consume(PairingRequest request) {
         PairingOffer offer = activeOffer;
         long now = clock.getAsLong();
-        if (offer == null) return false;
+        if (offer == null) return ConsumeResult.NO_ACTIVE_OFFER;
         if (now >= offer.expiresAtMilliseconds) {
             activeOffer = null;
-            return false;
+            return ConsumeResult.EXPIRED;
         }
-        if (request.apiVersion != PairingOffer.API_VERSION
-                || !serverId.equals(request.serverId)
-                || !constantTimeEquals(offer.secret, request.secret)) {
-            return false;
+        if (request.apiVersion != PairingOffer.API_VERSION) {
+            return ConsumeResult.API_VERSION_MISMATCH;
+        }
+        if (!serverId.equals(request.serverId)) return ConsumeResult.SERVER_ID_MISMATCH;
+        if (!constantTimeEquals(offer.secret, request.secret)) {
+            return ConsumeResult.SECRET_MISMATCH;
         }
         activeOffer = null;
-        return true;
+        return ConsumeResult.ACCEPTED;
     }
 
     synchronized boolean isActive(PairingOffer offer) {
         return offer != null
                 && offer == activeOffer
                 && clock.getAsLong() < offer.expiresAtMilliseconds;
+    }
+
+    static boolean isValidSecret(String secret) {
+        if (secret == null || secret.length() != ENCODED_SECRET_LENGTH) return false;
+        try {
+            byte[] decoded = Base64.getUrlDecoder().decode(secret);
+            return decoded.length == SECRET_BYTES
+                    && secret.equals(
+                    Base64.getUrlEncoder().withoutPadding().encodeToString(decoded)
+            );
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     private static boolean constantTimeEquals(String expected, String provided) {

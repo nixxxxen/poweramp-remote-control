@@ -11,8 +11,8 @@ android {
         applicationId 'dev.r4remote.poweramp'
         minSdk 26
         targetSdk 36
-        versionCode 11
-        versionName '0.10.0'
+        versionCode 12
+        versionName '0.10.1'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
@@ -38,6 +38,8 @@ android {
 dependencies {
     implementation 'com.google.zxing:core:3.5.4'
     testImplementation 'junit:junit:4.13.2'
+    // Android provides org.json at runtime; this mirrors the shared parsing contract in JVM tests.
+    testImplementation 'org.json:json:20240303'
 }
 
 tasks.withType(JavaCompile).configureEach {

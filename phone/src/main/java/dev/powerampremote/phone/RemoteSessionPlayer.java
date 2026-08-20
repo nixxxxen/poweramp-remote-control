@@ -36,22 +36,21 @@ final class RemoteSessionPlayer extends SimpleBasePlayer {
     private boolean connected;
     private byte[] artworkData;
     private String artworkMediaId;
-    private long remoteStateRealtimeMilliseconds;
+    private PlaybackUiSnapshot playbackSnapshot;
 
     RemoteSessionPlayer(Looper looper, CommandSink commandSink) {
         super(looper);
         this.commandSink = commandSink;
-        remoteStateRealtimeMilliseconds = SystemClock.elapsedRealtime();
     }
 
-    void updateRemoteState(RemoteState state) {
+    void updateRemoteState(RemoteState state, PlaybackUiSnapshot playbackSnapshot) {
         String nextMediaId = RemoteSessionSnapshot.from(state, connected).mediaId;
         if (!nextMediaId.equals(artworkMediaId)) {
             artworkData = null;
             artworkMediaId = nextMediaId;
         }
         remoteState = state;
-        remoteStateRealtimeMilliseconds = SystemClock.elapsedRealtime();
+        this.playbackSnapshot = playbackSnapshot;
         invalidateState();
     }
 
@@ -133,7 +132,7 @@ final class RemoteSessionPlayer extends SimpleBasePlayer {
                 .setCurrentMediaItemIndex(CURRENT_ITEM_INDEX)
                 .setContentPositionMs(positionSupplier(
                         snapshot,
-                        remoteStateRealtimeMilliseconds
+                        playbackSnapshot
                 ))
                 .setPlaybackState(Player.STATE_READY)
                 .build();
@@ -141,20 +140,17 @@ final class RemoteSessionPlayer extends SimpleBasePlayer {
 
     private static PositionSupplier positionSupplier(
             RemoteSessionSnapshot snapshot,
-            long anchorRealtimeMilliseconds
+            PlaybackUiSnapshot playbackSnapshot
     ) {
-        if (!snapshot.playing) {
+        if (playbackSnapshot == null) {
             return PositionSupplier.getConstant(snapshot.positionMilliseconds);
         }
-        return () -> {
-            long elapsed = Math.max(
-                    0L,
-                    SystemClock.elapsedRealtime() - anchorRealtimeMilliseconds
+        if (!snapshot.playing || !playbackSnapshot.isAdvancing()) {
+            return PositionSupplier.getConstant(
+                    playbackSnapshot.positionMillisecondsAt(SystemClock.elapsedRealtime())
             );
-            long position = snapshot.positionMilliseconds + elapsed;
-            return snapshot.durationMilliseconds > 0L
-                    ? Math.min(position, snapshot.durationMilliseconds) : position;
-        };
+        }
+        return () -> playbackSnapshot.positionMillisecondsAt(SystemClock.elapsedRealtime());
     }
 
     @SuppressWarnings("deprecation")

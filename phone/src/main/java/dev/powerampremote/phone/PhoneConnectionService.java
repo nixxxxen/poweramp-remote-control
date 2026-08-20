@@ -54,6 +54,8 @@ public final class PhoneConnectionService extends MediaSessionService
             "dev.powerampremote.phone.extra.INTERNAL_TOKEN";
     private static final String EXTRA_PAIRING_VALUE =
             "dev.powerampremote.phone.extra.PAIRING_VALUE";
+    private static final String EXTRA_PAIRING_DELIVERY_ID =
+            "dev.powerampremote.phone.extra.PAIRING_DELIVERY_ID";
     private static final String PROCESS_START_TOKEN = UUID.randomUUID().toString();
 
     private static final String TAG = "PhoneConnectionService";
@@ -109,9 +111,11 @@ public final class PhoneConnectionService extends MediaSessionService
             currentArtworkData = null;
             if (remoteSessionPlayer != null) {
                 remoteSessionPlayer.updateArtwork(null);
-                remoteSessionPlayer.updateRemoteState(null);
+                remoteSessionPlayer.updateRemoteState(null, null);
             }
-            return controller.forgetPairing();
+            boolean forgotten = controller.forgetPairing();
+            if (forgotten) pairingRequestState.reset();
+            return forgotten;
         }
 
         void play() {
@@ -181,17 +185,21 @@ public final class PhoneConnectionService extends MediaSessionService
     private boolean destroyed;
 
     static void start(Context context) {
-        startWithIntent(context, ACTION_START, null);
+        startWithIntent(context, ACTION_START, null, null);
     }
 
-    static void requestQrPairing(Context context, String scannedContents) {
-        PairingRequest request = PairingRequest.qr(scannedContents);
-        startWithIntent(context, ACTION_PAIR_QR, request.value);
+    static void requestQrPairing(
+            Context context,
+            String scannedContents,
+            String deliveryId
+    ) {
+        PairingRequest request = PairingRequest.qr(scannedContents, deliveryId);
+        startWithIntent(context, ACTION_PAIR_QR, request.value, deliveryId);
     }
 
     static void requestManualPairing(Context context, String enteredToken) {
         PairingRequest request = PairingRequest.manualToken(enteredToken);
-        startWithIntent(context, ACTION_PAIR_MANUAL, request.value);
+        startWithIntent(context, ACTION_PAIR_MANUAL, request.value, null);
     }
 
     static Intent bindingIntent(Context context) {
@@ -200,12 +208,20 @@ public final class PhoneConnectionService extends MediaSessionService
                 .setPackage(context.getPackageName());
     }
 
-    private static void startWithIntent(Context context, String action, String pairingValue) {
+    private static void startWithIntent(
+            Context context,
+            String action,
+            String pairingValue,
+            String pairingDeliveryId
+    ) {
         Intent intent = new Intent(context, PhoneConnectionService.class)
                 .setAction(action)
                 .setPackage(context.getPackageName())
                 .putExtra(EXTRA_INTERNAL_TOKEN, PROCESS_START_TOKEN);
         if (pairingValue != null) intent.putExtra(EXTRA_PAIRING_VALUE, pairingValue);
+        if (pairingDeliveryId != null) {
+            intent.putExtra(EXTRA_PAIRING_DELIVERY_ID, pairingDeliveryId);
+        }
         context.startForegroundService(intent);
     }
 
@@ -252,7 +268,9 @@ public final class PhoneConnectionService extends MediaSessionService
                 .setSessionActivity(activityPendingIntent())
                 .build();
         remoteSessionPlayer.updateConnection(isConnectedStatus(currentStatus));
-        if (currentState != null) remoteSessionPlayer.updateRemoteState(currentState);
+        if (currentState != null) {
+            remoteSessionPlayer.updateRemoteState(currentState, currentPlaybackSnapshot);
+        }
         if (currentArtworkData != null) remoteSessionPlayer.updateArtwork(currentArtworkData);
         Log.i(TAG, "MediaSession proxy runtime created");
     }
@@ -316,12 +334,35 @@ public final class PhoneConnectionService extends MediaSessionService
         if (!ACTION_PAIR_QR.equals(action) && !ACTION_PAIR_MANUAL.equals(action)) return;
         try {
             String value = intent == null ? null : intent.getStringExtra(EXTRA_PAIRING_VALUE);
-            PairingRequest request = ACTION_PAIR_QR.equals(action)
-                    ? PairingRequest.qr(value) : PairingRequest.manualToken(value);
-            currentPairingError = null;
-            pairingRequestState.submit(request);
+            if (ACTION_PAIR_QR.equals(action)) {
+                String deliveryId = intent == null
+                        ? null : intent.getStringExtra(EXTRA_PAIRING_DELIVERY_ID);
+                PairingRequestState.Submission submission =
+                        pairingRequestState.submitQr(value, deliveryId);
+                switch (submission.status) {
+                    case ACCEPTED:
+                        currentPairingError = null;
+                        break;
+                    case DUPLICATE_ACTIVE:
+                        // Replay the service-owned status so Activity state follows the one active
+                        // request without dispatching another exchange.
+                        publishCurrentStatus();
+                        break;
+                    case REPLAY_SUCCESS:
+                        publishPairingSuccess(submission.successfulDeviceName);
+                        break;
+                    case REPLAY_FAILURE:
+                        publishPairingFailure(submission.failure);
+                        break;
+                    default:
+                        throw new IllegalStateException("Unknown QR submission outcome");
+                }
+            } else {
+                pairingRequestState.submitManualToken(value);
+                currentPairingError = null;
+            }
         } catch (IllegalArgumentException exception) {
-            onPairingFailed(ACTION_PAIR_QR.equals(action)
+            publishPairingFailure(ACTION_PAIR_QR.equals(action)
                     ? RemoteClientController.PairingError.INVALID_QR
                     : RemoteClientController.PairingError.INVALID_TOKEN);
         }
@@ -395,44 +436,64 @@ public final class PhoneConnectionService extends MediaSessionService
             currentPlaybackSnapshot = currentPlaybackSnapshot.frozenAt(
                     SystemClock.elapsedRealtime()
             );
+            if (remoteSessionPlayer != null && currentState != null) {
+                remoteSessionPlayer.updateRemoteState(currentState, currentPlaybackSnapshot);
+            }
         }
         currentStatus = status;
         currentRetryDelayMilliseconds = retryDelayMilliseconds;
+        if (status == RemoteClientController.Status.AUTH_REQUIRED) {
+            pairingRequestState.reset();
+        }
         if (remoteSessionPlayer != null) {
             remoteSessionPlayer.updateConnection(isConnectedStatus(status));
         }
-        for (Listener listener : listeners) {
-            listener.onStatusChanged(status, retryDelayMilliseconds);
-        }
+        publishCurrentStatus();
         updateNotification();
+    }
+
+    private void publishCurrentStatus() {
+        for (Listener listener : listeners) {
+            listener.onStatusChanged(currentStatus, currentRetryDelayMilliseconds);
+        }
     }
 
     @Override
     public void onPairingFailed(RemoteClientController.PairingError error) {
+        pairingRequestState.onPairingFailed(error);
+        publishPairingFailure(error);
+    }
+
+    private void publishPairingFailure(RemoteClientController.PairingError error) {
         currentPairingError = error;
         for (Listener listener : listeners) listener.onPairingFailed(error);
     }
 
     @Override
     public void onPairingSucceeded(String serviceName) {
+        pairingRequestState.onPairingSucceeded(serviceName);
+        publishPairingSuccess(serviceName);
+    }
+
+    private void publishPairingSuccess(String serviceName) {
         currentPairingError = null;
         for (Listener listener : listeners) listener.onPairingSucceeded(serviceName);
         updateNotification();
     }
 
     @Override
-    public void onStateChanged(RemoteState state) {
+    public void onStateChanged(RemoteState state, long receivedRealtimeMilliseconds) {
         currentState = state;
         currentPlaybackSnapshot = PlaybackUiSnapshot.anchor(
                 state,
-                SystemClock.elapsedRealtime()
+                receivedRealtimeMilliseconds
         );
-        if (remoteSessionPlayer != null) remoteSessionPlayer.updateRemoteState(state);
+        if (remoteSessionPlayer != null) {
+            remoteSessionPlayer.updateRemoteState(state, currentPlaybackSnapshot);
+        }
         for (Listener listener : listeners) {
-            listener.onStateChanged(state);
-            listener.onPlaybackSnapshot(currentPlaybackSnapshot.capturedAt(
-                    SystemClock.elapsedRealtime()
-            ));
+            listener.onStateChanged(state, receivedRealtimeMilliseconds);
+            listener.onPlaybackSnapshot(currentPlaybackSnapshot);
         }
         updateNotification();
     }
@@ -464,12 +525,15 @@ public final class PhoneConnectionService extends MediaSessionService
         listeners.addIfAbsent(listener);
         listener.onStatusChanged(currentStatus, currentRetryDelayMilliseconds);
         if (currentState != null) {
-            listener.onStateChanged(currentState);
             PlaybackUiSnapshot playbackSnapshot = currentPlaybackSnapshot;
+            listener.onStateChanged(
+                    currentState,
+                    playbackSnapshot == null
+                            ? SystemClock.elapsedRealtime()
+                            : playbackSnapshot.confirmedRealtimeMilliseconds()
+            );
             if (playbackSnapshot != null) {
-                listener.onPlaybackSnapshot(playbackSnapshot.capturedAt(
-                        SystemClock.elapsedRealtime()
-                ));
+                listener.onPlaybackSnapshot(playbackSnapshot);
             }
         }
         listener.onArtworkChanged(currentArtwork);

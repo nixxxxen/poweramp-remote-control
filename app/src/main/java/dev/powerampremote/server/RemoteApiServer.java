@@ -38,11 +38,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Small bounded HTTP/WebSocket server for the trusted-LAN prototype API. */
 final class RemoteApiServer implements AutoCloseable {
+    private static final Logger LOGGER = Logger.getLogger(RemoteApiServer.class.getName());
+
     static final int PORT = 8765;
     static final String STATE_PATH = "/api/v1/state";
     static final String CONTROL_PATH = "/api/v1/control";
@@ -395,7 +399,24 @@ final class RemoteApiServer implements AutoCloseable {
             }
 
             if (PAIRING_PATH.equals(request.path)) {
-                exchangePairing(request, output);
+                try {
+                    exchangePairing(request, output);
+                } catch (RuntimeException exception) {
+                    // Android terminates the whole process for an uncaught exception on any
+                    // application thread. Keep this request boundary diagnostic and do not log
+                    // the body: it contains the one-time pairing secret.
+                    LOGGER.log(
+                            Level.SEVERE,
+                            "Unexpected QR pairing request failure; request rejected",
+                            exception
+                    );
+                    writeJsonError(
+                            output,
+                            500,
+                            "Internal Server Error",
+                            "pairing_internal_error"
+                    );
+                }
                 return;
             }
 
@@ -590,20 +611,29 @@ final class RemoteApiServer implements AutoCloseable {
                     new String(request.body, StandardCharsets.UTF_8)
             );
         } catch (IllegalArgumentException exception) {
+            // Expected parser failures are intentionally body-free: the body carries the secret.
+            LOGGER.warning("Malformed QR pairing request rejected");
             writeJsonError(output, 400, "Bad Request", "invalid_pairing_request");
             return;
         }
-        if (!pairingSecrets.consume(pairingRequest)) {
+        // Construct the immutable response before consuming the offer. If local identity or
+        // credential serialization is unexpectedly broken, the one-time secret remains usable
+        // and the guarded request boundary records the full cause.
+        byte[] response = PairingResponse.toJson(serverId, playerDeviceName, token)
+                .getBytes(StandardCharsets.UTF_8);
+        PairingSecretStore.ConsumeResult consumeResult = pairingSecrets.consume(pairingRequest);
+        if (consumeResult != PairingSecretStore.ConsumeResult.ACCEPTED) {
+            LOGGER.warning("QR pairing request rejected: " + consumeResult.name());
             writeJsonError(output, 401, "Unauthorized", "pairing_rejected");
             return;
         }
-        String response = PairingResponse.toJson(serverId, playerDeviceName, token);
+        LOGGER.info("QR pairing request accepted; one-time offer consumed");
         writeResponse(
                 output,
                 200,
                 "OK",
                 "application/json; charset=utf-8",
-                response.getBytes(StandardCharsets.UTF_8),
+                response,
                 Collections.emptyMap()
         );
     }

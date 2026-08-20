@@ -9,6 +9,7 @@ import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.io.IOException;
@@ -62,7 +63,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         void onStatusChanged(Status status, long retryDelayMilliseconds);
         void onPairingFailed(PairingError error);
         void onPairingSucceeded(String serviceName);
-        void onStateChanged(RemoteState state);
+        void onStateChanged(RemoteState state, long receivedRealtimeMilliseconds);
         void onArtworkChanged(Bitmap artwork);
         default void onArtworkBytesChanged(byte[] artwork) { }
         void onCommandError(boolean authenticationError);
@@ -329,7 +330,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         if (credentials == null) return;
-        if (!credentials.serverId.equals(server.serverId)) return;
+        if (!credentials.matches(server)) return;
         if (endpoint != null
                 && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
                 && endpoint.port == server.port
@@ -450,11 +451,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             controlExecutor.execute(() -> {
                 try {
                     RemoteState verifiedState = apiClient.getState(server, token);
+                    long receivedRealtimeMilliseconds = SystemClock.elapsedRealtime();
                     mainHandler.post(() -> finishManualPairing(
                             operation,
                             server,
                             token,
-                            verifiedState
+                            verifiedState,
+                            receivedRealtimeMilliseconds
                     ));
                 } catch (RemoteApiClient.HttpStatusException exception) {
                     boolean rejected = exception.statusCode == 401;
@@ -480,7 +483,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             int operation,
             DiscoveredServer server,
             String token,
-            RemoteState verifiedState
+            RemoteState verifiedState,
+            long receivedRealtimeMilliseconds
     ) {
         if (!active || operation != operationGeneration
                 || pendingManualToken == null || !pendingManualToken.equals(token)) {
@@ -504,7 +508,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         pairingExchangeInFlight = false;
         endpoint = server;
         listener.onPairingSucceeded(server.serviceName);
-        listener.onStateChanged(verifiedState);
+        listener.onStateChanged(verifiedState, receivedRealtimeMilliseconds);
         requestArtwork(verifiedState);
         connectSocket(false);
     }
@@ -572,8 +576,12 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                     }
 
                     @Override
-                    public void onState(RemoteState state) {
-                        mainHandler.post(() -> handleSocketState(generation, state));
+                    public void onState(RemoteState state, long receivedRealtimeMilliseconds) {
+                        mainHandler.post(() -> handleSocketState(
+                                generation,
+                                state,
+                                receivedRealtimeMilliseconds
+                        ));
                     }
 
                     @Override
@@ -593,7 +601,11 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         // disabled until that snapshot is parsed, rather than exposing stale prior state.
     }
 
-    private void handleSocketState(int generation, RemoteState state) {
+    private void handleSocketState(
+            int generation,
+            RemoteState state,
+            long receivedRealtimeMilliseconds
+    ) {
         if (!isCurrentConnection(generation) || state.revision <= connectionLastRevision) return;
         boolean firstSnapshot = connectionLastRevision < 0L;
         connectionLastRevision = state.revision;
@@ -612,7 +624,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                             ? Status.CONNECTED_DIRECT : Status.CONNECTED,
                     0L);
         }
-        listener.onStateChanged(state);
+        listener.onStateChanged(state, receivedRealtimeMilliseconds);
         requestArtwork(state);
     }
 

@@ -164,6 +164,7 @@ public final class RemoteNetworkClientTest {
             CountDownLatch opened = new CountDownLatch(1);
             CountDownLatch received = new CountDownLatch(1);
             AtomicReference<RemoteState> event = new AtomicReference<>();
+            AtomicReference<Long> receivedRealtime = new AtomicReference<>();
             AtomicReference<Exception> failure = new AtomicReference<>();
             RemoteWebSocket webSocket = new RemoteWebSocket(
                     endpoint(serverSocket),
@@ -175,8 +176,9 @@ public final class RemoteNetworkClientTest {
                         }
 
                         @Override
-                        public void onState(RemoteState state) {
+                        public void onState(RemoteState state, long receivedRealtimeMilliseconds) {
                             event.set(state);
+                            receivedRealtime.set(receivedRealtimeMilliseconds);
                             received.countDown();
                         }
 
@@ -188,7 +190,8 @@ public final class RemoteNetworkClientTest {
                             failure.set(exception);
                             received.countDown();
                         }
-                    }
+                    },
+                    () -> 123_456L
             );
             webSocket.start();
             assertTrue("WebSocket did not open", opened.await(5, TimeUnit.SECONDS));
@@ -198,6 +201,7 @@ public final class RemoteNetworkClientTest {
             assertEquals(null, failure.get());
             assertNotNull(event.get());
             assertEquals(7L, event.get().revision);
+            assertEquals(Long.valueOf(123_456L), receivedRealtime.get());
             server.get(10, TimeUnit.SECONDS);
             executor.shutdownNow();
         }

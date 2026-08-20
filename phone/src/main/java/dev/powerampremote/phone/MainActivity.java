@@ -65,6 +65,8 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     private int durationSeconds;
     private int anchorPositionSeconds;
     private long anchorRealtimeMilliseconds;
+    private boolean anchorAdvancing;
+    private PlaybackUiSnapshot latestPlaybackSnapshot;
     private String trackIdentity;
     private Integer pendingSeekSeconds;
     private long pendingSeekExpiresRealtimeMilliseconds;
@@ -331,7 +333,7 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     }
 
     @Override
-    public void onStateChanged(RemoteState newState) {
+    public void onStateChanged(RemoteState newState, long receivedRealtimeMilliseconds) {
         long now = SystemClock.elapsedRealtime();
         String nextTrackIdentity = newState.trackIdentity();
         boolean trackChanged = trackIdentity != null && !trackIdentity.equals(nextTrackIdentity);
@@ -353,6 +355,8 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     @Override
     public void onPlaybackSnapshot(PlaybackUiSnapshot snapshot) {
         if (snapshot == null || draggingSeek) return;
+        latestPlaybackSnapshot = snapshot;
+        anchorAdvancing = snapshot.isAdvancing();
         long now = SystemClock.elapsedRealtime();
         boolean seekConfirmed = pendingSeekSeconds != null
                 && Math.abs(snapshot.positionSeconds - pendingSeekSeconds) <= 2;
@@ -385,9 +389,12 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     public void onCommandError(boolean authenticationError) {
         if (pendingSeekSeconds != null) {
             pendingSeekSeconds = null;
+            long now = SystemClock.elapsedRealtime();
+            PlaybackUiSnapshot confirmed = latestPlaybackSnapshot == null
+                    ? null : latestPlaybackSnapshot.capturedAt(now);
             setPositionAnchor(
-                    state == null || state.positionSeconds == null ? 0 : state.positionSeconds,
-                    SystemClock.elapsedRealtime()
+                    confirmed == null ? 0 : confirmed.positionSeconds,
+                    confirmed == null ? now : confirmed.capturedRealtimeMilliseconds
             );
             renderProgress();
         }
@@ -518,6 +525,7 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
 
     private void freezeProgress() {
         setPositionAnchor(calculatedPositionSeconds(), SystemClock.elapsedRealtime());
+        anchorAdvancing = false;
         restartProgressTicker();
     }
 
@@ -525,6 +533,7 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
         return activityStarted
                 && isConnectedStatus(status)
                 && state != null
+                && anchorAdvancing
                 && "playing".equals(state.playbackState);
     }
 

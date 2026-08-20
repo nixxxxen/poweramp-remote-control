@@ -5,12 +5,12 @@
 Poweramp Remote provides a reliable native Android Server for any compatible Android player device
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
-- Server: `0.10.0` (`versionCode 11`)
-- Phone Client: `0.4.1` (`versionCode 12`)
+- Server: `0.10.1` (`versionCode 12`)
+- Phone Client: `0.4.2` (`versionCode 13`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; the Server counter is now `11` and the Phone counter is `12`. This preserves
+`versionCode 7`; the Server counter is now `12` and the Phone counter is `13`. This preserves
 Android upgrade compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
@@ -87,13 +87,24 @@ the identity is not found during the LAN grace period, the same pre-association 
 path is used for this scanned identity; Android/OEM permissions, Location Mode, group-owner choice,
 and approval remain mandatory where applicable. Once an endpoint is reachable, unauthenticated
 `POST /api/v1/pair` atomically consumes the secret and returns the existing persistent API
-credential. Reuse, expiry, a mismatched identity, or a mismatched API version is rejected.
+credential. Reuse, expiry, a mismatched identity, or a mismatched API version is rejected. Expected
+rejections and unexpected request-local failures are logged without request bodies, secrets, or
+credentials. The request body is parsed by Android `org.json`, not a regexp: field order and
+unknown fields are irrelevant, while required raw types, API version, canonical Server identity,
+and canonical secret encoding are explicit. Malformed/missing/wrong-type input returns a local
+`400`; reuse/expiry/mismatch returns `401`. The confirmed Android ICU static-regexp initializer
+failure is therefore absent, parser nesting failure is contained locally, and unexpected runtime
+failures remain behind the diagnostic request boundary.
 
 The scanner result is submitted as a private explicit start command to the already existing
 `PhoneConnectionService`. A service-owned request handoff keeps the work independent of the
 Activity's asynchronous bind state, including cold launch and the scanner Activity's stop/start
-transition. Devices without a usable camera can instead enter the existing 43-character Bearer
-token. That fallback discovers Servers through ordinary LAN NSD, verifies the token with the
+transition. Each scanner launch has a UUID preserved with Activity state. The handoff deduplicates
+pending/active delivery of that UUID and replays its exact completed success/failure without a
+second exchange. A deliberate new launch has a new UUID, so rescanning an old one-time code still
+reaches Server and receives the normal stale-code rejection. Devices without a usable camera can
+instead enter the existing 43-character Bearer token. That fallback discovers Servers through
+ordinary LAN NSD, verifies the token with the
 unchanged authenticated `GET /api/v1/state`, and saves the verified identity; it does not accept an
 IP address or add another connection path. QR remains the only initial pairing route that can target
 Wi-Fi Direct before credentials exist because its payload supplies the stable Server identity.
@@ -101,7 +112,9 @@ Wi-Fi Direct before credentials exist because its payload supplies the stable Se
 Only after a successful exchange does Phone replace its saved association with the stable Server
 `id`, service/device names, and Bearer credential in private backup-excluded preferences. It never
 persists a resolved address. Existing `0.3.0` preferences migrate in place by using the saved NSD
-service name as the initial device label.
+service name as the initial device label. The credential commit precedes authenticated connection;
+a recreated service loads the same association, resumes existing discovery for that exact ID, and
+uses the unchanged reconnect/WebSocket path.
 
 ### Preferred LAN connection
 
@@ -263,11 +276,14 @@ hardware buttons. WebSocket revisions are monotonic and slow clients may receive
 snapshots. There is no elapsed-second state polling; UIs and MediaSession only advance displayed
 time locally from a confirmed position anchor.
 
-On Phone, `PhoneConnectionService` owns a playback UI anchor in parallel with its MediaSession
-state. Every fresh WebSocket state re-anchors it; a listener added after Activity resume/rebind gets
-the cached complete state followed immediately by a position extrapolated from that original
-service anchor. Disconnect freezes the anchor. This makes a recreated player screen agree with the
-still-running notification without introducing network or UI polling.
+On Phone, the WebSocket reader records monotonic time as soon as a complete state frame is received,
+before posting it to the main looper. `PhoneConnectionService` creates one playback anchor from the
+confirmed remote position plus that receipt time. The rebound UI and `RemoteSessionPlayer` consume
+the same object, and a listener added after Activity resume/rebind receives the original anchor
+rather than a stale position re-anchored at callback time. Playing extrapolates; pause, track
+change, seek, and reconnect establish fresh confirmed anchors; disconnect freezes the current
+anchor without losing its extrapolated millisecond fraction. This keeps the player screen and
+notification aligned without network or UI polling.
 
 The embedded Web UI remains available on either reachable Server address and retains cookie
 sessions, CSP, Origin checks, artwork, transport, seek, rating, Like/Dislike, shuffle, and a compact
@@ -285,8 +301,11 @@ exposes a generic saved-device snapshot but intentionally persists only one slot
 Both Phone Activities use one edge-to-edge View path and add system-bar plus display-cutout insets
 to their root padding. The player keeps required controls in a fixed no-scroll budget and gives only
 the artwork the remaining height; volume remains represented by a disabled placeholder before its
-first remote snapshot. The platform `SeekBar` continues to own touch/accuracy semantics while its
-playback track is rendered at `8dp` with a compact `14dp` thumb.
+first remote snapshot. The artwork container measures to the smaller available dimension so its
+rounded image is always square and `centerCrop` never stretches it. The QR scanner uses its own
+non-exported capture Activity: portrait is the default, while a caller already configured in
+landscape requests scanner-only landscape. The platform `SeekBar` continues to own touch/accuracy
+semantics while its playback track is rendered at `8dp` with a compact `14dp` thumb.
 
 ## Security model
 

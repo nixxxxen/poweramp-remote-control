@@ -2,17 +2,127 @@
 
 Current versions:
 
-- Server: `0.10.0` (`versionCode 11`)
-- Phone Client: `0.4.1` (`versionCode 12`)
+- Server: `0.10.1` (`versionCode 12`)
+- Phone Client: `0.4.2` (`versionCode 13`)
 - API: backward-compatible `v1`
 
 ## Stage
 
-The repository builds two native Android applications. `:app` remains the unchanged `0.10.0`
-foreground Server on the Poweramp/player device; `:phone` remains the one foreground native remote
-client. Phone `0.4.1` is a focused regression release for QR lifecycle handoff, manual pairing
-fallback, safe insets, seek styling, and compact player fit. It does not add Library, Queue, Lyrics,
-a new transport, or full multi-player persistence; API remains `v1`.
+The repository builds two native Android applications. Server `0.10.1` and Phone Client `0.4.2` are
+focused regression releases for QR request stability, scanner orientation, confirmed-position
+timing, and square artwork. They do not add Library, Queue, Lyrics, a new transport, or full
+multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
+MediaSession, volume, Web UI, and API `v1` contracts remain in place.
+
+## Implemented in Server 0.10.1 / Phone Client 0.4.2
+
+### Server QR pairing crash
+
+- **Confirmed real-device root cause:** `PairingRequest` compiled its JSON-matching regexp in a
+  static field. Android ICU rejected that expression with `PatternSyntaxException`; class
+  initialization therefore failed in `PairingRequest.<clinit>`, wrapped the cause in
+  `ExceptionInInitializerError`, and killed the `remote-api-client` thread/process before
+  `parse()` could perform normal validation. The previous QR request boundary caught only
+  `RuntimeException`, so it could neither diagnose nor contain this `Error`. Manual Bearer pairing
+  never loads `PairingRequest`, which explains why it continued to work.
+- Regex-based JSON parsing has been removed entirely. `PairingRequest.parse()` now uses Android's
+  `org.json` object parser, accepts fields in any order plus whitespace/unknown fields, and reads
+  the three required values without coercion. `apiVersion` must be an integer equal to `1`;
+  `serverId` must be a canonical 22-character Base64URL encoding of 16 bytes; `secret` must be a
+  canonical 43-character Base64URL encoding of 32 bytes. Malformed JSON, trailing input, missing
+  fields, wrong types, unsupported versions, and invalid encodings become sanitized
+  `400 invalid_pairing_request` responses without consuming an active offer. Parser exceptions never
+  retain/log the request body or secret; excessively nested input is also contained at this parser
+  boundary rather than escaping as `StackOverflowError`.
+- The pairing route now contains unexpected runtime failures at its own request boundary, logs the
+  full cause/stack without logging request bodies, one-time secrets, or credentials, returns a
+  request-local `500 pairing_internal_error`, and leaves the listener/service alive. This remains
+  secondary diagnostics; the confirmed static-initializer crash is fixed by deleting the regexp,
+  not by broadening the handler to `Throwable`. Reused, expired, ID-mismatched, and
+  secret-mismatched offers remain explicit `401` responses logged by non-secret reason.
+- `PairingSecretStore` now returns a typed consume result. `ACCEPTED` consumes the active offer;
+  `EXPIRED` removes only an expired offer, while wrong version/identity/secret leaves a valid offer
+  active.
+  The immutable credential response is constructed before atomic consumption so an internal
+  serialization failure cannot invalidate a still-usable secret.
+
+### Scanner orientation
+
+- Root cause of forced landscape: JourneyApps 4.3.0 merges its stock `CaptureActivity` with
+  `android:screenOrientation="sensorLandscape"`, while Phone explicitly used
+  `setOrientationLocked(false)`. The scanner therefore followed the library Activity's landscape
+  declaration.
+- Phone now launches a dedicated non-exported `QrScannerActivity`. It defaults to
+  `userPortrait`; if the calling **Player devices** screen is already configured in landscape, only
+  the scanner requests `userLandscape`. MainActivity and PlayerDevicesActivity remain adaptive and
+  are not force-rotated.
+
+### Playback-position lag
+
+- **Root cause of the 1–3 second lag:** the WebSocket thread delivered only `RemoteState`; after a
+  potentially delayed `Handler.post`, `PhoneConnectionService` treated main-looper callback time as
+  the remote position's receipt time. `RemoteSessionPlayer` then independently repeated the same
+  late anchoring. Main-thread delay during Activity/scanner transitions therefore became permanent
+  position lag until another remote snapshot arrived.
+- `RemoteWebSocket` now records monotonic receipt time on its socket thread as soon as the complete
+  state frame is available and carries it through `RemoteClientController` unchanged. The service
+  combines the confirmed remote position with that original timestamp exactly once. Both the
+  player UI and MediaSession consume the same `PlaybackUiSnapshot`; Activity rebind replays the
+  original anchor instead of constructing another one.
+- Playing snapshots extrapolate to current monotonic time; paused snapshots do not. Pause/resume,
+  confirmed seek, track change, and reconnect each establish a fresh received anchor, while
+  disconnect freezes the current one without discarding its extrapolated millisecond fraction. No
+  REST refresh or playback polling was added.
+
+### Square artwork
+
+- Root cause of vertical stretching: the artwork `FrameLayout` had `match_parent` width and a
+  separately weighted height, with no aspect-ratio constraint. Its child then filled two unrelated
+  dimensions despite `centerCrop`.
+- `SquareArtworkFrameLayout` measures both axes to the smaller available dimension. The existing
+  flexible-height budget, rounded outline, placeholder behavior, and `centerCrop` remain, but the
+  container and image are always 1:1, including compact and landscape layouts.
+
+### Regression coverage
+
+- Server parser tests cover field-order independence, whitespace, unknown primitive/object/array
+  fields, malformed/truncated/non-object/trailing input, every missing field, non-integer and
+  unsupported API versions, wrong field types, and invalid/non-canonical Server IDs and secrets.
+  HTTP integration proves every malformed/missing/wrong-type request returns `400` without
+  consuming the offer, then a reordered request with an unknown nested field succeeds; reuse,
+  expiry, wrong secret, method rejection, continued authenticated API availability, and an
+  injected unchecked consume failure remain covered.
+- Phone request-state tests cover binder-independent cold handoff, one scanner-launch delivery UUID,
+  duplicate suppression while pending/active, exact success/failure replay after completion, a new
+  launch of the same stale QR, reset after Forget/auth rejection, invalid QR rejection, and
+  unchanged manual-token dispatch. Persistence tests recreate `PairingStore`, load QR/manual
+  credentials, and verify the restored QR identity selects only the matching discovered reconnect
+  target.
+- Phone tests prove socket-receipt timestamp propagation, delayed-main-thread extrapolation,
+  pause/seek/track-change/disconnect/reconnect anchors, repeated Activity rebind behavior, and the
+  portrait-default/landscape-caller scanner policy.
+
+### Phone QR handoff completion
+
+- Scanner output still goes directly to the one existing `PhoneConnectionService` through its
+  private start command and service-owned `PairingRequestState`; no Activity binder is consulted.
+  The service parses/queues the request, the existing controller performs LAN-first/P2P fallback
+  discovery and exchange, `PairingStore.commit()` completes before the credential becomes active,
+  and the same controller opens the normal authenticated API/WebSocket connection.
+- Each scanner launch now owns a UUID saved with Activity state and carried in the private service
+  command. Re-delivery of that UUID while pending/active is idempotently ignored. Previously it
+  called `pairQr()` twice: the second call invalidated the first operation generation, so the first
+  successful response was discarded and the second POST could receive `401` for the already
+  consumed secret. Re-delivery after completion replays the exact service-owned success or failure
+  so the Activity cannot remain on false progress.
+- A deliberate new scan has a new UUID even when the QR contents are identical, so an old/consumed
+  QR still reaches Server and produces the normal understandable stale-code rejection. Forget and
+  rejected saved credentials reset delivery history; a delayed old QR delivery cannot replace a
+  newer manual-token attempt. Manual Bearer submission itself is never deduplicated.
+- QR success remains durably committed before connect. A newly created service/controller loads
+  the saved Server ID/service/device/token, restarts existing discovery, accepts only that ID, and
+  reconnects through the unchanged LAN/P2P and WebSocket paths. Manual Bearer pairing remains the
+  same LAN-only verification and persistence flow.
 
 ## Implemented in Phone Client 0.4.1
 
@@ -135,29 +245,38 @@ a new transport, or full multi-player persistence; API remains `v1`.
 
 ## Verification
 
-Phone `0.4.1` development verification completed on 2026-08-15 with pinned Gradle wrapper
-`8.14.3`, Temurin JDK `21.0.12` (Java 17 source/target), Android SDK/compile/target 36, and Build
-Tools 36.0.0.
+Server `0.10.1` / Phone `0.4.2` development verification completed on 2026-08-21 with pinned Gradle
+wrapper `8.14.3`, Temurin JDK `21.0.12` (Java 17 source/target), Android SDK/compile/target 36, and
+Build Tools 35.0.0 selected by the pinned Android Gradle Plugin.
 
 - Final requested clean pipeline succeeded:
-  `clean :phone:testDebugUnitTest :phone:lintDebug :phone:assembleDebug --no-build-cache
-  --no-daemon --console=plain`.
-- Gradle executed all `51/51` tasks from clean outputs and assembled the Phone debug APK.
-- All Phone `36/36` JVM tests passed across 12 suites with zero failures, errors, or skips. This is
-  the prior 33-test baseline plus two service-request handoff cases and one repeated-rebind case.
-- Phone lint reports `No issues found` (zero errors and zero warnings).
-- APK badging confirms `versionCode=12`, `versionName=0.4.1`, min API 26, and target/compile API 36.
-- The merged manifest keeps non-exported `PlayerDevicesActivity`, optional camera hardware, and the
-  one exported Media3 `PhoneConnectionService` with `connectedDevice|mediaPlayback` and
-  `stopWithTask=false`.
-- APK Signature Scheme v2 verification passes with one Android debug signer, certificate SHA-256
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug --no-build-cache --no-daemon --console=plain`.
+- Gradle executed all `100/100` tasks from clean outputs and assembled both debug APKs.
+- All Server `78/78` JVM tests passed across 18 suites; all Phone `48/48` JVM tests passed across 14
+  suites. Both totals have zero failures, errors, or skips.
+- Server lint reports zero errors and two informational dependency-version warnings: Gradle
+  `8.14.5` and a newer JVM-test-only `org.json` artifact are available. The repository wrapper stays
+  pinned at `8.14.3`, and production continues to use Android framework `org.json`. Phone lint
+  reports `No issues found` (zero errors and zero warnings).
+- APK badging confirms Server `versionCode=12` / `versionName=0.10.1` and Phone
+  `versionCode=13` / `versionName=0.4.2`; both use min API 26 and target/compile API 36.
+- The merged Server manifest retains one non-exported `RemotePlaybackService` with
+  `connectedDevice` and `stopWithTask=false`. The merged Phone manifest retains non-exported
+  `PlayerDevicesActivity`, optional camera hardware, and the exported Media3
+  `PhoneConnectionService` with `connectedDevice|mediaPlayback` and `stopWithTask=false`.
+  `QrScannerActivity` is non-exported and has no static orientation; its runtime policy selects
+  portrait/landscape. The library's unused stock capture Activity remains in the merged manifest,
+  but scanner options explicitly launch the custom Activity.
+- APK Signature Scheme v2 verification passes for both APKs with one Android debug signer,
+  certificate SHA-256
   `4d2c7c0d0f8f2b81495d62884a96f361650573d8e99635a6f8cc754e36ec6265`.
-- Delivery artifact: `outputs/Poweramp-Remote-Phone-v0.4.1-debug.apk` — 5,197,753 bytes, SHA-256
-  `7e23a4d2856a801368d779e4a33ffdd889f6768fa8e83abad1ed95bfa71a0e91`.
-- No `:app` source or Server version changed. The previously verified Server `0.10.0` delivery
-  artifact remains `outputs/Poweramp-Remote-Server-v0.10.0-debug.apk` (419,172 bytes, SHA-256
-  `e16801b78e99acc86449a29b993181584bc05245a763c9e013506fb0eaaa409c`); its pipeline was not rerun
-  for this Phone-only regression release.
+- Server delivery artifact: `outputs/Poweramp-Remote-Server-v0.10.1-debug.apk` — 420,288 bytes,
+  SHA-256 `f2a8e8452f2b01d3deb9addfec147ac138eb55f05cf106b04c6892fea3e95462`.
+- Phone delivery artifact: `outputs/Poweramp-Remote-Phone-v0.4.2-debug.apk` — 5,201,213 bytes,
+  SHA-256 `3f60f9d32f0d380b6abaa4ac37433be464b54b34020fcf725f0e28ab7fdad979`.
+- Gradle printed its generic Gradle 9 deprecation notice; it produced no lint/build error, and all
+  `100` actionable tasks were executed.
 
 ### Debug signing handoff
 
@@ -171,27 +290,36 @@ replace a separately managed release signing key.
 
 ## Real-device checks required
 
-No hardware pass is claimed by JVM, lint, manifest, dependency, or APK verification. Before release,
-use the target player and representative Android phones/Wear devices to confirm:
+No hardware pass is claimed by JVM, lint, manifest, dependency, or APK verification; `adb` found no
+attached device in this workspace. Before release, use the target player and representative Android
+phones/Wear devices to confirm:
 
 - From a cold Phone launch and again immediately after **Pair new player**, scan and pair on shared
-  LAN; repeat with no shared LAN so exact-ID Wi-Fi Direct discovery,
-  system approval, group-owner selection, secret exchange, and API/WebSocket startup complete.
+  LAN; confirm the Server process remains alive through secret exchange and API/WebSocket startup.
+  Repeat with no shared LAN so exact-ID Wi-Fi Direct discovery, system approval, group-owner
+  selection, secret exchange, and API/WebSocket startup complete.
 - On a device without a camera (or with camera denied), enter the copied Bearer token manually;
   verify LAN discovery, invalid-token feedback, persistence, Re-pair, and retention of the previous
   association after failure.
-- Expired, reused, replaced, malformed, wrong-device, and canceled QR flows are rejected cleanly;
-  failed Pair new/Re-pair retains a previously working association; Forget removes it locally.
+- Successful, repeated, expired, replaced, malformed, wrong-device, and wrong-secret pairing HTTP
+  requests must never terminate the Server. Inspect the new sanitized Server log for the typed
+  outcome/stack; wrong requests must not consume a still-valid offer. Failed Pair new/Re-pair
+  retains a previously working association; Forget removes it locally.
 - Android 13+ Nearby devices, Android 8–12L location/Location Mode, camera denial/permanent denial,
   Wi-Fi off, P2P unsupported, approval rejection/timeout, and phone-as-group-owner remain recoverable.
 - With music playing, background/recreate/reopen the Phone Activity after a long interval: seekbar
-  and elapsed time immediately match the continuing notification/MediaSession. Repeat paused,
-  after seek, after track change, after reconnect, and across configuration change.
+  and elapsed time immediately match Poweramp and the continuing notification/MediaSession without
+  the former fixed 1–3 second lag. Repeat paused, after resume, seek, track change, reconnect, a
+  delayed snapshot, and configuration change.
 - Typical and short phone screens have no main-player vertical scroll or clipped required controls;
   test status-bar/cutout and gesture/three-button navigation insets, confirm volume is always visible,
-  and exercise landscape/anomalously small windows without crashes. Artwork rounding/crop, chips,
-  slider accuracy, selected states, ripple, haptics, touch targets, and accessibility descriptions
-  must remain acceptable.
+  and exercise landscape/anomalously small windows without crashes. Confirm the artwork's measured
+  width and height remain equal, with no image stretching. Artwork rounding/crop, chips, slider
+  accuracy, selected states, ripple, haptics, touch targets, and accessibility descriptions must
+  remain acceptable.
+- Launch the scanner from a portrait Player devices screen and confirm scanner-only portrait; then
+  launch it from an explicitly landscape screen and confirm scanner-only landscape. Returning from
+  either path must not force the rest of Phone Client into that orientation.
 - All prior metadata/artwork, Previous/Play-Pause/Next, seek, rating/Like/Dislike, shuffle,
   player-device volume, LAN preference/recovery, Web UI/browser sessions, notification/lock-screen,
   and compatible Wear OS behavior pass regressions over LAN and P2P.
@@ -215,6 +343,6 @@ use the target player and representative Android phones/Wear devices to confirm:
 
 ## Next scope
 
-Complete the `0.4.1` QR/manual/insets/UI and retained regression hardware matrix above. Then
+Complete the Server `0.10.1` / Phone `0.4.2` retained regression hardware matrix above. Then
 continue multi-player foundation, pairing/transport security, Library, Queue, and Lyrics only as
 separately scoped work in [`ROADMAP.md`](ROADMAP.md).

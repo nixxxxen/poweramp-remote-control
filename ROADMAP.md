@@ -1,8 +1,26 @@
 # Poweramp Remote Roadmap
 
-Current releases are Server `0.10.0` and Phone Client `0.4.1`; API remains backward-compatible `v1`.
+Current releases are Server `0.10.1` and Phone Client `0.4.2`; API remains backward-compatible `v1`.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
+
+## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
+
+Implemented without new product scope or an API version change:
+
+- Server removes the Android-incompatible static regexp that crashed `PairingRequest.<clinit>` and
+  parses `/api/v1/pair` with `org.json`, strict raw-type/version/canonical-ID/secret validation,
+  field-order independence, unknown-field tolerance, sanitized controlled failures, and
+  request-boundary diagnostics;
+- Phone keeps scanner handoff binder-independent in the existing `PhoneConnectionService`, assigns
+  a lifecycle-stable UUID to each scanner launch, suppresses/replays duplicate delivery without a
+  second one-time exchange, persists QR credentials before connecting, and reloads the same
+  identity for normal restart discovery;
+- Phone timestamps each WebSocket state at socket receipt and shares one playback anchor between
+  `PhoneConnectionService`, the player UI, and MediaSession, removing main-looper delivery lag;
+- a scanner-only Activity defaults to portrait and follows an explicitly landscape calling screen
+  without locking the rest of Phone Client;
+- the flexible rounded artwork container always measures to a 1:1 square.
 
 ## 0.4.1 Phone — regression fixes
 

@@ -2,10 +2,10 @@
 
 Два нативных Android-приложения с независимыми версиями:
 
-- Server `0.10.0` (`:app`) — устанавливается на Android-устройство с Poweramp;
-- Phone Client `0.4.1` (`:phone`) — управляет Server через обратно совместимый API `v1`.
+- Server `0.10.1` (`:app`) — устанавливается на Android-устройство с Poweramp;
+- Phone Client `0.4.2` (`:phone`) — управляет Server через обратно совместимый API `v1`.
 
-Server использует `versionCode 11`, Phone Client — `versionCode 12`; счётчики объявлены отдельно в
+Server использует `versionCode 12`, Phone Client — `versionCode 13`; счётчики объявлены отдельно в
 модулях и дальше увеличиваются независимо.
 
 Server сохраняет foreground service, Poweramp Intent API, REST/WebSocket API, Bearer/session auth,
@@ -33,6 +33,14 @@ QR содержит только API version, стабильный публич�
 атомарно инвалидируется после успешного обмена и отклоняется после истечения/повторного
 использования. Только после успеха Phone сохраняет Server `id`, имена сервиса/устройства и
 credential в приватных preferences без backup; resolved address никогда не сохраняется.
+Ошибочный, повторный или просроченный запрос остаётся локальным для HTTP connection и не завершает
+Server; причина неожиданной ошибки записывается в logcat без body, secret и credential.
+Server разбирает pairing body обычным JSON parser, поэтому порядок полей и дополнительные поля не
+важны; обязательные поля, их типы, API version и форматы `serverId`/`secret` проверяются явно.
+Phone передаёт scanner result прямо в существующий connection service. UUID конкретного запуска
+scanner подавляет его lifecycle-повтор без второго pairing POST, но новое сканирование того же
+устаревшего QR всё равно получает штатную ошибку Server. Credential сохраняется до запуска
+обычного соединения.
 
 ### Автоматическое соединение
 
@@ -79,12 +87,17 @@ Poweramp `bitRate` и `positionInList` без изменения.
 компактная громкость Android media stream на Player device. Secondary controls уменьшены; нажатия
 имеют ripple/pressed и haptic feedback, а Like/Dislike/Shuffle — различимое selected state. Команды
 идут через REST, а подтверждённое состояние — полными WebSocket snapshots без polling. При
-Activity resume/rebind foreground service сразу отдаёт экстраполированный playback snapshot, поэтому
-seekbar продолжает с актуальной позиции. Phone Client не меняет громкость телефона.
+Activity resume/rebind foreground service сразу отдаёт общий для UI и MediaSession playback anchor:
+remote position связывается со временем чтения WebSocket snapshot, а не с более поздним callback на
+main thread. Поэтому seekbar продолжает с актуальной позиции. Phone Client не меняет громкость
+телефона.
 
 Оба Phone-экрана учитывают status/navigation bars, gesture area и display cutout через динамические
 window insets. На компактной высоте artwork уменьшается первым; seek, transport, secondary controls
-и volume остаются в фиксированной обязательной части layout.
+и volume остаются в фиксированной обязательной части layout. Artwork всегда измеряется квадратом
+1:1 и отображается с закруглением/`centerCrop`, без вертикального растяжения. Scanner использует
+отдельную Activity: по умолчанию portrait, а landscape включается только когда вызывающий экран уже
+находится в landscape; ориентация всего Phone Client не фиксируется.
 
 Отдельный экран **Player devices** показывает имя сохранённого устройства, Connected/Disconnected,
 LAN/Wi-Fi Direct, API/server/endpoint diagnostics и действия **Pair new player**, **Re-pair**,
@@ -194,8 +207,8 @@ API v1. Server должен стать group owner; клиент запраши�
 
 APK:
 
-- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.10.0`;
-- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.4.1`.
+- `app/build/outputs/apk/debug/app-debug.apk` — Server `0.10.1`;
+- `phone/build/outputs/apk/debug/phone-debug.apk` — Phone Client `0.4.2`.
 
 Исторические `applicationId` `dev.r4remote.poweramp` и `dev.r4remote.poweramp.phone` сохранены ради
 обновления существующих установок без потери Server token и Phone pairing. Исходные namespace,

@@ -26,7 +26,7 @@
             android:src="@drawable/ic_devices" />
     </FrameLayout>
 
-    <FrameLayout
+    <dev.powerampremote.phone.SquareArtworkFrameLayout
         android:id="@+id/album_art_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -41,7 +41,7 @@
             android:padding="@dimen/album_placeholder_padding"
             android:scaleType="centerCrop"
             android:src="@drawable/ic_album_placeholder" />
-    </FrameLayout>
+    </dev.powerampremote.phone.SquareArtworkFrameLayout>
 
     <TextView
         android:id="@+id/track_title"

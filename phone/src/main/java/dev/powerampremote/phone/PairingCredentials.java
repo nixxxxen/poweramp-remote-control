@@ -49,6 +49,10 @@ final class PairingCredentials {
         return isCanonicalBase64Url(value, TOKEN_BYTES, 43);
     }
 
+    boolean matches(DiscoveredServer server) {
+        return server != null && serverId.equals(server.serverId);
+    }
+
     private static boolean isCanonicalBase64Url(String value, int byteCount, int length) {
         if (value == null || value.length() != length) {
             return false;

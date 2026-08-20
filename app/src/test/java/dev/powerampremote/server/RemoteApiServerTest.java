@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -75,6 +76,12 @@ public final class RemoteApiServerTest {
                 new SecureRandom(),
                 clock::get
         );
+        startServer(pairingSecrets);
+    }
+
+    private void startServer(PairingSecretStore secretStore) throws Exception {
+        if (server != null) server.close();
+        port = unusedLoopbackPort();
         CountDownLatch running = new CountDownLatch(1);
         server = new RemoteApiServer(
                 port,
@@ -91,7 +98,7 @@ public final class RemoteApiServerTest {
                     }
                 },
                 clock::get,
-                pairingSecrets,
+                secretStore,
                 SERVER_ID,
                 "Test Player"
         );
@@ -148,8 +155,37 @@ public final class RemoteApiServerTest {
     @Test
     public void oneTimePairingRouteExchangesQrSecretWithoutBearer() throws Exception {
         PairingOffer offer = pairingSecrets.issue();
-        String request = "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
-                + "\",\"secret\":\"" + offer.secret + "\"}";
+        String[] invalidRequests = {
+                "{not-json}",
+                "{\"serverId\":\"" + SERVER_ID + "\",\"secret\":\""
+                        + offer.secret + "\"}",
+                "{\"apiVersion\":1,\"secret\":\"" + offer.secret + "\"}",
+                "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID + "\"}",
+                "{\"apiVersion\":\"1\",\"serverId\":\"" + SERVER_ID
+                        + "\",\"secret\":\"" + offer.secret + "\"}",
+                "{\"apiVersion\":1.0,\"serverId\":\"" + SERVER_ID
+                        + "\",\"secret\":\"" + offer.secret + "\"}",
+                "{\"apiVersion\":2,\"serverId\":\"" + SERVER_ID
+                        + "\",\"secret\":\"" + offer.secret + "\"}",
+                "{\"apiVersion\":1,\"serverId\":7,\"secret\":\""
+                        + offer.secret + "\"}",
+                "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
+                        + "\",\"secret\":false}"
+        };
+        for (String invalidRequest : invalidRequests) {
+            assertStatus(http(
+                    "POST",
+                    RemoteApiServer.PAIRING_PATH,
+                    null,
+                    "application/json",
+                    invalidRequest
+            ), 400);
+            assertTrue(pairingSecrets.isActive(offer));
+        }
+
+        String request = " { \"secret\" : \"" + offer.secret
+                + "\", \"diagnostic\" : {\"ignored\":true}, \"serverId\" : \""
+                + SERVER_ID + "\", \"apiVersion\" : 1 } ";
 
         String paired = http(
                 "POST",
@@ -171,7 +207,74 @@ public final class RemoteApiServerTest {
                 request
         );
         assertStatus(reused, 401);
+
+        PairingOffer expiredOffer = pairingSecrets.issue();
+        clock.set(expiredOffer.expiresAtMilliseconds);
+        String expiredRequest = "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
+                + "\",\"secret\":\"" + expiredOffer.secret + "\"}";
+        assertStatus(http(
+                "POST",
+                RemoteApiServer.PAIRING_PATH,
+                null,
+                "application/json",
+                expiredRequest
+        ), 401);
+
+        PairingOffer wrongSecretOffer = pairingSecrets.issue();
+        String wrongSecretRequest = "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
+                + "\",\"secret\":\"" + TOKEN + "\"}";
+        assertStatus(http(
+                "POST",
+                RemoteApiServer.PAIRING_PATH,
+                null,
+                "application/json",
+                wrongSecretRequest
+        ), 401);
+        assertTrue(pairingSecrets.isActive(wrongSecretOffer));
+
+        // Every rejection is request-local: the listener and authenticated API stay alive.
+        assertStatus(http("GET", RemoteApiServer.STATE_PATH, TOKEN, null, null), 200);
         assertStatus(http("GET", RemoteApiServer.PAIRING_PATH, null, null, null), 405);
+    }
+
+    @Test
+    public void unexpectedPairingExceptionIsLoggedAndContainedAtRequestBoundary()
+            throws Exception {
+        AtomicBoolean failConsume = new AtomicBoolean();
+        PairingSecretStore failingStore = new PairingSecretStore(
+                SERVER_ID,
+                "Test Player",
+                new SecureRandom(),
+                () -> {
+                    if (failConsume.get()) throw new IllegalStateException("test consume failure");
+                    return clock.get();
+                }
+        );
+        PairingOffer offer = failingStore.issue();
+        startServer(failingStore);
+        failConsume.set(true);
+
+        String request = "{\"apiVersion\":1,\"serverId\":\"" + SERVER_ID
+                + "\",\"secret\":\"" + offer.secret + "\"}";
+        assertStatus(http(
+                "POST",
+                RemoteApiServer.PAIRING_PATH,
+                null,
+                "application/json",
+                request
+        ), 500);
+
+        // The internal failure occurred before acceptance and must not invalidate the offer.
+        failConsume.set(false);
+        assertStatus(http(
+                "POST",
+                RemoteApiServer.PAIRING_PATH,
+                null,
+                "application/json",
+                request
+        ), 200);
+
+        assertStatus(http("GET", RemoteApiServer.STATE_PATH, TOKEN, null, null), 200);
     }
 
     @Test

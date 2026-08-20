@@ -33,11 +33,14 @@ import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanIntentResult;
 import com.journeyapps.barcodescanner.ScanOptions;
 
+import java.util.UUID;
+
 /** Saved player-device management and QR-pairing surface. */
 public final class PlayerDevicesActivity extends ComponentActivity
         implements PhoneConnectionService.Listener {
     private static final String STATE_PERMISSION_REQUEST_ATTEMPTED =
             "permission_request_attempted";
+    private static final String STATE_SCANNER_DELIVERY_ID = "scanner_delivery_id";
 
     private enum ConnectionAction {
         NONE, PERMISSION, LOCATION_SETTINGS, WIFI_SETTINGS, RETRY_DIRECT, RETRY_LAN
@@ -66,6 +69,7 @@ public final class PlayerDevicesActivity extends ComponentActivity
     private boolean bindingRequested;
     private boolean permissionRequestAttempted;
     private boolean permissionRequestInFlight;
+    private String scannerDeliveryId;
 
     private final ActivityResultLauncher<ScanOptions> barcodeLauncher =
             registerForActivityResult(new ScanContract(), this::onScanResult);
@@ -111,6 +115,8 @@ public final class PlayerDevicesActivity extends ComponentActivity
         SafeDrawingInsets.enableEdgeToEdge(getWindow());
         permissionRequestAttempted = savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_PERMISSION_REQUEST_ATTEMPTED, false);
+        scannerDeliveryId = savedInstanceState == null
+                ? null : savedInstanceState.getString(STATE_SCANNER_DELIVERY_ID);
         setContentView(R.layout.activity_player_devices);
         SafeDrawingInsets.apply(findViewById(R.id.player_devices_root));
         bindViews();
@@ -158,6 +164,9 @@ public final class PlayerDevicesActivity extends ComponentActivity
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         outState.putBoolean(STATE_PERMISSION_REQUEST_ATTEMPTED, permissionRequestAttempted);
+        if (scannerDeliveryId != null) {
+            outState.putString(STATE_SCANNER_DELIVERY_ID, scannerDeliveryId);
+        }
         super.onSaveInstanceState(outState);
     }
 
@@ -169,9 +178,14 @@ public final class PlayerDevicesActivity extends ComponentActivity
 
     private void onScanResult(ScanIntentResult result) {
         if (result.getContents() == null) return;
+        if (scannerDeliveryId == null) scannerDeliveryId = UUID.randomUUID().toString();
         try {
             hideError();
-            PhoneConnectionService.requestQrPairing(this, result.getContents());
+            PhoneConnectionService.requestQrPairing(
+                    this,
+                    result.getContents(),
+                    scannerDeliveryId
+            );
             pairingMode = RemoteClientController.PairingMode.QR;
             pairingProgressPanel.setVisibility(View.VISIBLE);
             pairingProgressMessage.setText(R.string.pairing_searching_target);
@@ -237,14 +251,23 @@ public final class PlayerDevicesActivity extends ComponentActivity
             return;
         }
         try {
+            scannerDeliveryId = UUID.randomUUID().toString();
             ScanOptions options = new ScanOptions()
                     .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                     .setPrompt(getString(R.string.pairing_scan_prompt))
                     .setBeepEnabled(false)
                     .setBarcodeImageEnabled(false)
-                    .setOrientationLocked(false);
+                    .setCaptureActivity(QrScannerActivity.class)
+                    .setOrientationLocked(false)
+                    .addExtra(
+                            QrScannerActivity.EXTRA_REQUESTED_ORIENTATION,
+                            QrScannerOrientation.fromCallerConfiguration(
+                                    getResources().getConfiguration().orientation
+                            )
+                    );
             barcodeLauncher.launch(options);
         } catch (RuntimeException exception) {
+            scannerDeliveryId = null;
             showError(R.string.pairing_scanner_unavailable);
         }
     }
@@ -423,7 +446,7 @@ public final class PlayerDevicesActivity extends ComponentActivity
     }
 
     @Override
-    public void onStateChanged(RemoteState state) {
+    public void onStateChanged(RemoteState state, long receivedRealtimeMilliseconds) {
         renderDevice();
     }
 

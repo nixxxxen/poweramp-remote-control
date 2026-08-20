@@ -1,16 +1,11 @@
 package dev.powerampremote.server;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.json.JSONTokener;
 
-/** Strict request contract for the unauthenticated one-time pairing exchange. */
+/** Validated request contract for the unauthenticated one-time pairing exchange. */
 final class PairingRequest {
-    private static final Pattern JSON_PATTERN = Pattern.compile(
-            "\\s*\\{\\s*\\\"apiVersion\\\"\\s*:\\s*(\\d+)\\s*,\\s*"
-                    + "\\\"serverId\\\"\\s*:\\s*\\\"([A-Za-z0-9_-]{22})\\\"\\s*,\\s*"
-                    + "\\\"secret\\\"\\s*:\\s*\\\"([A-Za-z0-9_-]{43})\\\"\\s*}\\s*"
-    );
-
     final int apiVersion;
     final String serverId;
     final String secret;
@@ -22,19 +17,41 @@ final class PairingRequest {
     }
 
     static PairingRequest parse(String json) {
-        if (json == null) throw new IllegalArgumentException("missing request");
-        Matcher matcher = JSON_PATTERN.matcher(json);
-        if (!matcher.matches()) throw new IllegalArgumentException("invalid pairing request");
-        int apiVersion;
+        if (json == null) throw invalidRequest();
+        final JSONObject object;
         try {
-            apiVersion = Integer.parseInt(matcher.group(1));
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException("invalid API version", exception);
+            JSONTokener tokener = new JSONTokener(json);
+            Object parsed = tokener.nextValue();
+            if (!(parsed instanceof JSONObject) || tokener.nextClean() != '\0') {
+                throw invalidRequest();
+            }
+            object = (JSONObject) parsed;
+        } catch (JSONException | StackOverflowError exception) {
+            // Never retain the parser exception as a cause: some Android implementations include
+            // the source JSON (and therefore the one-time secret) in their diagnostic message.
+            // A deeply nested unauthenticated body is likewise a request error, not a process
+            // failure; catch only that parser-specific VM failure rather than broad Throwable.
+            throw invalidRequest();
         }
-        String serverId = matcher.group(2);
-        if (!ServerIdentity.isValid(serverId)) {
-            throw new IllegalArgumentException("invalid server id");
+
+        Object rawApiVersion = object.opt("apiVersion");
+        Object rawServerId = object.opt("serverId");
+        Object rawSecret = object.opt("secret");
+        if (!(rawApiVersion instanceof Integer)
+                || ((Integer) rawApiVersion) != PairingOffer.API_VERSION
+                || !(rawServerId instanceof String)
+                || !(rawSecret instanceof String)) {
+            throw invalidRequest();
         }
-        return new PairingRequest(apiVersion, serverId, matcher.group(3));
+        String serverId = (String) rawServerId;
+        String secret = (String) rawSecret;
+        if (!ServerIdentity.isValid(serverId) || !PairingSecretStore.isValidSecret(secret)) {
+            throw invalidRequest();
+        }
+        return new PairingRequest((Integer) rawApiVersion, serverId, secret);
+    }
+
+    private static IllegalArgumentException invalidRequest() {
+        return new IllegalArgumentException("invalid pairing request");
     }
 }

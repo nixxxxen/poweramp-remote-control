@@ -5,22 +5,22 @@ final class PlaybackUiSnapshot {
     final int positionSeconds;
     final long capturedRealtimeMilliseconds;
 
-    private final int anchorPositionSeconds;
+    private final long anchorPositionMilliseconds;
     private final long anchorRealtimeMilliseconds;
-    private final int durationSeconds;
+    private final long durationMilliseconds;
     private final boolean playing;
 
     private PlaybackUiSnapshot(
-            int anchorPositionSeconds,
+            long anchorPositionMilliseconds,
             long anchorRealtimeMilliseconds,
-            int durationSeconds,
+            long durationMilliseconds,
             boolean playing,
             int positionSeconds,
             long capturedRealtimeMilliseconds
     ) {
-        this.anchorPositionSeconds = Math.max(anchorPositionSeconds, 0);
+        this.anchorPositionMilliseconds = Math.max(anchorPositionMilliseconds, 0L);
         this.anchorRealtimeMilliseconds = anchorRealtimeMilliseconds;
-        this.durationSeconds = Math.max(durationSeconds, 0);
+        this.durationMilliseconds = Math.max(durationMilliseconds, 0L);
         this.playing = playing;
         this.positionSeconds = Math.max(positionSeconds, 0);
         this.capturedRealtimeMilliseconds = capturedRealtimeMilliseconds;
@@ -33,9 +33,9 @@ final class PlaybackUiSnapshot {
                 ? 0 : Math.max(state.durationSeconds, 0);
         if (duration > 0) position = Math.min(position, duration);
         return new PlaybackUiSnapshot(
-                position,
+                position * 1_000L,
                 nowMilliseconds,
-                duration,
+                duration * 1_000L,
                 state != null && "playing".equals(state.playbackState),
                 position,
                 nowMilliseconds
@@ -43,16 +43,13 @@ final class PlaybackUiSnapshot {
     }
 
     PlaybackUiSnapshot capturedAt(long nowMilliseconds) {
-        long position = anchorPositionSeconds;
-        if (playing) {
-            position += Math.max(0L, nowMilliseconds - anchorRealtimeMilliseconds) / 1_000L;
-        }
-        if (durationSeconds > 0) position = Math.min(position, durationSeconds);
+        long positionMilliseconds = positionMillisecondsAt(nowMilliseconds);
+        long position = positionMilliseconds / 1_000L;
         int captured = position > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) position;
         return new PlaybackUiSnapshot(
-                anchorPositionSeconds,
+                anchorPositionMilliseconds,
                 anchorRealtimeMilliseconds,
-                durationSeconds,
+                durationMilliseconds,
                 playing,
                 captured,
                 nowMilliseconds
@@ -60,14 +57,33 @@ final class PlaybackUiSnapshot {
     }
 
     PlaybackUiSnapshot frozenAt(long nowMilliseconds) {
-        PlaybackUiSnapshot captured = capturedAt(nowMilliseconds);
+        long frozenPositionMilliseconds = positionMillisecondsAt(nowMilliseconds);
+        long position = frozenPositionMilliseconds / 1_000L;
+        int captured = position > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) position;
         return new PlaybackUiSnapshot(
-                captured.positionSeconds,
+                frozenPositionMilliseconds,
                 nowMilliseconds,
-                durationSeconds,
+                durationMilliseconds,
                 false,
-                captured.positionSeconds,
+                captured,
                 nowMilliseconds
         );
+    }
+
+    long positionMillisecondsAt(long nowMilliseconds) {
+        long position = anchorPositionMilliseconds;
+        if (playing) {
+            position += Math.max(0L, nowMilliseconds - anchorRealtimeMilliseconds);
+        }
+        if (durationMilliseconds > 0L) position = Math.min(position, durationMilliseconds);
+        return Math.max(position, 0L);
+    }
+
+    long confirmedRealtimeMilliseconds() {
+        return anchorRealtimeMilliseconds;
+    }
+
+    boolean isAdvancing() {
+        return playing;
     }
 }
