@@ -135,3 +135,8 @@ portions and bundled dependencies retain their own terms; see
 Poweramp Remote is an independent open-source project. It is not affiliated with, endorsed by,
 sponsored by, or supported by Poweramp or Max MP. Poweramp and related names and logos are the
 property of their respective owners and are used only to describe compatibility.
+
+> Google Play Protect may classify this first public release as an “Uncommon” app because its new
+> release certificate has not yet accumulated reputation. This warning does not indicate a detected
+> malware category. Download APKs only from this repository and verify them against
+> `SHA256SUMS.txt` before installation.
