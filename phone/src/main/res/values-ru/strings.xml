@@ -92,6 +92,7 @@
     <string name="unknown_artist">Неизвестный исполнитель</string>
     <string name="unknown_album">Неизвестный альбом</string>
     <string name="album_art_description">Обложка текущего трека</string>
+    <string name="playback_position">Позиция воспроизведения</string>
     <string name="elapsed_placeholder">0:00</string>
     <string name="duration_placeholder">0:00</string>
     <string name="remote_volume_description">Громкость на устройстве с Poweramp</string>
