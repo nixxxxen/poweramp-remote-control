@@ -6,8 +6,8 @@ controls, or a compatible Wear OS controller operates it over a local connection
 
 Current versions:
 
-- Server `0.10.1` (`versionCode 12`)
-- Phone Client `0.4.2` (`versionCode 13`)
+- Server `0.10.2` (`versionCode 13`)
+- Phone Client `0.5.0` (`versionCode 14`)
 - local API `v1`
 
 The Server and Phone Client are separate APKs with independent version numbers.
@@ -35,7 +35,9 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
 - manual persistent Bearer-token pairing as a camera-free fallback;
 - LAN NSD discovery with automatic Wi-Fi Direct fallback;
 - Android MediaSession, media notification/lock-screen controls, and compatible Wear OS controls;
-- an authenticated embedded Web UI for browsers on the local network.
+- a compact Phone main menu with Player devices, Settings, app language, and About surfaces;
+- complete English and Russian Phone UI, scanner, dialogs, accessibility text, and notifications;
+- an authenticated English embedded Web UI for browsers on the local network.
 
 ## Requirements
 
@@ -53,15 +55,20 @@ group owner for the current fallback connection to work.
 
 Download the two APKs from the [latest GitHub Release](../../releases/latest):
 
-- `Poweramp-Remote-Server-v0.10.1.apk`
-- `Poweramp-Remote-Phone-v0.4.2.apk`
+- `Poweramp-Remote-Server-v0.10.2.apk`
+- `Poweramp-Remote-Phone-v0.5.0.apk`
 
 The release also provides `SHA256SUMS.txt` plus the project and third-party license notices.
 
-> **First public release:** pre-release APKs were signed with Android debug certificates. The new
-> release-signed APKs cannot update those installations. Uninstall both old debug apps before
-> installing this release; uninstalling removes their local credentials and pairing preferences,
-> so pair Server and Phone again afterward.
+> **Update from the first public release:** install Server `0.10.2` over `0.10.1` and Phone Client
+> `0.5.0` over `0.4.2` without uninstalling. Both applications retain their existing IDs and use
+> the same permanent release certificate, so the Server identity/API token and Phone pairing/
+> Bearer credential remain in place. Re-pairing is not required.
+
+> **Historical debug-build boundary:** pre-release APKs were signed with Android debug
+> certificates. Release-signed APKs still cannot update those installations. Uninstall both old
+> debug apps before installing a public release; uninstalling removes local credentials and pairing
+> preferences, so pair Server and Phone again afterward.
 
 Then:
 
@@ -77,6 +84,12 @@ Then:
 After successful pairing, the Phone Client stores the Server identity and credential in its private,
 backup-excluded app storage and reconnects automatically. If LAN discovery fails, the client may
 offer or start Wi-Fi Direct fallback; confirm any system dialogs shown on either device.
+
+The Phone main screen keeps **Player devices** on the right and adds a menu button on the left.
+**Settings** selects **System default**, **Russian**, or **English** without changing pairing or
+stopping the connection service; **About** shows exact installed version metadata, licenses,
+repository links, and the project independence notice. System default uses Russian only for a
+primary Russian system locale and English otherwise.
 
 For browser control, open `http://<SERVER-IP>:8765/` from a device on the same trusted LAN and log
 in with the credential copied through the Server's explicit Web UI credential action.

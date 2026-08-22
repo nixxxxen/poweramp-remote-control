@@ -51,8 +51,12 @@ private key or passwords.
 
 Create exactly these public artifacts:
 
-- `Poweramp-Remote-Server-v0.10.1.apk`
-- `Poweramp-Remote-Phone-v0.4.2.apk`
+- `Poweramp-Remote-Server-v0.10.2.apk`
+- `Poweramp-Remote-Phone-v0.5.0.apk`
+- `SHA256SUMS.txt`
+- `LICENSE`
+- `THIRD_PARTY_NOTICES.md`
+- `Apache-2.0.txt`
 
 For each APK, verify:
 
@@ -71,7 +75,39 @@ Distribute `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `licenses/Apache-2.0.txt` wi
 release tag should be created only after the final history decision and may be signed separately
 from the APKs.
 
-## Mandatory real-device release-candidate pass
+## Mandatory subsequent-release in-place pass
+
+Every release after the first public release must prove update compatibility with the exact prior
+public release. A fresh install is useful additional coverage but does not replace this matrix.
+Build the exact release-signed APKs from the final release commit with the same permanent signing
+certificate, install those exact files, and record device models and Android versions.
+
+For Server `0.10.2` / Phone Client `0.5.0`, complete every item:
+
+1. Install Server `0.10.2` over public Server `0.10.1` without uninstalling it.
+2. Confirm that Server identity, API token, browser/API access, and pairing state remain intact.
+3. Install Phone `0.5.0` over public Phone `0.4.2` without uninstalling it.
+4. Confirm that the saved Server identity and Bearer credential remain intact and reconnect without
+   re-pairing.
+5. Check the first launch in **System default**.
+6. Switch **Russian → English → Russian** and confirm immediate presentation changes.
+7. Check Main, Player devices, Settings, About, dialogs, scanner, notification actions, foreground
+   notification text, and notification-channel copy in both languages.
+8. Restart Activities, both applications, and both devices; confirm language selection and pairing
+   survive every restart.
+9. Check the Server Activity, foreground notification/channel, and embedded Web UI for English-only
+   presentation.
+10. Repeat both QR pairing and manual Bearer-token pairing.
+11. Repeat LAN/NSD operation and Wi-Fi Direct fallback, including recovery back to preferred LAN.
+12. Repeat background/screen-off operation, artwork, all metadata, playback, seek, rating,
+    Like/Dislike, shuffle, player-device volume, MediaSession, lock screen, compatible Wear OS, and
+    reconnect behavior.
+
+Only the exact release-signed APKs intended for upload count as validated. Any failure remains a
+release blocker until understood, fixed or explicitly documented, and re-tested. Do not call the
+release ready before the maintainer confirms every hardware item.
+
+## Historical first-public-release fresh-install pass
 
 Do not publish solely on the strength of unit tests, lint, or APK verification. Record the device
 models and Android versions used, and complete this fresh-install matrix with the exact
@@ -95,9 +131,9 @@ release-signed APKs that will be uploaded:
 15. Confirm controls from a compatible Wear OS device through the Phone MediaSession.
 16. Restart both apps and then both devices; confirm saved pairing and automatic reconnect.
 
-Any failure remains a release blocker until it is understood, fixed or explicitly documented and
-re-tested. A fresh-install pass is also the final confirmation that no debug certificate is still
-in the distribution path.
+This 16-step fresh-install matrix was the mandatory boundary for the first public release. Its
+successful result remains recorded in `STATUS.md` and `RELEASE_NOTES.md`; later releases use the
+in-place matrix above while retaining fresh install as additional coverage.
 
 ## Existing debug installations
 

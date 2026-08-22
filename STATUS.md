@@ -2,19 +2,89 @@
 
 Current versions:
 
-- Server: `0.10.1` (`versionCode 12`)
-- Phone Client: `0.4.2` (`versionCode 13`)
+- Server: `0.10.2` (`versionCode 13`)
+- Phone Client: `0.5.0` (`versionCode 14`)
 - API: backward-compatible `v1`
 
 ## Stage
 
-The repository builds two native Android applications. Server `0.10.1` and Phone Client `0.4.2` are
-focused regression releases for QR request stability, scanner orientation, confirmed-position
-timing, and square artwork. They do not add Library, Queue, Lyrics, a new transport, or full
+The repository builds two native Android applications. Server `0.10.2` and Phone Client `0.5.0`
+form the source-complete second-public-release candidate for complete Phone English/Russian
+localization, a minimal Phone navigation menu, Settings/app-language selection, About, and an
+English-only Server/Web UI. They do not add Library, Queue, Lyrics, a new transport, or full
 multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
-MediaSession, volume, Web UI, and API `v1` contracts remain in place.
+pairing/reconnect path, MediaSession, volume, Web UI, and API `v1` contracts remain in place.
 
-## Public-release preparation (2026-08-22)
+This candidate is not yet release-ready: the external permanent signing configuration is not
+available in the current workspace, so release unit tests, release lint, signed release assembly,
+APK/certificate verification, and the exact-APK real-device upgrade matrix remain pending.
+
+## Implemented in Server 0.10.2 / Phone Client 0.5.0
+
+### Phone navigation, Settings, and About
+
+- The compact, non-scrolling main player has a left 40 dp three-line menu button symmetric with
+  the existing right **Player devices** button. It retains the same visual treatment, haptic style,
+  safe-inset handling, square artwork budget, and always-visible volume control.
+- A native `PopupMenu` opens **Settings** and **About** without adding AppCompat, a navigation
+  framework, or another runtime.
+- Settings and About are presentation-only Activities using the existing theme, edge-to-edge safe
+  drawing insets, normal Back behavior, and haptic feedback. Neither owns, stops, or recreates the
+  connection runtime.
+- About reads `versionName` and `versionCode` from `PackageManager`, keeps `buildConfig = false`,
+  shows local API v1, repository/license/notices/independence information, and opens public links
+  with ordinary `ACTION_VIEW` intents.
+
+### Phone application language
+
+- The stable private language tags are `system`, `ru`, and `en`, stored in a preferences file
+  separate from `PairingStore`; changing language cannot remove the saved Server ID or Bearer
+  credential.
+- **System default** resolves Russian only when the primary system locale is Russian and English
+  for every other locale. Android 13+ uses platform `LocaleManager`; API 26–32 wraps each
+  presentation context with a small configuration override. Protocol parsing and normalization
+  continue to use their existing `Locale.ROOT` paths.
+- The selected locale applies immediately. Only presentation Activities may recreate on API
+  26–32; the existing `PhoneConnectionService` remains alive and rebuilds its notification/channel
+  text from the new locale.
+- `localeConfig` advertises only `en` and `ru`, and language splitting is disabled so both supported
+  resources remain installed. Minimum API remains 26.
+
+### Complete Phone localization
+
+- `values/strings.xml` is the complete English fallback and `values-ru/strings.xml` contains the
+  matching complete Russian translation. Their translatable keys, arrays, item counts, and format
+  placeholders are parity-tested; the English fallback is also checked for Cyrillic user text.
+- Main, Player devices, Settings, About, QR prompts, dialogs, Toast/error/status messages, buttons,
+  hints, runtime diagnostics, accessibility descriptions, foreground notification/actions, and
+  notification channel are resource-driven in both languages.
+- Metadata presentation uses locale-aware resources: English `bit`, `kHz`, `MHz`, `kbps` with a
+  decimal point; Russian `бит`, `кГц`, `МГц`, `кбит/с` with a decimal comma. The tolerant bitrate
+  policy and raw, unoffset `positionInList` semantics remain unchanged.
+
+### English-only Server and embedded Web UI
+
+- Server Activity, pairing instructions, controls, states, errors, accessibility descriptions,
+  foreground notification/actions, and notification channel are English.
+- The embedded Web UI declares `<html lang="en">`; login, metadata, playback, seek, volume,
+  rating, Like/Dislike, shuffle, connection/error messages, and ARIA labels are English and tested
+  for absence of Cyrillic presentation text.
+- API v1 remains byte-compatible. Its historical Russian `sourceCategoryName` field is isolated as
+  protocol data and preserved exactly; native Phone presentation and the English Web UI derive
+  display labels from the unchanged numeric `sourceCategory` value instead.
+
+### Upgrade and architecture compatibility
+
+- Server is `0.10.2` / code 13 and Phone is `0.5.0` / code 14. Application IDs remain
+  `dev.r4remote.poweramp` and `dev.r4remote.poweramp.phone`; API remains v1.
+- These APKs are intended to update public `0.10.1` / `0.4.2` in place with the same permanent
+  release certificate, preserving Server identity/token and Phone identity/credential without
+  re-pairing. This still requires exact release-signed real-device confirmation.
+- There is still one Server foreground service/Poweramp path and one Phone connection/MediaSession
+  service. No cloud, polling, manual IP entry, analytics, updater, duplicate transport, or protocol
+  fork was added.
+
+## First-public-release preparation (historical, 2026-08-22)
 
 - A protected full mirror backup of the original private history was created outside the
   repository before any rewrite and is being retained. It contains the old commits and local refs
@@ -287,7 +357,58 @@ manual actions.
 
 ## Verification
 
-### Public release candidate verification (2026-08-22)
+### Second-public-release RC automation (2026-08-22)
+
+- A clean no-build-cache debug pipeline completed successfully through the pinned Gradle Wrapper:
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug`. All `100/100` actionable tasks executed.
+- Server passed `78/78` debug JVM tests across 18 suites; Phone passed `57/57` across 16 suites.
+  All 135 executions have zero failures, errors, or skips.
+- Debug lint reports zero errors. Phone reports no issues; Server retains only the two existing
+  dependency/update warnings for the pinned Gradle Wrapper and JVM-test-only `org.json`.
+- Debug APK badging confirms Server package `dev.r4remote.poweramp`, code 13/name 0.10.2, and Phone
+  package `dev.r4remote.poweramp.phone`, code 14/name 0.5.0. Both retain min API 26 and target/compile
+  API 36.
+- Both debug APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification with one
+  Android debug signer. The merged manifests retain exactly one non-exported Server service and one
+  exported MediaSession-capable Phone service; Player devices, Settings, About, and the custom QR
+  scanner are all non-exported.
+- Focused tests cover stable language tags and ru/en resolution, private preference persistence,
+  English/Russian resource/array/placeholder parity, absence of Cyrillic English resource text,
+  localeConfig, locale-aware metadata units/separators/bitrate/raw list position, English Web UI
+  language/copy/ARIA, absence of Cyrillic Web UI text, and the historical API v1 category-name
+  payload.
+- A direct release unit-test invocation was attempted and stopped before task execution at the
+  repository's signing gate because the external permanent signing properties are unavailable in
+  this workspace. Release unit tests, release lint, signed clean release assembly, `apksigner`,
+  release badging/alignment, and release-APK checksums have therefore **not** been completed. No
+  release APK or checksum file was created.
+
+### Second-public-release real-device validation (not yet performed)
+
+Every item below remains unchecked until the maintainer confirms it using the exact final
+release-signed APKs intended for upload:
+
+- [ ] Install Server `0.10.2` over public Server `0.10.1` without uninstalling it.
+- [ ] Confirm Server identity, API token, browser/API access, and pairing state remain intact.
+- [ ] Install Phone `0.5.0` over public Phone `0.4.2` without uninstalling it.
+- [ ] Confirm the saved Server identity and Bearer credential remain intact and reconnect without
+  re-pairing.
+- [ ] Check first launch in **System default**.
+- [ ] Switch **Russian → English → Russian** and confirm immediate presentation changes.
+- [ ] Check Main, Player devices, Settings, About, dialogs, scanner, notification actions,
+  foreground notification text, and notification-channel copy in both languages.
+- [ ] Restart Activities, both applications, and both devices; confirm language selection and
+  pairing survive every restart.
+- [ ] Check the Server Activity, foreground notification/channel, and embedded Web UI for
+  English-only presentation.
+- [ ] Repeat both QR pairing and manual Bearer-token pairing.
+- [ ] Repeat LAN/NSD operation and Wi-Fi Direct fallback, including recovery back to preferred LAN.
+- [ ] Repeat background/screen-off operation, artwork, all metadata, playback, seek, rating,
+  Like/Dislike, shuffle, player-device volume, MediaSession, lock screen, compatible Wear OS, and
+  reconnect behavior.
+
+### First-public-release candidate verification (historical, 2026-08-22)
 
 - One clean no-build-cache pipeline ran debug and release unit tests, lint, and APK assembly for
   both modules with the external signing configuration. It completed successfully with 206
@@ -436,6 +557,9 @@ and hardening work should additionally exercise more vendors, Android versions, 
 
 ## Next scope
 
-Continue broader vendor and edge-case coverage for Server `0.10.1` / Phone `0.4.2`. Then continue
-multi-player foundation, pairing/transport security, Library, Queue, and Lyrics only as separately
-scoped work in [`ROADMAP.md`](ROADMAP.md).
+Provide the existing external signing-properties path without exposing its contents, then run the
+full clean release tests/lint/assembly and verify both exact release-signed APKs. Complete every
+unchecked in-place/device item above before approving Server `0.10.2` / Phone `0.5.0` for
+publication. Only afterward continue broader vendor coverage, multi-player foundation,
+pairing/transport security, Library, Queue, and Lyrics as separately scoped work in
+[`ROADMAP.md`](ROADMAP.md).

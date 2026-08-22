@@ -5,12 +5,12 @@
 Poweramp Remote provides a reliable native Android Server for any compatible Android player device
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
-- Server: `0.10.1` (`versionCode 12`)
-- Phone Client: `0.4.2` (`versionCode 13`)
+- Server: `0.10.2` (`versionCode 13`)
+- Phone Client: `0.5.0` (`versionCode 14`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; the Server counter is now `12` and the Phone counter is `13`. This preserves
+`versionCode 7`; the Server counter is now `13` and the Phone counter is `14`. This preserves
 Android upgrade compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
@@ -60,9 +60,11 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - one Media3 `MediaSession` exposed to Android System UI, lock screen, and compatible Wear OS
   controllers.
 
-`MainActivity` binds only while visible and is a playback-only presentation/control surface.
-`PlayerDevicesActivity` owns saved-device diagnostics, QR/manual pairing, re-pair/forget actions, and
-recoverable permission/settings actions. Neither Activity lifecycle cancels P2P negotiation,
+`MainActivity` binds only while visible and is a playback-only presentation/control surface with a
+small native menu for Settings/About. `PlayerDevicesActivity` owns saved-device diagnostics,
+QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
+`SettingsActivity` and `AboutActivity` are presentation-only and never own or replace the connection
+runtime. No Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
 
@@ -71,6 +73,21 @@ play, pause, previous, next, and seek to API v1, while metadata, artwork, playba
 and position come from the existing WebSocket snapshots. There is no fake ExoPlayer, audio-focus
 request, WebView, cloud service, playback polling loop, duplicate Server runtime, or second Poweramp
 integration path.
+
+Phone presentation resources use complete English fallback values and a complete Russian
+translation. The persisted choices are `system`, `ru`, and `en` in a private preference file that is
+separate from pairing storage. System mode resolves a primary Russian system locale to Russian and
+all other system locales to English. Android 13+ also receives the selection through platform
+`LocaleManager` and advertises `en`/`ru` with `localeConfig`; API 26–32 uses a per-component
+configuration context. Every Activity and scanner prompt receives that context, while the existing
+service rebuilds only its localized notification and channel copy when the choice changes. The
+process default locale is never changed, so protocol parsing, JSON, NSD, WebSocket, Wi-Fi Direct,
+codec normalization, identity, and credential handling retain their `Locale.ROOT` behavior.
+
+The Server has no language selector: its Android Activity, foreground notification/channel, and
+embedded Web UI are English-only. API v1 retains its historical `sourceCategoryName` wire values;
+native and Web presentation localize/format the accompanying unchanged numeric `sourceCategory`
+instead of treating that compatibility field as UI copy.
 
 ## Connection model
 
@@ -236,10 +253,12 @@ Important semantic rules:
 - `volumeControlAvailable` reports whether Server can change that stream;
 - artwork uses an authenticated relative path and `Cache-Control: no-store`.
 
-The Phone Client UI formats bitrate as `кбит/с` using the same tolerant rule already used by the
-Server UI (current bit/s representation or older values already in kbit/s) and presents an
-available list position as `current / total`. It does not display diagnostic `list`/`raw` labels,
-invent an unverified index offset, or change API v1 payloads.
+The Phone Client UI formats bitrate as `kbps` in English and `кбит/с` in Russian, using the same
+tolerant rule as Server presentation (current bit/s representation or older values already in
+kbit/s). Bit depth and sample-rate units plus decimal point/comma also follow the selected Phone
+language. Every presentation surface shows an available list position as the unchanged raw
+`current / total`; it does not display diagnostic `list`/`raw` labels, invent an unverified index
+offset, or change API v1 payloads.
 
 ### Controls
 
@@ -295,11 +314,14 @@ The Phone main screen is deliberately player-only and non-scrolling on a typical
 rounded artwork receives the flexible space; Previous/Play-Pause/Next remain primary; rating,
 Like/Dislike, and Shuffle are compact secondary controls with selected states, ripple feedback, and
 haptics. Seek and volume use player-specific tracks/thumbs, and codec/file type, bit depth, sample
-rate, and bitrate use muted metadata chips. Connection transport, API diagnostics, pairing,
+rate, and bitrate use muted metadata chips. A symmetric left menu button opens the small native
+Settings/About menu while the existing right Player devices button remains direct. Connection
+transport, API diagnostics, pairing,
 re-pair, and forget actions live on the separate **Player devices** screen. The current data model
 exposes a generic saved-device snapshot but intentionally persists only one slot in this release.
-Both Phone Activities use one edge-to-edge View path and add system-bar plus display-cutout insets
-to their root padding. The player keeps required controls in a fixed no-scroll budget and gives only
+All Phone presentation Activities use one edge-to-edge View path and add system-bar plus
+display-cutout insets to their root padding. The player keeps required controls in a fixed no-scroll
+budget and gives only
 the artwork the remaining height; volume remains represented by a disabled placeholder before its
 first remote snapshot. The artwork container measures to the smaller available dimension so its
 rounded image is always square and `centerCrop` never stretches it. The QR scanner uses its own

@@ -1,8 +1,32 @@
 # Poweramp Remote Roadmap
 
-Current releases are Server `0.10.1` and Phone Client `0.4.2`; API remains backward-compatible `v1`.
+Current release candidates are Server `0.10.2` and Phone Client `0.5.0`; API remains
+backward-compatible `v1`.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
+
+## 0.10.2 Server / 0.5.0 Phone — localization and minimal navigation
+
+Implemented without a new service, connection runtime, transport, or API version:
+
+- Phone adds a symmetric main-menu button and a small native Settings/About menu while retaining
+  the direct Player devices button and compact non-scrolling player layout;
+- Settings owns only presentation language selection: stable private `system`/`ru`/`en` tags,
+  Android 13+ `LocaleManager`, API 26–32 configuration-context fallback, immediate Activity
+  recreation/resume handling, and notification/channel refresh in the existing service;
+- About reads package version metadata through `PackageManager` and provides repository,
+  MIT-license, third-party-notice, and independence information with ordinary `ACTION_VIEW` links;
+- Phone has complete English fallback and Russian resources across every Activity, scanner prompt,
+  dialog, Toast, status/error, accessibility description, foreground notification, channel, and
+  runtime metadata formatter;
+- Server Android UI, foreground notification/channel, and dependency-free Web UI are English-only,
+  including HTML language, JavaScript messages, and ARIA labels;
+- raw bitrate/list values, historical API v1 payloads, application IDs, pairing preferences,
+  credentials, discovery, LAN preference, Wi-Fi Direct fallback, MediaSession/Wear behavior, and
+  both existing services remain unchanged.
+
+Automation results and the still-required release-signed in-place real-device matrix are tracked in
+`STATUS.md` and `RELEASING.md`. Publication remains a separate maintainer action.
 
 ## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
 

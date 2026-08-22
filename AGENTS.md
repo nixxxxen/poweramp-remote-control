@@ -7,14 +7,14 @@ Android player device with Poweramp, plus a separate native Phone Client.
 
 Current application versions are independent:
 
-- Server: `0.10.1` (`versionCode 12`);
-- Phone Client: `0.4.2` (`versionCode 13`);
+- Server: `0.10.2` (`versionCode 13`);
+- Phone Client: `0.5.0` (`versionCode 14`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
-Both legacy apps previously shipped `versionCode 7`; the Server counter is now `12` and the Phone
-counter is `13`. Future Server and Phone codes must continue to advance separately. The legacy IDs
+Both legacy apps previously shipped `versionCode 7`; the Server counter is now `13` and the Phone
+counter is `14`. Future Server and Phone codes must continue to advance separately. The legacy IDs
 are not the current product or source namespace.
 
 ## Read first
@@ -97,11 +97,17 @@ Version history:
   timestamp for shared UI/MediaSession extrapolation, choose scanner orientation from the calling
   Phone screen, and enforce square artwork. API remains `v1` and the transport/runtime architecture
   is unchanged.
+- Server `0.10.2` / Phone Client `0.5.0` complete every Server Android/Web surface in English,
+  provide complete English-fallback and Russian Phone resources, add a compact main menu plus
+  presentation-only Settings/About screens, and add persisted app-language selection through
+  platform `LocaleManager` on Android 13+ with a configuration-context fallback on API 26–32.
+  Pairing, credentials, discovery, services, MediaSession, notification controls, and API `v1`
+  remain compatible with the first public release.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
 
-## Regression-sensitive baseline: Server 0.10.1 / Phone Client 0.4.2
+## Regression-sensitive baseline: Server 0.10.2 / Phone Client 0.5.0
 
 The following functionality is implemented and working:
 
@@ -158,9 +164,15 @@ The following functionality is implemented and working:
 - exact target discovery through LAN first and Wi-Fi Direct fallback;
 - separate generic `Player devices` screen with status, transport, diagnostics, re-pair, and forget;
 - playback-only, non-scrolling main Phone screen with metadata chips and compact controls;
-- safe system-bar/display-cutout/navigation insets on both Phone screens;
+- symmetric main-menu and Player devices buttons plus presentation-only Settings/About screens;
+- persisted System default / Russian / English Phone language selection that never clears pairing or
+  restarts the connection runtime;
+- complete English-fallback and Russian Phone resources, including scanner/dialog/status/error,
+  accessibility, foreground-notification, and notification-channel presentation;
+- safe system-bar/display-cutout/navigation insets on every Phone presentation screen;
 - scanner-only portrait default with landscape retained when the calling app screen is landscape;
-- square rounded artwork at every available player-screen size.
+- square rounded artwork at every available player-screen size;
+- English-only Server Activity, foreground notification/channel, and embedded Web UI.
 
 ### Intentionally not implemented
 
