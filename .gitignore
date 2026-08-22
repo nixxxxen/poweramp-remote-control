@@ -1,12 +1,40 @@
 .gradle/
 .android/
 .idea/
+.DS_Store
+Thumbs.db
 local.properties
 **/build/
+**/build-*/
 *.iml
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Local signing material and credentials must never be committed.
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+secrets.properties
+.env
+.env.*
+!.env.example
+
+# Generated release/debug packages, diagnostics, and crash dumps.
+*.apk
+*.aab
+*.apks
+*.idsig
+*.log
+*.hprof
+*.trace
+*.dmp
+*.dump
 
 # Local research and toolchains used by Codex.
 work/

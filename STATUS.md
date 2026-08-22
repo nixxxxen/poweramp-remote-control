@@ -14,6 +14,47 @@ timing, and square artwork. They do not add Library, Queue, Lyrics, a new transp
 multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
 MediaSession, volume, Web UI, and API `v1` contracts remain in place.
 
+## Public-release readiness audit (2026-08-21)
+
+- A content scan covered the current tracked/untracked project and the complete local Git object
+  database: 11 commits, 531 blobs, all reachable refs, local Codex tree refs, and unreachable
+  objects. No real API keys, Bearer credentials, pairing secrets, passwords, private keys,
+  keystores, signing credentials, certificates, APK/AAB files, MAC addresses, or device IDs were
+  found. Token-, ID-, address-, and UUID-like values that remain in source are deterministic unit
+  test fixtures or protocol constants.
+- The initial commit accidentally tracked generated `build-seek-verification` outputs. They include
+  compiled classes/JARs, test results, temporary compiler data, an absolute local Windows path, a
+  local machine hostname, and timestamps. A later commit also tracked `.DS_Store`. These files have
+  been removed from the current tree, and `.gitignore` now covers generated build variants,
+  platform metadata, APK/AAB output, logs/dumps, environment files, signing properties, and common
+  keystore/private-key formats.
+- Removing those files from the current tree does not remove them from existing commits. No secret
+  requires an emergency rewrite, but a controlled pre-publication history rewrite is recommended
+  to purge the generated paths and `.DS_Store`. Every existing commit also exposes a personal Gmail
+  address in raw author/committer metadata. If that address should remain private, all 11 commits
+  must be rewritten to a GitHub noreply or other public address; `.mailmap` would not hide it.
+  Local `refs/codex/*` must not be published with `git push --mirror`.
+- Current `release` build types have no signing configuration and therefore do not yet produce
+  publishable signed release APKs. Existing local APKs are debug-signed. A permanent external
+  release key, protected backups, secure password injection, signer/version/package verification,
+  and final real-device checks remain manual release gates. A new key cannot update previously
+  installed debug builds with the retained application IDs; unless an appropriate previous
+  production key is recovered, the first public build is a documented fresh-install boundary.
+- The original project code is now covered by a root MIT `LICENSE`. Poweramp API-derived constants
+  retain the upstream purpose-limited notice, and Apache/Kotlin/runtime/test dependency terms are
+  recorded in `THIRD_PARTY_NOTICES.md` plus `licenses/Apache-2.0.txt`. Those notice files must be
+  distributed with both APKs. Public installation, security, limitations, attribution, Codex use,
+  release signing, and first-release copy are documented in `README.md`, `RELEASING.md`, and
+  `RELEASE_NOTES.md`.
+
+No application behavior, dependency, Gradle build configuration, manifest, or API contract changed
+during this audit. The Gradle wrapper contents are unchanged, but its tracked executable bit was
+restored so the documented `./gradlew` command works after a Unix/macOS clone. A fresh clean debug
+pipeline then executed all 100 tasks successfully: Server tests `78/78`, Phone tests `48/48`, zero
+test failures/errors, both APKs assembled, Phone lint reported no issues, and Server lint reported
+zero errors plus the same two informational version warnings for pinned Gradle and JVM-test-only
+`org.json`. Repository scans, internal Markdown links, ignore rules, and whitespace checks also pass.
+
 ## Implemented in Server 0.10.1 / Phone Client 0.4.2
 
 ### Server QR pairing crash
@@ -271,9 +312,9 @@ Build Tools 35.0.0 selected by the pinned Android Gradle Plugin.
 - APK Signature Scheme v2 verification passes for both APKs with one Android debug signer,
   certificate SHA-256
   `4d2c7c0d0f8f2b81495d62884a96f361650573d8e99635a6f8cc754e36ec6265`.
-- Server delivery artifact: `outputs/Poweramp-Remote-Server-v0.10.1-debug.apk` — 420,288 bytes,
+- Locally verified Server debug APK: `Poweramp-Remote-Server-v0.10.1-debug.apk` — 420,288 bytes,
   SHA-256 `f2a8e8452f2b01d3deb9addfec147ac138eb55f05cf106b04c6892fea3e95462`.
-- Phone delivery artifact: `outputs/Poweramp-Remote-Phone-v0.4.2-debug.apk` — 5,201,213 bytes,
+- Locally verified Phone debug APK: `Poweramp-Remote-Phone-v0.4.2-debug.apk` — 5,201,213 bytes,
   SHA-256 `3f60f9d32f0d380b6abaa4ac37433be464b54b34020fcf725f0e28ab7fdad979`.
 - Gradle printed its generic Gradle 9 deprecation notice; it produced no lint/build error, and all
   `100` actionable tasks were executed.

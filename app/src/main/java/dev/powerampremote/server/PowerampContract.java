@@ -1,3 +1,8 @@
+/*
+ * Portions derived from PowerampAPI.java.
+ * Copyright (C) 2011-2026 Maksim Petrov.
+ * Modified for Poweramp Remote; see THIRD_PARTY_NOTICES.md for the upstream license.
+ */
 package dev.powerampremote.server;
 
 /**
