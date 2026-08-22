@@ -1,7 +1,7 @@
 # Poweramp Remote Roadmap
 
-Current release candidates are Server `0.10.2` and Phone Client `0.5.0`; API remains
-backward-compatible `v1`.
+Current release-validated versions are Server `0.10.2` and Phone Client `0.5.0`; API remains
+backward-compatible `v1`. Publication remains a separate maintainer action.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
 
@@ -25,8 +25,8 @@ Implemented without a new service, connection runtime, transport, or API version
   credentials, discovery, LAN preference, Wi-Fi Direct fallback, MediaSession/Wear behavior, and
   both existing services remain unchanged.
 
-Automation results and the still-required release-signed in-place real-device matrix are tracked in
-`STATUS.md` and `RELEASING.md`. Publication remains a separate maintainer action.
+The signed release pipeline and complete in-place real-device matrix passed with the exact final
+APKs; results are tracked in `STATUS.md` and `RELEASING.md`.
 
 ## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
 

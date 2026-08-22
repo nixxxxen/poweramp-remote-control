@@ -346,7 +346,9 @@ API v1 intentionally preserves both. Wi-Fi Direct behavior also varies by vendor
 be selected as group owner for the current IPv4 client path, system approval may be required after
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
-Exact completed automation and the remaining hardware matrix are recorded in `STATUS.md`.
+Exact completed automation and the passed Server `0.10.2` / Phone `0.5.0` in-place hardware matrix
+are recorded in `STATUS.md`. Broader Android/OEM coverage remains ongoing rather than a blocker for
+this release.
 
 ## Roadmap
 

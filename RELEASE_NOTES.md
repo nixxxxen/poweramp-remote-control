@@ -30,13 +30,23 @@ network, without a cloud service or audio streaming.
 
 Server `0.10.2` and Phone Client `0.5.0` use the same application IDs and permanent release
 certificate as public Server `0.10.1` and Phone Client `0.4.2`. Install each new APK directly over
-the corresponding first-release APK. Do not uninstall the public release: Server identity, API
-token, saved Server identity, Bearer credential, and pairing are designed to remain intact, so no
-new pairing is required.
+the corresponding first-release APK. This exact in-place upgrade path has been verified on real
+devices. Do not uninstall the public release: Server identity, API token, saved Server identity,
+Bearer credential, and pairing remain intact, so no new pairing is required.
 
 Earlier pre-release APKs were debug-signed and remain a separate historical boundary. They cannot
 be updated by these release-signed APKs; uninstalling those debug builds is still required and
 clears their local pairing state.
+
+## Release validation
+
+The exact release-signed APKs intended for upload passed the complete subsequent-release matrix on
+a Hiby R4 running Android 12 and a Samsung Galaxy S24 Ultra running Android 16. Validation covered
+in-place installation over the first public release, credential/pairing preservation, System
+default and Russian/English switching, every localized Phone surface, English-only Server/Web UI,
+QR and manual pairing, LAN/NSD and Wi-Fi Direct recovery, background/screen-off operation, artwork,
+metadata, playback, seek, rating, Like/Dislike, shuffle, remote volume, MediaSession, lock screen,
+Wear OS controls, application/device restarts, and reconnect.
 
 ## Preserved behavior
 

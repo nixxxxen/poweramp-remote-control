@@ -107,6 +107,13 @@ Only the exact release-signed APKs intended for upload count as validated. Any f
 release blocker until understood, fixed or explicitly documented, and re-tested. Do not call the
 release ready before the maintainer confirms every hardware item.
 
+Server `0.10.2` / Phone Client `0.5.0` passed this complete matrix on 2026-08-23 using the exact
+release-signed APKs built from commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`. Server ran on a
+Hiby R4 with Android 12 and Phone Client ran on a Samsung Galaxy S24 Ultra with Android 16. APK
+metadata, signing-certificate continuity, alignment, and file hashes are recorded in `STATUS.md`.
+The release tag must point to that APK-source commit; any later validation-only documentation
+commit is not a reason to rebuild the already checked binaries.
+
 ## Historical first-public-release fresh-install pass
 
 Do not publish solely on the strength of unit tests, lint, or APK verification. Record the device

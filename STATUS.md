@@ -9,15 +9,16 @@ Current versions:
 ## Stage
 
 The repository builds two native Android applications. Server `0.10.2` and Phone Client `0.5.0`
-form the source-complete second-public-release candidate for complete Phone English/Russian
+form the release-validated second-public-release candidate for complete Phone English/Russian
 localization, a minimal Phone navigation menu, Settings/app-language selection, About, and an
 English-only Server/Web UI. They do not add Library, Queue, Lyrics, a new transport, or full
 multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
 pairing/reconnect path, MediaSession, volume, Web UI, and API `v1` contracts remain in place.
 
-This candidate is not yet release-ready: the external permanent signing configuration is not
-available in the current workspace, so release unit tests, release lint, signed release assembly,
-APK/certificate verification, and the exact-APK real-device upgrade matrix remain pending.
+This candidate is locally release-ready. The complete signed release pipeline, APK/certificate
+verification, and exact-APK in-place real-device matrix passed on 2026-08-23. The checked APKs were
+built from commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; repository merge/push, tag creation,
+and GitHub Release publication remain deliberate maintainer actions.
 
 ## Implemented in Server 0.10.2 / Phone Client 0.5.0
 
@@ -77,9 +78,9 @@ APK/certificate verification, and the exact-APK real-device upgrade matrix remai
 
 - Server is `0.10.2` / code 13 and Phone is `0.5.0` / code 14. Application IDs remain
   `dev.r4remote.poweramp` and `dev.r4remote.poweramp.phone`; API remains v1.
-- These APKs are intended to update public `0.10.1` / `0.4.2` in place with the same permanent
-  release certificate, preserving Server identity/token and Phone identity/credential without
-  re-pairing. This still requires exact release-signed real-device confirmation.
+- Exact release-signed device validation confirms these APKs update public `0.10.1` / `0.4.2` in
+  place with the same permanent release certificate, preserving Server identity/token and Phone
+  identity/credential without requiring re-pairing.
 - There is still one Server foreground service/Poweramp path and one Phone connection/MediaSession
   service. No cloud, polling, manual IP entry, analytics, updater, duplicate transport, or protocol
   fork was added.
@@ -378,34 +379,61 @@ manual actions.
   localeConfig, locale-aware metadata units/separators/bitrate/raw list position, English Web UI
   language/copy/ARIA, absence of Cyrillic Web UI text, and the historical API v1 category-name
   payload.
-- The full requested clean release pipeline (both release unit-test tasks, both release lint tasks,
-  and both release assembly tasks) was invoked and stopped before task execution at the
-  repository's signing gate because the external permanent signing properties are unavailable in
-  this workspace. Release tests/lint, signed assembly, `apksigner`, release badging/alignment, and
-  release-APK checksums have therefore **not** been completed. No release APK or checksum file was
-  created.
+- The initially unavailable external signing-properties path was then supplied without exposing
+  its contents. No keystore path, alias, password, or private-key material entered source, command
+  output, Git, or public release files.
 
-### Second-public-release real-device validation (not yet performed)
+### Second-public-release signed verification (2026-08-23)
 
-Every item below remains unchecked until the maintainer confirms it using the exact final
-release-signed APKs intended for upload:
+- The pinned Gradle Wrapper ran `clean`, both release unit-test tasks, both release lint tasks, and
+  both release assembly tasks with the external permanent signing configuration. The build
+  completed successfully: 110 actionable tasks, 107 executed and 3 up-to-date.
+- Server passed `78/78` release JVM tests across 18 suites; Phone passed `57/57` across 16 suites.
+  All 135 executions had zero failures, errors, or skips.
+- Release lint reports zero errors. Phone reports no issues; Server reports only the two existing
+  informational update warnings for pinned Gradle and the JVM-test-only `org.json` dependency.
+- Release APK badging confirms Server `dev.r4remote.poweramp`, code 13/name 0.10.2, and Phone
+  `dev.r4remote.poweramp.phone`, code 14/name 0.5.0. Both retain min API 26 and target/compile API
+  36 and pass 16 KiB-aware ZIP alignment.
+- Both APKs verify with APK Signature Scheme v2 and exactly one non-debug signer:
+  `CN=Poweramp Remote Release`, RSA 4096, certificate SHA-256
+  `C6:09:93:4D:AE:5A:C3:33:CA:9F:58:5C:20:78:76:1D:03:2B:0A:1D:22:E6:A6:03:48:DE:34:F8:D2:83:62:F4`.
+  That fingerprint exactly matches both first-public-release APKs, proving Android update-signature
+  continuity.
+- Both APKs embed source revision `675d1affd8776bb6b05dfa1795df51a18de08fcc`. Final file hashes:
+  - `Poweramp-Remote-Server-v0.10.2.apk`:
+    `aeafbf075d45b41e9c311bdbd19a3c473df9d6156540a9f7c6c60b05c52e52ba`;
+  - `Poweramp-Remote-Phone-v0.5.0.apk`:
+    `6d69abfc1a38ebf74751b08f1dc9fed9e576d39f5528450bc6558ff1b60c71d5`.
+- `SHA256SUMS.txt` verifies both final-named APK copies. The release bundle also contains `LICENSE`,
+  `THIRD_PARTY_NOTICES.md`, and `Apache-2.0.txt`.
+- Because Android Gradle Plugin embeds the VCS revision, the release tag for these exact checked
+  binaries must point to `675d1affd8776bb6b05dfa1795df51a18de08fcc`. This later validation-only
+  documentation commit is deliberately not the APK source commit and does not require rebuilding
+  the already checked binaries.
 
-- [ ] Install Server `0.10.2` over public Server `0.10.1` without uninstalling it.
-- [ ] Confirm Server identity, API token, browser/API access, and pairing state remain intact.
-- [ ] Install Phone `0.5.0` over public Phone `0.4.2` without uninstalling it.
-- [ ] Confirm the saved Server identity and Bearer credential remain intact and reconnect without
+### Second-public-release real-device validation (passed 2026-08-23)
+
+The maintainer confirmed every item below using the exact final release-signed APKs listed above.
+Server ran on a Hiby R4 with Android 12; Phone Client ran on a Samsung Galaxy S24 Ultra with Android
+16.
+
+- [x] Install Server `0.10.2` over public Server `0.10.1` without uninstalling it.
+- [x] Confirm Server identity, API token, browser/API access, and pairing state remain intact.
+- [x] Install Phone `0.5.0` over public Phone `0.4.2` without uninstalling it.
+- [x] Confirm the saved Server identity and Bearer credential remain intact and reconnect without
   re-pairing.
-- [ ] Check first launch in **System default**.
-- [ ] Switch **Russian → English → Russian** and confirm immediate presentation changes.
-- [ ] Check Main, Player devices, Settings, About, dialogs, scanner, notification actions,
+- [x] Check first launch in **System default**.
+- [x] Switch **Russian → English → Russian** and confirm immediate presentation changes.
+- [x] Check Main, Player devices, Settings, About, dialogs, scanner, notification actions,
   foreground notification text, and notification-channel copy in both languages.
-- [ ] Restart Activities, both applications, and both devices; confirm language selection and
+- [x] Restart Activities, both applications, and both devices; confirm language selection and
   pairing survive every restart.
-- [ ] Check the Server Activity, foreground notification/channel, and embedded Web UI for
+- [x] Check the Server Activity, foreground notification/channel, and embedded Web UI for
   English-only presentation.
-- [ ] Repeat both QR pairing and manual Bearer-token pairing.
-- [ ] Repeat LAN/NSD operation and Wi-Fi Direct fallback, including recovery back to preferred LAN.
-- [ ] Repeat background/screen-off operation, artwork, all metadata, playback, seek, rating,
+- [x] Repeat both QR pairing and manual Bearer-token pairing.
+- [x] Repeat LAN/NSD operation and Wi-Fi Direct fallback, including recovery back to preferred LAN.
+- [x] Repeat background/screen-off operation, artwork, all metadata, playback, seek, rating,
   Like/Dislike, shuffle, player-device volume, MediaSession, lock screen, compatible Wear OS, and
   reconnect behavior.
 
@@ -558,9 +586,8 @@ and hardening work should additionally exercise more vendors, Android versions, 
 
 ## Next scope
 
-Provide the existing external signing-properties path without exposing its contents, then run the
-full clean release tests/lint/assembly and verify both exact release-signed APKs. Complete every
-unchecked in-place/device item above before approving Server `0.10.2` / Phone `0.5.0` for
-publication. Only afterward continue broader vendor coverage, multi-player foundation,
-pairing/transport security, Library, Queue, and Lyrics as separately scoped work in
-[`ROADMAP.md`](ROADMAP.md).
+Merge the validated source branch, tag exact APK-source commit
+`675d1affd8776bb6b05dfa1795df51a18de08fcc`, and publish the already checked release bundle only
+through explicit maintainer actions. After release, continue broader vendor coverage,
+multi-player foundation, pairing/transport security, Library, Queue, and Lyrics as separately
+scoped work in [`ROADMAP.md`](ROADMAP.md).
