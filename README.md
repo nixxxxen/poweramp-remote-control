@@ -39,6 +39,43 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
 - complete English and Russian Phone UI, scanner, dialogs, accessibility text, and notifications;
 - an authenticated English embedded Web UI for browsers on the local network.
 
+## Screenshots
+
+<table>
+  <tr>
+    <th>Phone Client — Now playing</th>
+    <th>Server — Now playing</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/screenshots/phone-now-playing.jpg"
+           alt="Phone Client now playing screen"
+           width="360">
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/screenshots/server-now-playing.png"
+           alt="Server now playing screen"
+           width="360">
+    </td>
+  </tr>
+  <tr>
+    <th>Phone Client — Player devices</th>
+    <th>Server — QR pairing</th>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/screenshots/phone-player-devices.jpg"
+           alt="Phone Client player devices screen connected through Wi-Fi Direct"
+           width="360">
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/screenshots/server-pairing.png"
+           alt="Server one-time QR pairing screen"
+           width="360">
+    </td>
+  </tr>
+</table>
+
 ## Requirements
 
 - Android 8.0 (API 26) or newer on both devices;
