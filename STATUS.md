@@ -378,11 +378,12 @@ manual actions.
   localeConfig, locale-aware metadata units/separators/bitrate/raw list position, English Web UI
   language/copy/ARIA, absence of Cyrillic Web UI text, and the historical API v1 category-name
   payload.
-- A direct release unit-test invocation was attempted and stopped before task execution at the
+- The full requested clean release pipeline (both release unit-test tasks, both release lint tasks,
+  and both release assembly tasks) was invoked and stopped before task execution at the
   repository's signing gate because the external permanent signing properties are unavailable in
-  this workspace. Release unit tests, release lint, signed clean release assembly, `apksigner`,
-  release badging/alignment, and release-APK checksums have therefore **not** been completed. No
-  release APK or checksum file was created.
+  this workspace. Release tests/lint, signed assembly, `apksigner`, release badging/alignment, and
+  release-APK checksums have therefore **not** been completed. No release APK or checksum file was
+  created.
 
 ### Second-public-release real-device validation (not yet performed)
 
