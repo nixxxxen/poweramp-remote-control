@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.os.Binder;
@@ -42,6 +43,8 @@ public final class PhoneConnectionService extends MediaSessionService
             "dev.powerampremote.phone.action.PAIR_QR";
     private static final String ACTION_PAIR_MANUAL =
             "dev.powerampremote.phone.action.PAIR_MANUAL";
+    private static final String ACTION_REFRESH_LANGUAGE =
+            "dev.powerampremote.phone.action.REFRESH_LANGUAGE";
     private static final String ACTION_LOCAL_BIND =
             "dev.powerampremote.phone.action.BIND_CONNECTION_SERVICE";
     private static final String ACTION_NOTIFICATION_PREVIOUS =
@@ -202,6 +205,14 @@ public final class PhoneConnectionService extends MediaSessionService
         startWithIntent(context, ACTION_PAIR_MANUAL, request.value, null);
     }
 
+    static void refreshLanguage(Context context) {
+        Intent intent = new Intent(context, PhoneConnectionService.class)
+                .setAction(ACTION_REFRESH_LANGUAGE)
+                .setPackage(context.getPackageName())
+                .putExtra(EXTRA_INTERNAL_TOKEN, PROCESS_START_TOKEN);
+        context.startService(intent);
+    }
+
     static Intent bindingIntent(Context context) {
         return new Intent(context, PhoneConnectionService.class)
                 .setAction(ACTION_LOCAL_BIND)
@@ -223,6 +234,11 @@ public final class PhoneConnectionService extends MediaSessionService
             intent.putExtra(EXTRA_PAIRING_DELIVERY_ID, pairingDeliveryId);
         }
         context.startForegroundService(intent);
+    }
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(PhoneLocale.wrap(newBase));
     }
 
     @Override
@@ -316,6 +332,7 @@ public final class PhoneConnectionService extends MediaSessionService
             }
             promoteToForeground();
             controller.start();
+            if (ACTION_REFRESH_LANGUAGE.equals(action)) createNotificationChannel();
             submitPairingRequest(intent, action);
             pairingRequestState.dispatchTo(controller);
             dispatchTrustedNotificationAction(action);
@@ -397,6 +414,13 @@ public final class PhoneConnectionService extends MediaSessionService
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         Log.d(TAG, "Phone task removed; keeping connection and MediaSession runtime active");
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        createNotificationChannel();
+        updateNotification();
     }
 
     @Override
@@ -578,12 +602,15 @@ public final class PhoneConnectionService extends MediaSessionService
 
     private void createNotificationChannel() {
         if (notificationManager == null) return;
+        Context localized = PhoneLocale.wrap(this);
         NotificationChannel channel = new NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                getString(R.string.connection_service_channel_name),
+                localized.getString(R.string.connection_service_channel_name),
                 NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription(getString(R.string.connection_service_channel_description));
+        channel.setDescription(
+                localized.getString(R.string.connection_service_channel_description)
+        );
         channel.setShowBadge(false);
         notificationManager.createNotificationChannel(channel);
     }
@@ -609,6 +636,7 @@ public final class PhoneConnectionService extends MediaSessionService
     }
 
     private Notification buildNotification() {
+        Context localized = PhoneLocale.wrap(this);
         PendingIntent openPendingIntent = activityPendingIntent();
         PendingIntent stopPendingIntent = notificationPendingIntent(
                 ACTION_STOP,
@@ -641,10 +669,11 @@ public final class PhoneConnectionService extends MediaSessionService
                 && "playing".equals(currentState.playbackState);
         String title = currentState != null && currentState.hasTrack
                 && currentState.title != null && !currentState.title.trim().isEmpty()
-                ? currentState.title : getString(R.string.connection_service_notification_title);
+                ? currentState.title
+                : localized.getString(R.string.connection_service_notification_title);
         String detail = currentState != null && currentState.hasTrack
                 && currentState.artist != null && !currentState.artist.trim().isEmpty()
-                ? currentState.artist : getString(contentResource);
+                ? currentState.artist : localized.getString(contentResource);
 
         Notification.Builder builder = new Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
@@ -658,7 +687,7 @@ public final class PhoneConnectionService extends MediaSessionService
                 .setColor(getColor(R.color.accent))
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(this, R.drawable.ic_previous),
-                        getString(R.string.previous_track),
+                        localized.getString(R.string.previous_track),
                         notificationPendingIntent(
                                 ACTION_NOTIFICATION_PREVIOUS,
                                 PREVIOUS_REQUEST_CODE
@@ -669,7 +698,7 @@ public final class PhoneConnectionService extends MediaSessionService
                                 this,
                                 playing ? R.drawable.ic_pause : R.drawable.ic_play
                         ),
-                        getString(playing ? R.string.pause : R.string.play),
+                        localized.getString(playing ? R.string.pause : R.string.play),
                         notificationPendingIntent(
                                 ACTION_NOTIFICATION_PLAY_PAUSE,
                                 PLAY_PAUSE_REQUEST_CODE
@@ -677,7 +706,7 @@ public final class PhoneConnectionService extends MediaSessionService
                 ).build())
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(this, R.drawable.ic_next),
-                        getString(R.string.next_track),
+                        localized.getString(R.string.next_track),
                         notificationPendingIntent(
                                 ACTION_NOTIFICATION_NEXT,
                                 NEXT_REQUEST_CODE
@@ -685,7 +714,7 @@ public final class PhoneConnectionService extends MediaSessionService
                 ).build())
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(this, R.drawable.ic_notification),
-                        getString(R.string.connection_service_notification_stop),
+                        localized.getString(R.string.connection_service_notification_stop),
                         stopPendingIntent
                 ).build());
         if (mediaSession != null) {
@@ -742,7 +771,8 @@ public final class PhoneConnectionService extends MediaSessionService
     private static boolean isInternalRuntimeAction(String action) {
         return ACTION_START.equals(action)
                 || ACTION_PAIR_QR.equals(action)
-                || ACTION_PAIR_MANUAL.equals(action);
+                || ACTION_PAIR_MANUAL.equals(action)
+                || ACTION_REFRESH_LANGUAGE.equals(action);
     }
 
     private void dispatchTrustedNotificationAction(String action) {

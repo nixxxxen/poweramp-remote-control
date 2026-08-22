@@ -1,85 +1,85 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Poweramp Remote Server</string>
-    <string name="screen_title">Сейчас играет</string>
+    <string name="screen_title">Now playing</string>
     <string name="api_caption">Poweramp Intent API</string>
-    <string name="status_checking">Проверяю Poweramp…</string>
-    <string name="waiting_title">Нет текущего трека</string>
-    <string name="waiting_artist">Запустите Poweramp и включите музыку</string>
-    <string name="waiting_album">Метаданные появятся автоматически</string>
-    <string name="sync">Синхронизировать</string>
-    <string name="previous_track">Предыдущий трек</string>
-    <string name="play">Воспроизвести</string>
-    <string name="pause">Пауза</string>
-    <string name="next_track">Следующий трек</string>
-    <string name="state_playing_description">Воспроизводится</string>
-    <string name="state_paused_description">На паузе</string>
-    <string name="state_stopped_description">Остановлено</string>
+    <string name="status_checking">Checking Poweramp…</string>
+    <string name="waiting_title">No current track</string>
+    <string name="waiting_artist">Start Poweramp and play music</string>
+    <string name="waiting_album">Metadata will appear automatically</string>
+    <string name="sync">Synchronize</string>
+    <string name="previous_track">Previous track</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="next_track">Next track</string>
+    <string name="state_playing_description">Playing</string>
+    <string name="state_paused_description">Paused</string>
+    <string name="state_stopped_description">Stopped</string>
     <string name="elapsed_placeholder">0:00</string>
     <string name="duration_placeholder">0:00</string>
-    <string name="status_not_installed">Poweramp не найден</string>
-    <string name="status_waiting">Poweramp найден · жду трек</string>
-    <string name="status_playing">Poweramp · воспроизведение</string>
-    <string name="status_paused">Poweramp · пауза</string>
-    <string name="status_stopped">Poweramp · остановлен</string>
-    <string name="status_connected">Poweramp подключён</string>
-    <string name="error_sync">Не удалось отправить запрос в Poweramp</string>
-    <string name="error_command">Не удалось отправить команду в Poweramp</string>
-    <string name="error_service">Фоновый сервис недоступен</string>
-    <string name="unknown_title">Без названия</string>
-    <string name="unknown_artist">Неизвестный исполнитель</string>
-    <string name="unknown_album">Неизвестный альбом</string>
-    <string name="album_art_description">Обложка текущего трека</string>
-    <string name="dislike">Не нравится</string>
-    <string name="remove_dislike">Убрать отметку «Не нравится»</string>
-    <string name="like">Нравится</string>
-    <string name="remove_like">Убрать отметку «Нравится»</string>
+    <string name="status_not_installed">Poweramp not found</string>
+    <string name="status_waiting">Poweramp found · waiting for a track</string>
+    <string name="status_playing">Poweramp · playing</string>
+    <string name="status_paused">Poweramp · paused</string>
+    <string name="status_stopped">Poweramp · stopped</string>
+    <string name="status_connected">Poweramp connected</string>
+    <string name="error_sync">The request could not be sent to Poweramp</string>
+    <string name="error_command">The command could not be sent to Poweramp</string>
+    <string name="error_service">The background service is unavailable</string>
+    <string name="unknown_title">Untitled</string>
+    <string name="unknown_artist">Unknown artist</string>
+    <string name="unknown_album">Unknown album</string>
+    <string name="album_art_description">Artwork for the current track</string>
+    <string name="dislike">Dislike</string>
+    <string name="remove_dislike">Remove Dislike</string>
+    <string name="like">Like</string>
+    <string name="remove_like">Remove Like</string>
     <string name="rating_value">%1$d/5</string>
     <string name="rating_unknown">—/5</string>
-    <string name="rating_current_description">Рейтинг: %1$d из 5</string>
-    <string name="rating_change">Изменить рейтинг</string>
-    <string name="rating_dialog_title">Оценка трека</string>
-    <string name="cancel">Отмена</string>
-    <string name="shuffle_enable">Включить перемешивание</string>
-    <string name="shuffle_disable">Выключить перемешивание</string>
-    <string name="shuffle_on">Перемешивание включено</string>
-    <string name="shuffle_off">Перемешивание выключено</string>
+    <string name="rating_current_description">Rating: %1$d/5</string>
+    <string name="rating_change">Change rating</string>
+    <string name="rating_dialog_title">Track rating</string>
+    <string name="cancel">Cancel</string>
+    <string name="shuffle_enable">Enable shuffle</string>
+    <string name="shuffle_disable">Disable shuffle</string>
+    <string name="shuffle_on">Shuffle enabled</string>
+    <string name="shuffle_off">Shuffle disabled</string>
 
-    <string name="server_title">Локальный API</string>
-    <string name="server_status_running">Сервер запущен</string>
-    <string name="server_status_stopped">Сервер остановлен</string>
-    <string name="server_status_error">Не удалось запустить сервер · порт занят</string>
-    <string name="server_status_generic_error">Не удалось запустить сервер</string>
-    <string name="server_status_token_error">Сервер остановлен · не удалось сохранить токен</string>
+    <string name="server_title">Local API</string>
+    <string name="server_status_running">Server running</string>
+    <string name="server_status_stopped">Server stopped</string>
+    <string name="server_status_error">The Server could not start · port unavailable</string>
+    <string name="server_status_generic_error">The Server could not start</string>
+    <string name="server_status_token_error">Server stopped · token could not be saved</string>
     <string name="server_address_value">http://%1$s:%2$d</string>
-    <string name="server_address_unavailable">IP-адрес локальной сети не найден · порт %1$d</string>
-    <string name="server_clients_value">WebSocket-клиентов: %1$d</string>
-    <string name="server_pairing_title">QR-привязка телефона</string>
-    <string name="server_pairing_instruction">На телефоне откройте Player devices → Pair new player и отсканируйте код. Постоянный credential и IP-адрес в QR не входят.</string>
-    <string name="server_pairing_qr_description">Одноразовый QR-код для привязки телефона</string>
-    <string name="server_pairing_active">Одноразовый код действует 2 минуты</string>
-    <string name="server_pairing_expired">Код истёк или уже использован · обновите QR</string>
-    <string name="server_pairing_unavailable">QR-привязка сейчас недоступна</string>
-    <string name="server_pairing_refresh">Обновить одноразовый QR</string>
-    <string name="server_web_access_instruction">Для входа в существующий Web UI используйте credential только для браузера. Привязка Phone Client выполняется через QR выше.</string>
-    <string name="server_copy_web_token">Копировать credential для Web UI</string>
+    <string name="server_address_unavailable">No local-network IP address found · port %1$d</string>
+    <string name="server_clients_value">WebSocket clients: %1$d</string>
+    <string name="server_pairing_title">Pair a phone with QR</string>
+    <string name="server_pairing_instruction">On the phone, open Player devices, choose Pair new player, and scan this code. The QR contains neither the permanent credential nor an IP address.</string>
+    <string name="server_pairing_qr_description">One-time QR code for pairing a phone</string>
+    <string name="server_pairing_active">The one-time code is valid for 2 minutes</string>
+    <string name="server_pairing_expired">The code expired or was already used · refresh the QR code</string>
+    <string name="server_pairing_unavailable">QR pairing is currently unavailable</string>
+    <string name="server_pairing_refresh">Refresh one-time QR code</string>
+    <string name="server_web_access_instruction">For the existing Web UI, use the credential only for browser login. Pair Phone Client with the QR code above.</string>
+    <string name="server_copy_web_token">Copy credential for Web UI</string>
     <string name="server_web_token_label">Poweramp Remote Web UI credential</string>
-    <string name="server_web_token_copied">Credential для Web UI скопирован</string>
+    <string name="server_web_token_copied">Web UI credential copied</string>
 
-    <string name="remote_service_channel_name">Локальный сервер Poweramp Remote</string>
-    <string name="remote_service_channel_description">Постоянная работа REST и WebSocket в фоне</string>
-    <string name="remote_service_notification_title">Poweramp Remote работает</string>
-    <string name="remote_service_notification_starting">Локальный сервер запускается…</string>
-    <string name="remote_service_notification_running">Порт %1$d · WebSocket: %2$d</string>
-    <string name="remote_service_notification_error">Локальный сервер временно недоступен</string>
-    <string name="remote_service_notification_stop">Остановить</string>
+    <string name="remote_service_channel_name">Poweramp Remote local Server</string>
+    <string name="remote_service_channel_description">Keeps REST and WebSocket available in the background</string>
+    <string name="remote_service_notification_title">Poweramp Remote is running</string>
+    <string name="remote_service_notification_starting">Starting the local Server…</string>
+    <string name="remote_service_notification_running">Port %1$d · WebSocket: %2$d</string>
+    <string name="remote_service_notification_error">The local Server is temporarily unavailable</string>
+    <string name="remote_service_notification_stop">Stop</string>
 
     <string-array name="rating_options">
-        <item>Без оценки · 0/5</item>
-        <item>Не нравится · 1/5</item>
-        <item>2 звезды · 2/5</item>
-        <item>3 звезды · 3/5</item>
-        <item>4 звезды · 4/5</item>
-        <item>Нравится · 5/5</item>
+        <item>Unrated · 0/5</item>
+        <item>Dislike · 1/5</item>
+        <item>2 stars · 2/5</item>
+        <item>3 stars · 3/5</item>
+        <item>4 stars · 4/5</item>
+        <item>Like · 5/5</item>
     </string-array>
 </resources>

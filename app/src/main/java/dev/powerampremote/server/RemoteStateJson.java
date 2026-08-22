@@ -50,7 +50,7 @@ final class RemoteStateJson {
         appendString(
                 json,
                 "sourceCategoryName",
-                source != null ? TrackMetadataFormatter.categoryName(source.category) : null
+                source != null ? ApiV1SourceCategoryNames.name(source.category) : null
         );
         appendString(json, "sourceCategoryUri", source != null ? source.categoryUri : null);
         // Keep Poweramp's raw list position: the public API does not define its index base.

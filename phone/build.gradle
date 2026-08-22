@@ -14,8 +14,8 @@ android {
         minSdk 26
         targetSdk 36
         // The legacy 0.7.0 phone APK already shipped code 7; keep upgrades monotonic.
-        versionCode 13
-        versionName '0.4.2'
+        versionCode 14
+        versionName '0.5.0'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
@@ -48,6 +48,13 @@ android {
 
     buildFeatures {
         buildConfig = false
+    }
+
+    bundle {
+        // Runtime locale switching needs both supported languages in every bundle install.
+        language {
+            enableSplit = false
+        }
     }
 }
 

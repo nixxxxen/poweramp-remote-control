@@ -24,7 +24,7 @@ final class TrackMetadataFormatter {
         }
 
         if (audio.bitsPerSample > 0) {
-            values.add(audio.bitsPerSample + " бит");
+            values.add(audio.bitsPerSample + " bit");
         }
         String sampleRate = formatSampleRate(audio.sampleRate);
         if (sampleRate != null) {
@@ -45,9 +45,9 @@ final class TrackMetadataFormatter {
         }
         if (source.positionInList >= 0
                 && source.listSize > 0
-                && source.positionInList < source.listSize) {
-            // Poweramp exposes a list index. Present it as a human-friendly one-based position.
-            values.add((source.positionInList + 1) + " / " + source.listSize);
+                && source.positionInList <= source.listSize) {
+            // The public index base is not guaranteed, so preserve the raw presentation value.
+            values.add(source.positionInList + " / " + source.listSize);
         }
         return join(values);
     }
@@ -57,9 +57,9 @@ final class TrackMetadataFormatter {
             return null;
         }
         if (sampleRate >= 1_000_000) {
-            return decimal(sampleRate, 1_000_000) + " МГц";
+            return decimal(sampleRate, 1_000_000) + " MHz";
         }
-        return decimal(sampleRate, 1_000) + " кГц";
+        return decimal(sampleRate, 1_000) + " kHz";
     }
 
     static String formatBitRate(int bitRate) {
@@ -71,7 +71,7 @@ final class TrackMetadataFormatter {
         int kiloBitsPerSecond = bitRate >= 10_000
                 ? Math.round(bitRate / 1_000f)
                 : bitRate;
-        return kiloBitsPerSecond + " кбит/с";
+        return kiloBitsPerSecond + " kbps";
     }
 
     static String fileTypeName(int fileType) {
@@ -148,59 +148,59 @@ final class TrackMetadataFormatter {
     static String categoryName(int category) {
         switch (category) {
             case PowerampContract.Categories.ROOT:
-                return "Корень библиотеки";
+                return "Library root";
             case PowerampContract.Categories.FILES:
-                return "Все треки";
+                return "All tracks";
             case PowerampContract.Categories.FOLDERS:
-                return "Папка";
+                return "Folder";
             case PowerampContract.Categories.FOLDERS_HIER:
-                return "Иерархия папок";
+                return "Folder hierarchy";
             case PowerampContract.Categories.ALBUMS:
-                return "Альбом";
+                return "Album";
             case PowerampContract.Categories.ARTISTS:
-                return "Исполнитель";
+                return "Artist";
             case PowerampContract.Categories.ARTISTS_ID_ALBUMS:
-                return "Альбомы исполнителя";
+                return "Artist albums";
             case PowerampContract.Categories.ALBUM_ARTISTS:
-                return "Исполнитель альбома";
+                return "Album artist";
             case PowerampContract.Categories.ALBUM_ARTISTS_ID_ALBUMS:
-                return "Альбомы исполнителя альбома";
+                return "Album artist albums";
             case PowerampContract.Categories.ARTISTS_ALBUMS:
-                return "Альбомы по исполнителям";
+                return "Albums by artist";
             case PowerampContract.Categories.GENRES:
-                return "Жанр";
+                return "Genre";
             case PowerampContract.Categories.GENRES_ID_ALBUMS:
-                return "Альбомы жанра";
+                return "Genre albums";
             case PowerampContract.Categories.YEARS:
-                return "Год";
+                return "Year";
             case PowerampContract.Categories.YEARS_ID_ALBUMS:
-                return "Альбомы года";
+                return "Year albums";
             case PowerampContract.Categories.COMPOSERS:
-                return "Композитор";
+                return "Composer";
             case PowerampContract.Categories.COMPOSERS_ID_ALBUMS:
-                return "Альбомы композитора";
+                return "Composer albums";
             case PowerampContract.Categories.PLAYLISTS:
-                return "Плейлист";
+                return "Playlist";
             case PowerampContract.Categories.QUEUE:
-                return "Очередь";
+                return "Queue";
             case PowerampContract.Categories.BOOKMARKS:
-                return "Закладки";
+                return "Bookmarks";
             case PowerampContract.Categories.STREAM_FILES:
-                return "Поток";
+                return "Stream";
             case PowerampContract.Categories.MOST_PLAYED:
-                return "Часто воспроизводимые";
+                return "Most played";
             case PowerampContract.Categories.TOP_RATED:
-                return "Высоко оценённые";
+                return "Top rated";
             case PowerampContract.Categories.LOW_RATED:
-                return "Низко оценённые";
+                return "Low rated";
             case PowerampContract.Categories.RECENTLY_PLAYED:
-                return "Недавно воспроизводимые";
+                return "Recently played";
             case PowerampContract.Categories.RECENTLY_ADDED:
-                return "Недавно добавленные";
+                return "Recently added";
             case PowerampContract.Categories.LONG_TRACKS:
-                return "Длинные треки";
+                return "Long tracks";
             default:
-                return category >= 0 ? "Другой источник" : null;
+                return category >= 0 ? "Other source" : null;
         }
     }
 
@@ -216,8 +216,7 @@ final class TrackMetadataFormatter {
         return BigDecimal.valueOf(value)
                 .divide(BigDecimal.valueOf(divisor), 4, RoundingMode.HALF_UP)
                 .stripTrailingZeros()
-                .toPlainString()
-                .replace('.', ',');
+                .toPlainString();
     }
 
     private static String join(List<String> values) {

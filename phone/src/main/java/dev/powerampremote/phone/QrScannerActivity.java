@@ -1,6 +1,7 @@
 package dev.powerampremote.phone;
 
 import android.content.pm.ActivityInfo;
+import android.content.Context;
 import android.os.Bundle;
 
 import com.journeyapps.barcodescanner.CaptureActivity;
@@ -9,6 +10,11 @@ import com.journeyapps.barcodescanner.CaptureActivity;
 public final class QrScannerActivity extends CaptureActivity {
     static final String EXTRA_REQUESTED_ORIENTATION =
             "dev.powerampremote.phone.extra.SCANNER_ORIENTATION";
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        super.attachBaseContext(PhoneLocale.wrap(newBase));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

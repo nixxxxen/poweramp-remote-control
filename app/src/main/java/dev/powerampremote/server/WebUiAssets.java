@@ -22,7 +22,7 @@ final class WebUiAssets {
             "text/html; charset=utf-8",
             """
                     <!doctype html>
-                    <html lang="ru">
+                    <html lang="en">
                     <head>
                       <meta charset="utf-8">
                       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -35,66 +35,66 @@ final class WebUiAssets {
                       <main class="shell">
                         <section id="loginPanel" class="card login" aria-labelledby="loginTitle">
                           <h1 id="loginTitle">Poweramp Remote</h1>
-                          <p>Введите токен, показанный в Poweramp Remote Server.</p>
+                          <p>Enter the credential copied from Poweramp Remote Server.</p>
                           <form id="loginForm">
-                            <label for="tokenInput">Токен</label>
+                            <label for="tokenInput">Credential</label>
                             <input id="tokenInput" name="token" type="password" required
                                    autocomplete="off" autocapitalize="none" spellcheck="false">
-                            <button id="loginButton" class="login-button" type="submit">Подключиться</button>
+                            <button id="loginButton" class="login-button" type="submit">Connect</button>
                           </form>
                           <p id="loginError" class="message error" role="alert" hidden></p>
                         </section>
 
-                        <section id="playerPanel" class="player" aria-label="Текущий трек" hidden>
+                        <section id="playerPanel" class="player" aria-label="Current track" hidden>
                           <div class="cover">
-                            <img id="artwork" alt="Обложка текущего трека" hidden>
+                            <img id="artwork" alt="Artwork for the current track" hidden>
                             <div id="artworkPlaceholder" class="cover-placeholder" aria-hidden="true">♪</div>
                           </div>
 
                           <div class="track-copy">
-                            <h1 id="title">Нет трека</h1>
+                            <h1 id="title">No track</h1>
                             <p id="artist" class="artist">—</p>
                             <p id="album" class="album">—</p>
                           </div>
 
-                          <div class="metadata" aria-label="Сведения о треке">
-                            <p><span class="meta-label">Аудио</span><span id="audioInfo">—</span></p>
-                            <p><span class="meta-label">Источник</span><span id="sourceInfo">—</span></p>
+                          <div class="metadata" aria-label="Track details">
+                            <p><span class="meta-label">Audio</span><span id="audioInfo">—</span></p>
+                            <p><span class="meta-label">Source</span><span id="sourceInfo">—</span></p>
                           </div>
 
                           <div class="timeline">
                             <input id="seek" type="range" min="0" max="1" value="0" step="1"
-                                   aria-label="Позиция воспроизведения" disabled>
+                                   aria-label="Playback position" disabled>
                             <div class="times" aria-hidden="true">
                               <span id="position">0:00</span>
                               <span id="duration">—</span>
                             </div>
                           </div>
 
-                          <div id="volumePanel" class="volume" aria-label="Громкость на устройстве с Poweramp" hidden>
-                            <span>Громкость</span>
+                          <div id="volumePanel" class="volume" aria-label="Volume on the Poweramp device" hidden>
+                            <span>Volume</span>
                             <input id="volume" type="range" min="0" max="1" value="0" step="1" disabled>
                             <span id="volumeValue">0/0</span>
                           </div>
 
-                          <div class="controls" aria-label="Управление воспроизведением">
-                            <button id="previous" type="button" aria-label="Предыдущий трек">⏮</button>
-                            <button id="playPause" class="primary" type="button" aria-label="Воспроизвести">▶</button>
-                            <button id="next" type="button" aria-label="Следующий трек">⏭</button>
+                          <div class="controls" aria-label="Playback controls">
+                            <button id="previous" type="button" aria-label="Previous track">⏮</button>
+                            <button id="playPause" class="primary" type="button" aria-label="Play">▶</button>
+                            <button id="next" type="button" aria-label="Next track">⏭</button>
                           </div>
 
-                          <div class="secondary-controls" aria-label="Оценка и перемешивание">
+                          <div class="secondary-controls" aria-label="Rating and shuffle">
                             <button id="dislike" class="icon-control" type="button"
-                                    aria-label="Не нравится" aria-pressed="false">👎</button>
+                                    aria-label="Dislike" aria-pressed="false">👎</button>
                             <button id="clearRating" class="chip-control" type="button"
-                                    aria-label="Сбросить рейтинг">Сброс · —/5</button>
+                                    aria-label="Clear rating">Clear · —/5</button>
                             <button id="like" class="icon-control" type="button"
-                                    aria-label="Нравится" aria-pressed="false">👍</button>
+                                    aria-label="Like" aria-pressed="false">👍</button>
                             <button id="shuffle" class="chip-control shuffle-control" type="button"
-                                    aria-label="Включить перемешивание" aria-pressed="false">Shuffle OFF</button>
+                                    aria-label="Enable shuffle" aria-pressed="false">Shuffle OFF</button>
                           </div>
 
-                          <p id="connectionStatus" class="message" role="status" aria-live="polite">Подключение…</p>
+                          <p id="connectionStatus" class="message" role="status" aria-live="polite">Connecting…</p>
                         </section>
                       </main>
                     </body>
@@ -485,8 +485,37 @@ final class WebUiAssets {
                     }
 
                     function decimal(value, divisor) {
-                      return (value / divisor).toFixed(4).replace(/0+$/, "").replace(/\\.$/, "").replace(".", ",");
+                      return (value / divisor).toFixed(4).replace(/0+$/, "").replace(/\\.$/, "");
                     }
+
+                    const SOURCE_CATEGORY_NAMES = Object.freeze({
+                      0: "Library root",
+                      10: "Folder",
+                      20: "Folder hierarchy",
+                      30: "All tracks",
+                      43: "Most played",
+                      48: "Top rated",
+                      50: "Low rated",
+                      53: "Recently added",
+                      55: "Long tracks",
+                      58: "Recently played",
+                      60: "Stream",
+                      100: "Playlist",
+                      200: "Album",
+                      210: "Genre albums",
+                      220: "Artist albums",
+                      230: "Composer albums",
+                      250: "Albums by artist",
+                      256: "Album artist albums",
+                      320: "Genre",
+                      330: "Year",
+                      340: "Year albums",
+                      500: "Artist",
+                      520: "Album artist",
+                      600: "Composer",
+                      800: "Queue",
+                      810: "Bookmarks"
+                    });
 
                     function formatAudio(state) {
                       const values = [];
@@ -500,44 +529,38 @@ final class WebUiAssets {
                       }
 
                       const bits = numberOrNull(state.bitsPerSample);
-                      if (bits !== null && bits > 0) values.push(`${Math.round(bits)} бит`);
+                      if (bits !== null && bits > 0) values.push(`${Math.round(bits)} bit`);
 
                       const sampleRate = numberOrNull(state.sampleRate);
                       if (sampleRate !== null && sampleRate > 0) {
                         values.push(sampleRate >= 1000000
-                          ? `${decimal(sampleRate, 1000000)} МГц`
-                          : `${decimal(sampleRate, 1000)} кГц`);
+                          ? `${decimal(sampleRate, 1000000)} MHz`
+                          : `${decimal(sampleRate, 1000)} kHz`);
                       }
 
                       const bitRate = numberOrNull(state.bitRate);
                       if (bitRate !== null && bitRate > 0) {
                         const kiloBits = bitRate >= 10000 ? Math.round(bitRate / 1000) : Math.round(bitRate);
-                        values.push(`${kiloBits} кбит/с`);
+                        values.push(`${kiloBits} kbps`);
                       }
                       return values.length ? values.join(" · ") : "—";
                     }
 
                     function formatSource(state) {
                       const values = [];
-                      const categoryName = cleanText(state.sourceCategoryName);
                       const category = numberOrNull(state.sourceCategory);
-                      if (categoryName) {
-                        values.push(categoryName);
-                      } else if (category !== null) {
-                        values.push(`Категория ${Math.round(category)}`);
+                      if (category !== null && category >= 0) {
+                        values.push(SOURCE_CATEGORY_NAMES[Math.round(category)] || "Other source");
                       }
 
                       const listPosition = numberOrNull(state.positionInList);
                       const listSize = numberOrNull(state.listSize);
                       if (listPosition !== null && listSize !== null && listSize > 0) {
-                        const shownPosition = listPosition >= 0 && listPosition < listSize
-                          ? listPosition + 1
-                          : listPosition;
-                        values.push(`${Math.round(shownPosition)} / ${Math.round(listSize)}`);
+                        values.push(`${Math.round(listPosition)} / ${Math.round(listSize)}`);
                       } else if (listPosition !== null) {
-                        values.push(`позиция ${Math.round(listPosition)}`);
+                        values.push(`position ${Math.round(listPosition)}`);
                       } else if (listSize !== null) {
-                        values.push(`всего ${Math.round(listSize)}`);
+                        values.push(`total ${Math.round(listSize)}`);
                       }
                       return values.length ? values.join(" · ") : "—";
                     }
@@ -606,7 +629,7 @@ final class WebUiAssets {
                       const trackChanged = previousIdentity !== null && previousIdentity !== identity;
                       currentState = state;
 
-                      title.textContent = cleanText(state.title) || "Нет трека";
+                      title.textContent = cleanText(state.title) || "No track";
                       artist.textContent = cleanText(state.artist) || "—";
                       album.textContent = cleanText(state.album) || "—";
                       audioInfo.textContent = formatAudio(state);
@@ -667,7 +690,7 @@ final class WebUiAssets {
 
                       const playing = state.playbackState === "playing";
                       playPause.textContent = playing ? "Ⅱ" : "▶";
-                      playPause.setAttribute("aria-label", playing ? "Пауза" : "Воспроизвести");
+                      playPause.setAttribute("aria-label", playing ? "Pause" : "Play");
 
                       const rating = numberOrNull(state.rating);
                       const liked = rating === 5;
@@ -677,9 +700,9 @@ final class WebUiAssets {
                       clearRating.disabled = !controllable || rating === null || rating === 0;
                       setPressed(dislike, disliked);
                       setPressed(like, liked);
-                      dislike.setAttribute("aria-label", disliked ? "Убрать отметку Не нравится" : "Не нравится");
-                      like.setAttribute("aria-label", liked ? "Убрать отметку Нравится" : "Нравится");
-                      clearRating.textContent = `Сброс · ${rating === null ? "—" : Math.round(rating)}/5`;
+                      dislike.setAttribute("aria-label", disliked ? "Remove Dislike" : "Dislike");
+                      like.setAttribute("aria-label", liked ? "Remove Like" : "Like");
+                      clearRating.textContent = `Clear · ${rating === null ? "—" : Math.round(rating)}/5`;
 
                       const shuffleEnabled = state.shuffle === true;
                       shuffle.disabled = !controllable;
@@ -689,10 +712,10 @@ final class WebUiAssets {
                         : `Shuffle ${shuffleEnabled ? "ON" : "OFF"}`;
                       shuffle.setAttribute(
                         "aria-label",
-                        shuffleEnabled ? "Выключить перемешивание" : "Включить перемешивание"
+                        shuffleEnabled ? "Disable shuffle" : "Enable shuffle"
                       );
 
-                      connectionStatus.textContent = powerampAvailable ? "Подключено" : "Poweramp недоступен";
+                      connectionStatus.textContent = powerampAvailable ? "Connected" : "Poweramp unavailable";
                       renderPosition();
                     }
 
@@ -714,7 +737,7 @@ final class WebUiAssets {
 
                     function scheduleReconnect(generation) {
                       if (generation !== socketGeneration || reconnectTimer) return;
-                      connectionStatus.textContent = "Связь потеряна. Переподключение…";
+                      connectionStatus.textContent = "Connection lost. Reconnecting…";
                       const delay = reconnectDelay + Math.floor(Math.random() * 250);
                       reconnectDelay = Math.min(reconnectDelay * 2, 15000);
                       reconnectTimer = setTimeout(() => {
@@ -729,7 +752,7 @@ final class WebUiAssets {
                         const response = await authenticatedFetch(STATE_PATH);
                         if (generation !== socketGeneration) return;
                         if (response.status === 401) {
-                          showLogin("Сессия завершена. Введите токен снова.");
+                          showLogin("The session ended. Enter the credential again.");
                           return;
                         }
                         if (response.ok) {
@@ -746,7 +769,7 @@ final class WebUiAssets {
                       clearTimeout(reconnectTimer);
                       reconnectTimer = 0;
                       const generation = ++socketGeneration;
-                      connectionStatus.textContent = "Подключение…";
+                      connectionStatus.textContent = "Connecting…";
                       const candidate = new WebSocket(eventsUrl());
                       socket = candidate;
 
@@ -757,7 +780,7 @@ final class WebUiAssets {
                           showPlayer();
                           reconnectDelay = 1000;
                         } catch (error) {
-                          connectionStatus.textContent = "Получены некорректные данные";
+                          connectionStatus.textContent = "Invalid data received";
                         }
                       });
 
@@ -769,7 +792,7 @@ final class WebUiAssets {
 
                       candidate.addEventListener("error", () => {
                         if (generation === socketGeneration) {
-                          connectionStatus.textContent = "Ошибка соединения";
+                          connectionStatus.textContent = "Connection error";
                         }
                       });
                     }
@@ -778,7 +801,7 @@ final class WebUiAssets {
                       try {
                         const response = await authenticatedFetch(STATE_PATH);
                         if (response.status === 401) {
-                          showLogin("Введите токен для подключения.");
+                          showLogin("Enter the credential to connect.");
                           return;
                         }
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -787,7 +810,7 @@ final class WebUiAssets {
                         connectEvents();
                       } catch (error) {
                         showPlayer();
-                        connectionStatus.textContent = "Сервер временно недоступен";
+                        connectionStatus.textContent = "The Server is temporarily unavailable";
                         connectEvents();
                       }
                     }
@@ -805,15 +828,15 @@ final class WebUiAssets {
                           body: JSON.stringify({ token })
                         });
                         if (response.status === 401) {
-                          throw new Error("Неверный токен.");
+                          throw new Error("Invalid credential.");
                         }
                         if (!response.ok) {
-                          throw new Error("Не удалось создать сессию.");
+                          throw new Error("The session could not be created.");
                         }
                         loginForm.reset();
                         await loadInitialState();
                       } catch (error) {
-                        loginError.textContent = error.message || "Ошибка подключения.";
+                        loginError.textContent = error.message || "Connection error.";
                         loginError.hidden = false;
                       } finally {
                         loginButton.disabled = false;
@@ -830,13 +853,13 @@ final class WebUiAssets {
                           body: JSON.stringify(command)
                         });
                         if (response.status === 401) {
-                          showLogin("Сессия завершена. Введите токен снова.");
+                          showLogin("The session ended. Enter the credential again.");
                           return false;
                         }
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         return true;
                       } catch (error) {
-                        connectionStatus.textContent = "Команда не отправлена";
+                        connectionStatus.textContent = "The command was not sent";
                         return false;
                       }
                     }

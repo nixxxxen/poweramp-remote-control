@@ -1,7 +1,6 @@
 package dev.powerampremote.phone;
 
 import android.Manifest;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
@@ -20,11 +19,13 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.PopupMenu;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
 /** Compact playback-only phone surface backed by the existing foreground connection service. */
-public final class MainActivity extends Activity implements PhoneConnectionService.Listener {
+public final class MainActivity extends LocaleAwareActivity
+        implements PhoneConnectionService.Listener {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 701;
     private static final String STATE_OPENED_DEVICES = "opened_devices";
 
@@ -53,6 +54,7 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     private ImageButton likeButton;
     private ImageButton shuffleButton;
     private TextView errorMessage;
+    private RemoteMetadataFormatter metadataFormatter;
 
     private PhoneConnectionService.LocalBinder controller;
     private RemoteClientController.Status status = RemoteClientController.Status.SEARCHING;
@@ -119,6 +121,7 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
                 && savedInstanceState.getBoolean(STATE_OPENED_DEVICES, false);
         setContentView(R.layout.activity_main);
         SafeDrawingInsets.apply(findViewById(R.id.player_root));
+        metadataFormatter = RemoteMetadataFormatter.from(this);
         bindViews();
         configureControls();
         try {
@@ -200,6 +203,10 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
     }
 
     private void configureControls() {
+        findViewById(R.id.main_menu_button).setOnClickListener(view -> {
+            haptic(view);
+            showMainMenu(view);
+        });
         findViewById(R.id.player_devices_button).setOnClickListener(view -> {
             haptic(view);
             openPlayerDevices();
@@ -421,11 +428,11 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
         trackTitle.setText(valueOrFallback(state.title, R.string.unknown_title));
         trackArtist.setText(valueOrFallback(state.artist, R.string.unknown_artist));
         trackAlbum.setText(valueOrFallback(state.album, R.string.unknown_album));
-        setOptionalText(codecChip, RemoteMetadataFormatter.codec(state));
-        setOptionalText(bitDepthChip, RemoteMetadataFormatter.bitDepth(state));
-        setOptionalText(sampleRateChip, RemoteMetadataFormatter.sampleRate(state));
-        setOptionalText(bitrateChip, RemoteMetadataFormatter.bitrate(state));
-        setOptionalText(sourceInfo, RemoteMetadataFormatter.source(state));
+        setOptionalText(codecChip, metadataFormatter.codec(state));
+        setOptionalText(bitDepthChip, metadataFormatter.bitDepth(state));
+        setOptionalText(sampleRateChip, metadataFormatter.sampleRate(state));
+        setOptionalText(bitrateChip, metadataFormatter.bitrate(state));
+        setOptionalText(sourceInfo, metadataFormatter.source(state));
     }
 
     private void renderProgress() {
@@ -558,6 +565,24 @@ public final class MainActivity extends Activity implements PhoneConnectionServi
 
     private void openPlayerDevices() {
         startActivity(new Intent(this, PlayerDevicesActivity.class));
+    }
+
+    private void showMainMenu(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.inflate(R.menu.main_navigation);
+        menu.setOnMenuItemClickListener(item -> {
+            haptic(anchor);
+            if (item.getItemId() == R.id.menu_settings) {
+                startActivity(new Intent(this, SettingsActivity.class));
+                return true;
+            }
+            if (item.getItemId() == R.id.menu_about) {
+                startActivity(new Intent(this, AboutActivity.class));
+                return true;
+            }
+            return false;
+        });
+        menu.show();
     }
 
     private void requestNotificationPermission() {

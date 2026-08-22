@@ -1,9 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Poweramp Remote</string>
+    <string name="app_name" translatable="false">Poweramp Remote</string>
+    <string name="about_product_name" translatable="false">Poweramp Remote Phone Client</string>
+    <string name="repository_url" translatable="false">https://github.com/nixxxxen/poweramp-remote-control</string>
+    <string name="third_party_notices_url" translatable="false">https://github.com/nixxxxen/poweramp-remote-control/blob/main/THIRD_PARTY_NOTICES.md</string>
+
+    <string name="open_main_menu">Open main menu</string>
+    <string name="settings">Settings</string>
+    <string name="about">About</string>
+    <string name="back">Back</string>
+
+    <string name="app_language">App language</string>
+    <string name="app_language_description">Choose the language used by Phone Client screens, scanner prompts, and notifications.</string>
+    <string name="language_system_default">System default</string>
+    <string name="language_russian">Russian</string>
+    <string name="language_english">English</string>
+    <string name="language_system_behavior">System default uses Russian when the primary system language is Russian and English for every other language.</string>
+    <string name="language_storage_error">The language choice could not be saved.</string>
+
+    <string name="about_description">Controls Poweramp playback on another Android device over a local connection.</string>
+    <string name="about_version_name">Version: %1$s</string>
+    <string name="about_version_code">Version code: %1$d</string>
+    <string name="about_local_api">Local API: v1</string>
+    <string name="about_repository_label">Public repository</string>
+    <string name="about_open_repository">Open public repository</string>
+    <string name="about_license">License: MIT License</string>
+    <string name="about_third_party">Third-party software notices are available in THIRD_PARTY_NOTICES.md.</string>
+    <string name="about_open_third_party">Open third-party notices</string>
+    <string name="about_independence_notice">This independent project is not affiliated with, endorsed by, sponsored by, or supported by Poweramp or Max MP.</string>
+    <string name="about_version_unavailable">Unavailable</string>
+    <string name="link_open_error">No application could open this link.</string>
+
     <string name="player_devices">Player devices</string>
-    <string name="back">Назад</string>
-    <string name="no_player_devices">Нет сохранённых player devices. Используйте одноразовый QR или введите Bearer-токен с Server вручную.</string>
+    <string name="no_player_devices">No playback devices are saved. Use a one-time QR code or enter a Bearer token from the Server manually.</string>
     <string name="device_connected">Connected</string>
     <string name="device_disconnected">Disconnected</string>
     <string name="transport_lan">LAN</string>
@@ -14,82 +43,130 @@
     <string name="enter_token_manually">Enter token manually</string>
     <string name="repair_player">Re-pair</string>
     <string name="forget_device">Forget device</string>
-    <string name="forget_device_title">Forget player device?</string>
-    <string name="forget_device_message">Постоянный credential и сохранённая identity будут удалены только с этого телефона.</string>
+    <string name="forget_device_title">Forget playback device?</string>
+    <string name="forget_device_message">The permanent access key and saved Server identifier will be removed only from this phone.</string>
     <string name="forget_device_confirm">Forget</string>
-    <string name="pairing_scan_prompt">Наведите камеру на QR-код Poweramp Remote Server</string>
-    <string name="pairing_scanner_unavailable">Не удалось открыть scanner. Используйте Enter token manually.</string>
-    <string name="pairing_invalid_qr">Это не поддерживаемый QR-код Poweramp Remote.</string>
-    <string name="pairing_secret_rejected">Одноразовый код истёк или уже использован. Обновите QR на Server и повторите.</string>
-    <string name="pairing_searching_target">Ищу отсканированный player device через LAN и Wi-Fi Direct…</string>
-    <string name="pairing_exchanging">Обмениваю одноразовый код на постоянный credential…</string>
-    <string name="pairing_network_error_qr">Не удалось завершить QR-привязку. Обновите код на Server и повторите.</string>
-    <string name="manual_pairing_title">Ручная привязка</string>
-    <string name="manual_pairing_instruction">Подключите телефон и Server к одной LAN, затем вставьте постоянный Bearer-токен с экрана Server. IP-адрес вводить не нужно.</string>
-    <string name="token_hint">Bearer-токен с Player device</string>
-    <string name="manual_pairing_submit">Проверить и сохранить</string>
-    <string name="pairing_invalid_token">Токен должен быть полной 43-символьной строкой с экрана Server.</string>
-    <string name="pairing_unauthorized">Ни один найденный Server не принял токен. Проверьте строку и повторите.</string>
-    <string name="pairing_network_error">Не удалось проверить токен через LAN. Убедитесь, что Server доступен, и повторите.</string>
-    <string name="pairing_searching_manual">Ищу Poweramp Remote Server в LAN…</string>
-    <string name="pairing_verifying_manual">Проверяю Bearer-токен через API v1…</string>
-    <string name="pairing_success_device">%1$s сохранён</string>
+    <string name="pairing_scan_prompt">Point the camera at the Poweramp Remote Server QR code</string>
+    <string name="pairing_scanner_unavailable">The QR scanner could not be opened. Enter the token manually instead.</string>
+    <string name="pairing_invalid_qr">This is not a supported Poweramp Remote QR code.</string>
+    <string name="pairing_secret_rejected">The one-time code has expired or was already used. Refresh the QR code on the Server and try again.</string>
+    <string name="pairing_searching_target">Searching for the scanned playback device over LAN and Wi-Fi Direct…</string>
+    <string name="pairing_exchanging">Exchanging the one-time code for a permanent access key…</string>
+    <string name="pairing_network_error_qr">QR pairing could not be completed. Refresh the code on the Server and try again.</string>
+    <string name="manual_pairing_title">Manual pairing</string>
+    <string name="manual_pairing_instruction">Connect the phone and Server to the same LAN, then paste the permanent Bearer token from the Server screen. No IP address is needed.</string>
+    <string name="token_hint">Bearer token from the Server</string>
+    <string name="manual_pairing_submit">Verify and save</string>
+    <string name="pairing_invalid_token">The token must be the complete 43-character value shown on the Server.</string>
+    <string name="pairing_unauthorized">None of the discovered Servers accepted this token. Check the value and try again.</string>
+    <string name="pairing_network_error">The token could not be verified over LAN. Make sure the Server is available and try again.</string>
+    <string name="pairing_searching_manual">Searching for Poweramp Remote Server on the LAN…</string>
+    <string name="pairing_verifying_manual">Verifying the Bearer token through API v1…</string>
+    <string name="pairing_success_device">%1$s saved</string>
     <string name="device_diagnostics">Service: %1$s\nAPI: v%2$d\nServer ID: %3$s\nEndpoint: %4$s\nRuntime: %5$s</string>
     <string name="endpoint_not_connected">—</string>
-    <string name="status_auth_required">Credential отклонён · выполните Re-pair через QR или Bearer-токен</string>
-    <string name="direct_action_permission">Разрешить поиск устройств</string>
-    <string name="direct_action_location">Открыть настройки геолокации</string>
-    <string name="direct_action_wifi">Открыть настройки Wi-Fi</string>
-    <string name="direct_action_retry">Повторить direct-connect</string>
-    <string name="direct_action_retry_lan">Повторить поиск в LAN</string>
+    <string name="status_auth_required">The access key was rejected · re-pair with a QR code or Bearer token</string>
+    <string name="direct_action_permission">Allow nearby-device discovery</string>
+    <string name="direct_action_location">Open Location settings</string>
+    <string name="direct_action_wifi">Open Wi-Fi settings</string>
+    <string name="direct_action_retry">Retry Wi-Fi Direct connection</string>
+    <string name="direct_action_retry_lan">Retry LAN discovery</string>
+    <string name="pairing_storage_error">The pairing could not be saved in private app storage.</string>
 
-    <string name="pairing_storage_error">Не удалось сохранить привязку в приватном хранилище.</string>
+    <string name="runtime_status_searching">Searching on LAN</string>
+    <string name="runtime_status_pairing">Finding the scanned device</string>
+    <string name="runtime_status_verifying">Verifying access</string>
+    <string name="runtime_status_connecting">Connecting over LAN</string>
+    <string name="runtime_status_connected">Connected over LAN</string>
+    <string name="runtime_status_direct_searching">Searching with Wi-Fi Direct</string>
+    <string name="runtime_status_direct_permission">Nearby-device permission required</string>
+    <string name="runtime_status_direct_location">Location Mode required</string>
+    <string name="runtime_status_direct_wifi">Wi-Fi required</string>
+    <string name="runtime_status_direct_connecting">Connecting with Wi-Fi Direct</string>
+    <string name="runtime_status_connected_direct">Connected with Wi-Fi Direct</string>
+    <string name="runtime_status_direct_unsupported">Wi-Fi Direct unavailable</string>
+    <string name="runtime_status_direct_action">Wi-Fi Direct action required</string>
+    <string name="runtime_status_retrying">Waiting to reconnect</string>
+    <string name="runtime_status_auth_required">Access key rejected</string>
+    <string name="runtime_status_error">Connection error</string>
 
-    <string name="waiting_title">Нет текущего трека</string>
-    <string name="waiting_artist">Запустите Poweramp на Player device</string>
-    <string name="waiting_album">Состояние обновится через WebSocket</string>
-    <string name="unknown_title">Без названия</string>
-    <string name="unknown_artist">Неизвестный исполнитель</string>
-    <string name="unknown_album">Неизвестный альбом</string>
-    <string name="album_art_description">Обложка текущего трека</string>
+    <string name="waiting_title">No current track</string>
+    <string name="waiting_artist">Start Poweramp on the playback device</string>
+    <string name="waiting_album">The state will update through WebSocket</string>
+    <string name="unknown_title">Untitled</string>
+    <string name="unknown_artist">Unknown artist</string>
+    <string name="unknown_album">Unknown album</string>
+    <string name="album_art_description">Artwork for the current track</string>
     <string name="elapsed_placeholder">0:00</string>
     <string name="duration_placeholder">0:00</string>
-    <string name="remote_volume_description">Громкость на устройстве с Poweramp</string>
+    <string name="remote_volume_description">Volume on the Poweramp device</string>
     <string name="volume_value">%1$d/%2$d</string>
     <string name="volume_value_placeholder">0/0</string>
-    <string name="previous_track">Предыдущий трек</string>
-    <string name="play">Воспроизвести</string>
-    <string name="pause">Пауза</string>
-    <string name="next_track">Следующий трек</string>
-    <string name="dislike">Не нравится</string>
-    <string name="remove_dislike">Убрать «Не нравится»</string>
-    <string name="like">Нравится</string>
-    <string name="remove_like">Убрать «Нравится»</string>
-    <string name="shuffle_enable">Включить перемешивание</string>
-    <string name="shuffle_disable">Выключить перемешивание</string>
+    <string name="previous_track">Previous track</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="next_track">Next track</string>
+    <string name="dislike">Dislike</string>
+    <string name="remove_dislike">Remove Dislike</string>
+    <string name="like">Like</string>
+    <string name="remove_like">Remove Like</string>
+    <string name="shuffle_enable">Enable shuffle</string>
+    <string name="shuffle_disable">Disable shuffle</string>
     <string name="rating_value">%1$d/5</string>
     <string name="rating_unknown">—/5</string>
-    <string name="rating_change">Изменить рейтинг</string>
-    <string name="rating_dialog_title">Оценка трека</string>
-    <string name="cancel">Отмена</string>
-    <string name="command_error">Команда не отправлена · соединение восстанавливается</string>
-    <string name="connection_service_error">Фоновый сервис соединения недоступен</string>
+    <string name="rating_change">Change rating</string>
+    <string name="rating_dialog_title">Track rating</string>
+    <string name="cancel">Cancel</string>
+    <string name="command_error">The command was not sent · reconnecting</string>
+    <string name="connection_service_error">The background connection service is unavailable</string>
 
-    <string name="connection_service_channel_name">Соединение Poweramp Remote</string>
-    <string name="connection_service_channel_description">LAN/Wi-Fi Direct discovery, WebSocket и автоматическое восстановление связи</string>
-    <string name="connection_service_notification_title">Poweramp Remote работает</string>
-    <string name="connection_service_notification_searching">Поиск Server и восстановление соединения…</string>
-    <string name="connection_service_notification_lan">Подключено через LAN</string>
-    <string name="connection_service_notification_direct">Подключено через Wi-Fi Direct</string>
-    <string name="connection_service_notification_action">Для соединения требуется действие</string>
-    <string name="connection_service_notification_stop">Остановить</string>
+    <string name="unit_bit">bit</string>
+    <string name="unit_kilohertz">kHz</string>
+    <string name="unit_megahertz">MHz</string>
+    <string name="unit_kilobits_per_second">kbps</string>
+    <string name="source_category_library_root">Library root</string>
+    <string name="source_category_all_tracks">All tracks</string>
+    <string name="source_category_folder">Folder</string>
+    <string name="source_category_folder_hierarchy">Folder hierarchy</string>
+    <string name="source_category_album">Album</string>
+    <string name="source_category_artist">Artist</string>
+    <string name="source_category_artist_albums">Artist albums</string>
+    <string name="source_category_album_artist">Album artist</string>
+    <string name="source_category_album_artist_albums">Album artist albums</string>
+    <string name="source_category_artists_albums">Albums by artist</string>
+    <string name="source_category_genre">Genre</string>
+    <string name="source_category_genre_albums">Genre albums</string>
+    <string name="source_category_year">Year</string>
+    <string name="source_category_year_albums">Year albums</string>
+    <string name="source_category_composer">Composer</string>
+    <string name="source_category_composer_albums">Composer albums</string>
+    <string name="source_category_playlist">Playlist</string>
+    <string name="source_category_queue">Queue</string>
+    <string name="source_category_bookmarks">Bookmarks</string>
+    <string name="source_category_stream">Stream</string>
+    <string name="source_category_most_played">Most played</string>
+    <string name="source_category_top_rated">Top rated</string>
+    <string name="source_category_low_rated">Low rated</string>
+    <string name="source_category_recently_played">Recently played</string>
+    <string name="source_category_recently_added">Recently added</string>
+    <string name="source_category_long_tracks">Long tracks</string>
+    <string name="source_category_other">Other source</string>
+
+    <string name="connection_service_channel_name">Poweramp Remote connection</string>
+    <string name="connection_service_channel_description">LAN and Wi-Fi Direct discovery, WebSocket updates, and automatic reconnection</string>
+    <string name="connection_service_notification_title">Poweramp Remote is running</string>
+    <string name="connection_service_notification_searching">Searching for the Server and restoring the connection…</string>
+    <string name="connection_service_notification_lan">Connected over LAN</string>
+    <string name="connection_service_notification_direct">Connected over Wi-Fi Direct</string>
+    <string name="connection_service_notification_action">Connection action required</string>
+    <string name="connection_service_notification_stop">Stop</string>
 
     <string-array name="rating_options">
-        <item>Без оценки · 0/5</item>
-        <item>Не нравится · 1/5</item>
-        <item>2 звезды · 2/5</item>
-        <item>3 звезды · 3/5</item>
-        <item>4 звезды · 4/5</item>
-        <item>Нравится · 5/5</item>
+        <item>Unrated · 0/5</item>
+        <item>Dislike · 1/5</item>
+        <item>2 stars · 2/5</item>
+        <item>3 stars · 3/5</item>
+        <item>4 stars · 4/5</item>
+        <item>Like · 5/5</item>
     </string-array>
 </resources>

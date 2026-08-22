@@ -15,6 +15,17 @@
         android:layout_height="40dp">
 
         <ImageButton
+            android:id="@+id/main_menu_button"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="start|center_vertical"
+            android:background="@drawable/control_button_background"
+            android:contentDescription="@string/open_main_menu"
+            android:foreground="?android:attr/selectableItemBackgroundBorderless"
+            android:padding="10dp"
+            android:src="@drawable/ic_menu" />
+
+        <ImageButton
             android:id="@+id/player_devices_button"
             android:layout_width="40dp"
             android:layout_height="40dp"

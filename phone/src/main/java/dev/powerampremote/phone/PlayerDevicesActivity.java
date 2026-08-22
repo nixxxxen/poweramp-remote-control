@@ -25,7 +25,6 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.activity.ComponentActivity;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 
@@ -36,7 +35,7 @@ import com.journeyapps.barcodescanner.ScanOptions;
 import java.util.UUID;
 
 /** Saved player-device management and QR-pairing surface. */
-public final class PlayerDevicesActivity extends ComponentActivity
+public final class PlayerDevicesActivity extends LocaleAwareActivity
         implements PhoneConnectionService.Listener {
     private static final String STATE_PERMISSION_REQUEST_ATTEMPTED =
             "permission_request_attempted";
@@ -502,8 +501,46 @@ public final class PlayerDevicesActivity extends ComponentActivity
                 snapshot.serverId,
                 snapshot.endpoint == null
                         ? getString(R.string.endpoint_not_connected) : snapshot.endpoint,
-                snapshot.runtimeStatus.name()
+                getString(runtimeStatusResource(snapshot.runtimeStatus))
         ));
+    }
+
+    private static int runtimeStatusResource(RemoteClientController.Status value) {
+        switch (value) {
+            case PAIRING:
+                return R.string.runtime_status_pairing;
+            case VERIFYING:
+                return R.string.runtime_status_verifying;
+            case CONNECTING:
+                return R.string.runtime_status_connecting;
+            case CONNECTED:
+                return R.string.runtime_status_connected;
+            case DIRECT_SEARCHING:
+                return R.string.runtime_status_direct_searching;
+            case DIRECT_PERMISSION_REQUIRED:
+                return R.string.runtime_status_direct_permission;
+            case DIRECT_LOCATION_REQUIRED:
+                return R.string.runtime_status_direct_location;
+            case DIRECT_WIFI_REQUIRED:
+                return R.string.runtime_status_direct_wifi;
+            case DIRECT_CONNECTING:
+                return R.string.runtime_status_direct_connecting;
+            case CONNECTED_DIRECT:
+                return R.string.runtime_status_connected_direct;
+            case DIRECT_UNSUPPORTED:
+                return R.string.runtime_status_direct_unsupported;
+            case DIRECT_ACTION_REQUIRED:
+                return R.string.runtime_status_direct_action;
+            case RETRYING:
+                return R.string.runtime_status_retrying;
+            case AUTH_REQUIRED:
+                return R.string.runtime_status_auth_required;
+            case ERROR:
+                return R.string.runtime_status_error;
+            case SEARCHING:
+            default:
+                return R.string.runtime_status_searching;
+        }
     }
 
     private void renderConnectionAction() {
