@@ -32,5 +32,20 @@ HTTP/WebSocket traffic is authenticated but unencrypted, so use it only on trust
 - `Poweramp-Remote-Server-v0.10.1.apk`
 - `Poweramp-Remote-Phone-v0.4.2.apk`
 
+## Download verification
+
+Both APKs are signed by the same permanent release certificate (`CN=Poweramp Remote Release`),
+whose SHA-256 fingerprint is
+`C6:09:93:4D:AE:5A:C3:33:CA:9F:58:5C:20:78:76:1D:03:2B:0A:1D:22:E6:A6:03:48:DE:34:F8:D2:83:62:F4`.
+Use the attached `SHA256SUMS.txt` and the checksums in the GitHub Release description to verify
+downloaded files. `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, and `Apache-2.0.txt` accompany the binary release.
+
+## Required fresh install for pre-release testers
+
+Earlier test APKs used Android debug certificates. These release-signed APKs cannot be installed as
+updates over those builds. Uninstall both old debug apps first, install the two release APKs, and
+pair Server and Phone again. Uninstalling clears each app's local credentials and pairing state.
+
 Poweramp Remote is independent and is not affiliated with, endorsed by, sponsored by, or supported
 by Poweramp or Max MP.

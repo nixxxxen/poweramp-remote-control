@@ -14,46 +14,45 @@ timing, and square artwork. They do not add Library, Queue, Lyrics, a new transp
 multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
 MediaSession, volume, Web UI, and API `v1` contracts remain in place.
 
-## Public-release readiness audit (2026-08-21)
+## Public-release preparation (2026-08-22)
 
-- A content scan covered the current tracked/untracked project and the complete local Git object
-  database: 11 commits, 531 blobs, all reachable refs, local Codex tree refs, and unreachable
-  objects. No real API keys, Bearer credentials, pairing secrets, passwords, private keys,
-  keystores, signing credentials, certificates, APK/AAB files, MAC addresses, or device IDs were
-  found. Token-, ID-, address-, and UUID-like values that remain in source are deterministic unit
-  test fixtures or protocol constants.
-- The initial commit accidentally tracked generated `build-seek-verification` outputs. They include
-  compiled classes/JARs, test results, temporary compiler data, an absolute local Windows path, a
-  local machine hostname, and timestamps. A later commit also tracked `.DS_Store`. These files have
-  been removed from the current tree, and `.gitignore` now covers generated build variants,
-  platform metadata, APK/AAB output, logs/dumps, environment files, signing properties, and common
-  keystore/private-key formats.
-- Removing those files from the current tree does not remove them from existing commits. No secret
-  requires an emergency rewrite, but a controlled pre-publication history rewrite is recommended
-  to purge the generated paths and `.DS_Store`. Every existing commit also exposes a personal Gmail
-  address in raw author/committer metadata. If that address should remain private, all 11 commits
-  must be rewritten to a GitHub noreply or other public address; `.mailmap` would not hide it.
-  Local `refs/codex/*` must not be published with `git push --mirror`.
-- Current `release` build types have no signing configuration and therefore do not yet produce
-  publishable signed release APKs. Existing local APKs are debug-signed. A permanent external
-  release key, protected backups, secure password injection, signer/version/package verification,
-  and final real-device checks remain manual release gates. A new key cannot update previously
-  installed debug builds with the retained application IDs; unless an appropriate previous
-  production key is recovered, the first public build is a documented fresh-install boundary.
-- The original project code is now covered by a root MIT `LICENSE`. Poweramp API-derived constants
-  retain the upstream purpose-limited notice, and Apache/Kotlin/runtime/test dependency terms are
-  recorded in `THIRD_PARTY_NOTICES.md` plus `licenses/Apache-2.0.txt`. Those notice files must be
-  distributed with both APKs. Public installation, security, limitations, attribution, Codex use,
-  release signing, and first-release copy are documented in `README.md`, `RELEASING.md`, and
-  `RELEASE_NOTES.md`.
+- A protected full mirror backup of the original private history was created outside the
+  repository before any rewrite and is being retained. It contains the old commits and local refs
+  but has no reason to be pushed or published.
+- The controlled rewrite preserved all 12 existing commits, their order, messages, author names,
+  and dates. Commit SHA values changed because commit metadata and some historical trees changed.
+  The personal Gmail address was replaced in all author/committer metadata by the configured GitHub
+  noreply address. Historical `build-seek-verification` trees, `.DS_Store`, compiled/test outputs,
+  local paths, hostname, and build timestamps from those generated trees were removed. Reachable
+  blob count fell from 527 to 413 and tree count from 322 to 242; the current source tree itself was
+  unchanged by the rewrite.
+- Post-rewrite `git log --format=fuller`, full object scans, and strict object validation found only
+  the noreply author/committer email and no old Gmail, forbidden generated path, absolute local
+  path, private key, keystore, credential, API token, APK/AAB, environment file, or signing
+  properties. Deterministic Base64URL values that remain are test fixtures and protocol constants.
+- Only rewritten `main` was force-pushed; no `--mirror`, local `refs/codex/*`, or tags were pushed.
+  A separate fresh clone matched rewritten local and remote `main`, contained only the expected
+  branch refs, retained the same 12-commit linear structure, passed strict object validation, and
+  repeated the same PII/secret/generated-file scan with no finding.
+- Both Android modules now load one permanent release identity from an external properties file and
+  keystore outside the repository. Missing or incomplete configuration blocks any scheduled
+  release task before execution, including aggregate builds; debug builds remain separately
+  debug-signed. The release certificate is `CN=Poweramp Remote Release`, RSA 4096, valid through
+  2054-01-07, with SHA-256 fingerprint
+  `C6:09:93:4D:AE:5A:C3:33:CA:9F:58:5C:20:78:76:1D:03:2B:0A:1D:22:E6:A6:03:48:DE:34:F8:D2:83:62:F4`.
+  No keystore path, key material, or password is tracked.
+- The first permanent release identity differs from every pre-release debug identity. Because
+  Android requires an update to carry the same signing certificate, the first public build is an
+  explicit fresh-install boundary: old debug Server and Phone apps must be uninstalled, their local
+  pairing state is removed, and pairing must be completed again.
+- The resolved release runtime graphs were re-audited against `THIRD_PARTY_NOTICES.md`. The MIT
+  license, Poweramp API-derived notice, Apache/AndroidX/Media3/JourneyApps/ZXing/Kotlin/coroutines/
+  Guava/JSpecify/JetBrains attributions, Kotlin BSD/Boost notices, and development-only dependency
+  terms remain covered. `PowerampContract.java` retains its required upstream attribution.
 
-No application behavior, dependency, Gradle build configuration, manifest, or API contract changed
-during this audit. The Gradle wrapper contents are unchanged, but its tracked executable bit was
-restored so the documented `./gradlew` command works after a Unix/macOS clone. A fresh clean debug
-pipeline then executed all 100 tasks successfully: Server tests `78/78`, Phone tests `48/48`, zero
-test failures/errors, both APKs assembled, Phone lint reported no issues, and Server lint reported
-zero errors plus the same two informational version warnings for pinned Gradle and JVM-test-only
-`org.json`. Repository scans, internal Markdown links, ignore rules, and whitespace checks also pass.
+The remaining manual release gates are a tested additional protected keystore copy, passwords in a
+password manager, and the full fresh-install real-device matrix in `RELEASING.md`. Repository
+visibility, tag creation, and GitHub Release creation remain deliberately manual actions.
 
 ## Implemented in Server 0.10.1 / Phone Client 0.4.2
 
@@ -285,6 +284,40 @@ zero errors plus the same two informational version warnings for pinned Gradle a
 - Raw Poweramp `bitRate` and `positionInList` values remain unchanged.
 
 ## Verification
+
+### Public release candidate verification (2026-08-22)
+
+- One clean no-build-cache pipeline ran debug and release unit tests, lint, and APK assembly for
+  both modules with the external signing configuration. It completed successfully with 206
+  actionable tasks (203 executed, three profile inputs already up to date).
+- Server passed `78/78` debug and `78/78` release JVM tests; Phone passed `48/48` debug and `48/48`
+  release JVM tests. All 252 executions have zero failures, errors, or skips.
+- Debug and release lint both report zero errors. Phone has no issues; Server has only the same two
+  informational update warnings for pinned Gradle `8.14.3` and JVM-test-only `org.json`.
+- Missing signing configuration was exercised separately: debug assembly and dependency reporting
+  still work, while direct `assembleRelease` and aggregate `assemble` both stop before task
+  execution. No signing secret is present in Gradle source, command output, or the repository.
+- Final Server APK: `Poweramp-Remote-Server-v0.10.1.apk`, application ID
+  `dev.r4remote.poweramp`, `versionCode=12`, `versionName=0.10.1`, min API 26, and target/compile
+  API 36.
+- Final Phone APK: `Poweramp-Remote-Phone-v0.4.2.apk`, application ID
+  `dev.r4remote.poweramp.phone`, `versionCode=13`, `versionName=0.4.2`, min API 26, and
+  target/compile API 36.
+- Both APKs pass 16 KiB-aware ZIP alignment and `apksigner verify`; each has one RSA 4096 signer and
+  APK Signature Scheme v2. V1, v3/v3.1, v4, and SourceStamp are absent; v2 supports every targeted
+  device because the project minimum is API 26. The signer fingerprint matches the permanent
+  release certificate documented above and differs from the Android Debug certificate SHA-256
+  `4D:2C:7C:0D:0F:8F:2B:81:49:5D:62:88:4A:96:F3:61:65:05:73:D8:E9:96:35:A6:F8:CC:75:4E:36:EC:62:65`.
+- `SHA256SUMS.txt`, the MIT `LICENSE`, `THIRD_PARTY_NOTICES.md`, and the Apache 2.0 license copy are
+  prepared beside the two ignored local APK artifacts for later manual upload. Exact APK hashes are
+  intentionally generated after the final source commit and recorded in that untracked checksum
+  file and the GitHub Release description: Android Gradle Plugin embeds the source commit revision,
+  so a checksum cannot be self-consistently stored in the commit that produces the APK.
+
+No real-device pass is claimed by this verification. The exact release APKs above must complete the
+mandatory 16-step fresh-install matrix in `RELEASING.md` before a GitHub Release is created.
+
+### Development baseline (2026-08-21)
 
 Server `0.10.1` / Phone `0.4.2` development verification completed on 2026-08-21 with pinned Gradle
 wrapper `8.14.3`, Temurin JDK `21.0.12` (Java 17 source/target), Android SDK/compile/target 36, and

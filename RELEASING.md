@@ -1,14 +1,14 @@
 # Release checklist
 
-This repository does not publish or sign releases automatically. The current Gradle `release`
-build types produce unsigned APKs until a maintainer supplies an external signing step or a secure
-signing configuration.
+This repository does not publish releases automatically. Both Gradle `release` build types use one
+maintainer-supplied signing identity loaded from a private properties file outside the repository.
+Any release task fails before building if that file is absent or incomplete; debug builds continue
+to use Android's separate debug signing configuration.
 
 ## Before the first public release
 
-1. Decide whether to rewrite the private Git history to remove generated build artifacts and the
-   author/committer email documented in `STATUS.md`. Make a protected mirror backup first. Never
-   publish local `refs/codex/*` or use an unreviewed `git push --mirror`.
+1. Confirm the protected pre-rewrite mirror backup is still available. Never publish local
+   `refs/codex/*` or use `git push --mirror`.
 2. Repeat the secret and generated-file scan from a fresh clone of the exact history that will be
    published.
 3. Create a dedicated, permanent Android release key outside the repository. Back it up securely
@@ -18,18 +18,36 @@ signing configuration.
 
 ## Signing
 
-Build the unsigned release packages with the pinned Gradle Wrapper:
+Create the permanent keystore outside the repository. Store its keystore password, key password,
+and alias in a password manager. Keep at least one additional protected copy of the keystore on a
+separate encrypted device or storage account, and test that the backup can be opened before the
+first release.
+
+Create a private properties file outside the repository with these four entries:
+
+```properties
+storeFile=/secure/path/to/poweramp-remote-release.jks
+storePassword=<private keystore password>
+keyAlias=<private key alias>
+keyPassword=<private key password>
+```
+
+Never commit that file, pass passwords on a command line, or put them in build logs. Point Gradle
+to the file by path only, using either the `powerampRemoteSigningProperties` project property or
+the `POWERAMP_REMOTE_SIGNING_PROPERTIES` environment variable.
+
+Build and verify both signed release variants with the pinned Gradle Wrapper:
 
 ```shell
-./gradlew clean \
+./gradlew -PpowerampRemoteSigningProperties=/secure/path/signing.properties clean \
   :app:testReleaseUnitTest :phone:testReleaseUnitTest \
   :app:lintRelease :phone:lintRelease \
   :app:assembleRelease :phone:assembleRelease
 ```
 
-Use the Android SDK's `zipalign` and `apksigner` with the permanent external key. Allow
-`apksigner` to request passwords interactively or obtain them from a protected CI secret store;
-never put passwords in a command, committed property file, log, or release artifact.
+Gradle signs the APKs during packaging; do not modify either APK afterward. Use the Android SDK's
+`apksigner verify --verbose --print-certs` to validate the completed files without exposing the
+private key or passwords.
 
 Create exactly these public artifacts:
 
@@ -45,9 +63,41 @@ For each APK, verify:
   seek, rating/shuffle, and volume on real devices;
 - a published SHA-256 file checksum.
 
+Generate `SHA256SUMS.txt` only after the release commit and final APK build. Android Gradle Plugin
+embeds the source commit revision in each APK, so hard-coding an APK checksum into that same source
+commit would create a self-reference and change the APK on the next build.
+
 Distribute `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `licenses/Apache-2.0.txt` with the APKs. The
 release tag should be created only after the final history decision and may be signed separately
 from the APKs.
+
+## Mandatory real-device release-candidate pass
+
+Do not publish solely on the strength of unit tests, lint, or APK verification. Record the device
+models and Android versions used, and complete this fresh-install matrix with the exact
+release-signed APKs that will be uploaded:
+
+1. Uninstall both old debug-signed Server and Phone apps.
+2. Install and start the release Server on the Poweramp device.
+3. Install and start the release Phone Client on the controlling phone.
+4. Complete QR pairing and confirm authenticated state/WebSocket updates.
+5. Forget or reset the pairing, then complete manual Bearer-token pairing as the fallback path.
+6. Confirm ordinary LAN/NSD discovery, connection, and recovery.
+7. Make the paired Server unavailable through LAN and confirm automatic LAN to Wi-Fi Direct
+   fallback, including required Android/OEM approval; restore LAN and confirm it becomes preferred.
+8. Confirm Server and Phone operation while backgrounded and with both screens off.
+9. Confirm artwork and all expected track metadata update on track changes.
+10. Confirm Play, Pause, Previous, and Next.
+11. Confirm seek in both the Phone UI and supported system media controls.
+12. Confirm Like, Dislike, and Shuffle state/control.
+13. Confirm remote player-device media volume and player-side volume updates.
+14. Confirm MediaSession notification and lock-screen metadata, position, and controls.
+15. Confirm controls from a compatible Wear OS device through the Phone MediaSession.
+16. Restart both apps and then both devices; confirm saved pairing and automatic reconnect.
+
+Any failure remains a release blocker until it is understood, fixed or explicitly documented and
+re-tested. A fresh-install pass is also the final confirmation that no debug certificate is still
+in the distribution path.
 
 ## Existing debug installations
 

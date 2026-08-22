@@ -56,6 +56,13 @@ Download the two APKs from the [latest GitHub Release](../../releases/latest):
 - `Poweramp-Remote-Server-v0.10.1.apk`
 - `Poweramp-Remote-Phone-v0.4.2.apk`
 
+The release also provides `SHA256SUMS.txt` plus the project and third-party license notices.
+
+> **First public release:** pre-release APKs were signed with Android debug certificates. The new
+> release-signed APKs cannot update those installations. Uninstall both old debug apps before
+> installing this release; uninstalling removes their local credentials and pairing preferences,
+> so pair Server and Phone again afterward.
+
 Then:
 
 1. Install the Server APK on the Android device that runs Poweramp. Open it, grant the requested

@@ -1,4 +1,61 @@
+import java.util.Properties
+
 plugins {
     id 'com.android.application' version '8.13.2' apply false
 }
 
+def signingPropertiesLocation = findProperty('powerampRemoteSigningProperties') ?:
+        System.getenv('POWERAMP_REMOTE_SIGNING_PROPERTIES')
+def signingPropertiesFile = signingPropertiesLocation ?
+        file(signingPropertiesLocation) : file('signing.properties')
+def signingProperties = new Properties()
+
+if (signingPropertiesFile.isFile()) {
+    signingPropertiesFile.withInputStream { input ->
+        signingProperties.load(input)
+    }
+}
+
+def requiredSigningProperties = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']
+def missingSigningProperties = requiredSigningProperties.findAll { key ->
+    !signingProperties.getProperty(key)?.trim()
+}
+
+def configuredStoreFile = null
+if (signingPropertiesFile.isFile() && missingSigningProperties.isEmpty()) {
+    configuredStoreFile = new File(signingProperties.getProperty('storeFile'))
+    if (!configuredStoreFile.isAbsolute()) {
+        configuredStoreFile = new File(signingPropertiesFile.parentFile, configuredStoreFile.path)
+    }
+}
+
+ext.powerampRemoteReleaseSigning = [
+        configured   : configuredStoreFile != null,
+        storeFile    : configuredStoreFile,
+        storePassword: signingProperties.getProperty('storePassword'),
+        keyAlias     : signingProperties.getProperty('keyAlias'),
+        keyPassword  : signingProperties.getProperty('keyPassword')
+]
+
+gradle.taskGraph.whenReady { graph ->
+    def releaseTaskScheduled = graph.allTasks.any { task ->
+        task.name.toLowerCase().contains('release')
+    }
+    if (!releaseTaskScheduled) {
+        return
+    }
+
+    if (!signingPropertiesFile.isFile() || !missingSigningProperties.isEmpty()) {
+        def detail = signingPropertiesFile.isFile() ?
+                " Missing keys: ${missingSigningProperties.join(', ')}." : ''
+        throw new GradleException(
+                'Release signing is not configured. Supply the external properties file with ' +
+                        '-PpowerampRemoteSigningProperties=/secure/path/signing.properties or ' +
+                        'POWERAMP_REMOTE_SIGNING_PROPERTIES. See RELEASING.md.' + detail)
+    }
+    if (!configuredStoreFile.isFile()) {
+        throw new GradleException(
+                'Release signing keystore was not found at the path configured by the external ' +
+                        'properties file. See RELEASING.md.')
+    }
+}

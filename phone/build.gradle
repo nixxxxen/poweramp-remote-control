@@ -2,6 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
+def releaseSigning = rootProject.ext.powerampRemoteReleaseSigning
+
 android {
     namespace 'dev.powerampremote.phone'
     compileSdk 36
@@ -18,8 +20,22 @@ android {
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
 
+    signingConfigs {
+        if (releaseSigning.configured) {
+            release {
+                storeFile releaseSigning.storeFile
+                storePassword releaseSigning.storePassword
+                keyAlias releaseSigning.keyAlias
+                keyPassword releaseSigning.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseSigning.configured) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
