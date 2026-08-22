@@ -16,7 +16,7 @@ public final class TrackMetadataFormatterTest {
         );
 
         assertEquals(
-                "FLAC · 24 бит · 44,1 кГц · 1411 кбит/с",
+                "FLAC · 24 bit · 44.1 kHz · 1411 kbps",
                 TrackMetadataFormatter.formatAudio(audio)
         );
     }
@@ -35,7 +35,7 @@ public final class TrackMetadataFormatterTest {
     }
 
     @Test
-    public void formatsHumanFriendlySourcePosition() {
+    public void preservesRawSourcePositionWithoutInventingAnIndexOffset() {
         TrackInfo.PlaybackSource source = new TrackInfo.PlaybackSource(
                 PowerampContract.Categories.PLAYLISTS,
                 null,
@@ -43,7 +43,7 @@ public final class TrackMetadataFormatterTest {
                 10
         );
 
-        assertEquals("Плейлист · 1 / 10", TrackMetadataFormatter.formatSource(source));
+        assertEquals("Playlist · 0 / 10", TrackMetadataFormatter.formatSource(source));
     }
 
     @Test

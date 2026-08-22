@@ -50,6 +50,7 @@ public final class RemoteStateJsonTest {
         assertContains(json, "\"positionInList\":0");
         assertFalse(json.contains("\"positionInList\":1,"));
         assertContains(json, "\"listSize\":10");
+        assertContains(json, "\"sourceCategoryName\":\"Очередь\"");
         assertContains(json, "\"artwork\":\"/api/v1/artwork\"");
     }
 

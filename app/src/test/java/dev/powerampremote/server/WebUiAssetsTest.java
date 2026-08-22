@@ -34,6 +34,7 @@ public final class WebUiAssetsTest {
         String html = text(WebUiAssets.ROOT_PATH);
 
         assertTrue(html.contains("name=\"viewport\""));
+        assertTrue(html.contains("<html lang=\"en\">"));
         assertTrue(html.contains("href=\"/app.css\""));
         assertTrue(html.contains("src=\"/app.js\""));
         assertTrue(html.contains("id=\"loginForm\""));
@@ -51,6 +52,11 @@ public final class WebUiAssetsTest {
         assertTrue(html.contains("id=\"like\""));
         assertTrue(html.contains("id=\"shuffle\""));
         assertTrue(html.contains("aria-pressed=\"false\""));
+        assertTrue(html.contains(">Connect</button>"));
+        assertTrue(html.contains("aria-label=\"Current track\""));
+        assertTrue(html.contains("aria-label=\"Playback controls\""));
+        assertTrue(html.contains("aria-label=\"Enable shuffle\""));
+        assertFalse(containsCyrillic(html));
         assertFalse(html.contains("<style"));
         assertFalse(html.contains("<script>"));
     }
@@ -81,7 +87,8 @@ public final class WebUiAssetsTest {
         assertTrue(script.contains("state.bitsPerSample"));
         assertTrue(script.contains("state.sampleRate"));
         assertTrue(script.contains("state.bitRate"));
-        assertTrue(script.contains("state.sourceCategoryName"));
+        assertTrue(script.contains("SOURCE_CATEGORY_NAMES"));
+        assertFalse(script.contains("state.sourceCategoryName"));
         assertTrue(script.contains("state.positionInList"));
         assertTrue(script.contains("state.listSize"));
         assertTrue(script.contains("sendControl(\"set_rating\", 0)"));
@@ -94,6 +101,10 @@ public final class WebUiAssetsTest {
         assertFalse(script.contains("sessionStorage"));
         assertFalse(script.contains("setInterval("));
         assertTrue(script.contains("artworkKey = null"));
+        assertTrue(script.contains("Connection lost. Reconnecting"));
+        assertTrue(script.contains("Invalid credential."));
+        assertTrue(script.contains("The command was not sent"));
+        assertFalse(containsCyrillic(script));
     }
 
     @Test
@@ -118,5 +129,13 @@ public final class WebUiAssetsTest {
 
     private static String text(String path) {
         return new String(asset(path).body, StandardCharsets.UTF_8);
+    }
+
+    private static boolean containsCyrillic(String value) {
+        return value.codePoints().anyMatch(codePoint ->
+                (codePoint >= 0x0400 && codePoint <= 0x052f)
+                        || (codePoint >= 0x2de0 && codePoint <= 0x2dff)
+                        || (codePoint >= 0xa640 && codePoint <= 0xa69f)
+        );
     }
 }
