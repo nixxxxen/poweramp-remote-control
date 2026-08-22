@@ -47,5 +47,12 @@ Earlier test APKs used Android debug certificates. These release-signed APKs can
 updates over those builds. Uninstall both old debug apps first, install the two release APKs, and
 pair Server and Phone again. Uninstalling clears each app's local credentials and pairing state.
 
+## Release-candidate validation
+
+The release-signed fresh-install matrix passed without a failure with Server on a Hiby R4
+(Android 12) and Phone Client on a Samsung Galaxy S24 Ultra (Android 16), including QR and manual
+pairing, LAN/Wi-Fi Direct recovery, background operation, playback/seek/rating/volume controls,
+MediaSession/lock-screen/Wear OS controls, and restart reconnect.
+
 Poweramp Remote is independent and is not affiliated with, endorsed by, sponsored by, or supported
 by Poweramp or Max MP.

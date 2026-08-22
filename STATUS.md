@@ -50,9 +50,11 @@ MediaSession, volume, Web UI, and API `v1` contracts remain in place.
   Guava/JSpecify/JetBrains attributions, Kotlin BSD/Boost notices, and development-only dependency
   terms remain covered. `PowerampContract.java` retains its required upstream attribution.
 
-The remaining manual release gates are a tested additional protected keystore copy, passwords in a
-password manager, and the full fresh-install real-device matrix in `RELEASING.md`. Repository
-visibility, tag creation, and GitHub Release creation remain deliberately manual actions.
+The signing-recovery gates are complete: protected keystore copies exist on an external medium and
+a separate access-controlled computer, and the alias plus both passwords are stored separately in
+a password manager. The full fresh-install real-device matrix in `RELEASING.md` also passed as
+recorded below. Repository visibility, tag creation, and GitHub Release creation remain deliberately
+manual actions.
 
 ## Implemented in Server 0.10.1 / Phone Client 0.4.2
 
@@ -314,8 +316,26 @@ visibility, tag creation, and GitHub Release creation remain deliberately manual
   file and the GitHub Release description: Android Gradle Plugin embeds the source commit revision,
   so a checksum cannot be self-consistently stored in the commit that produces the APK.
 
-No real-device pass is claimed by this verification. The exact release APKs above must complete the
-mandatory 16-step fresh-install matrix in `RELEASING.md` before a GitHub Release is created.
+### Release-candidate device validation (2026-08-22)
+
+The exact release candidates built from commit `c7e4ae1` completed the mandatory 16-step
+fresh-install matrix without a failure:
+
+- Server `0.10.1` ran on a Hiby R4 with Android 12; Phone Client `0.4.2` ran on a Samsung Galaxy
+  S24 Ultra with Android 16.
+- Both prior debug apps were uninstalled before the release-signed APKs were installed, confirming
+  the documented fresh-install boundary and required re-pairing.
+- QR pairing and manual Bearer fallback, LAN/NSD and automatic LAN-to-Wi-Fi Direct fallback,
+  background/screen-off operation, metadata/artwork, transport and seek, Like/Dislike/Shuffle,
+  remote volume, MediaSession notification/lock-screen controls, compatible Wear OS controls, and
+  reconnect after application/device restarts all passed.
+- Tested Server APK SHA-256:
+  `b4baeddc80846a7edf1642af0059d2c99ddb7c256d0cdfa14a89697f1364f5f8`.
+- Tested Phone APK SHA-256:
+  `06960c0d813fb6f656f7e6d2208d27082ee5b99e767dc8e99991d5e6e10a8641`.
+
+These tested APKs remain the release artifacts; this validation record is documentation-only and
+does not trigger another APK build.
 
 ### Development baseline (2026-08-21)
 
@@ -362,11 +382,10 @@ restoring the old keystore and rebuilding. Source-level legacy IDs/preferences m
 preserved, but it can only be exercised across APKs signed by the same available key. This does not
 replace a separately managed release signing key.
 
-## Real-device checks required
+## Extended real-device coverage
 
-No hardware pass is claimed by JVM, lint, manifest, dependency, or APK verification; `adb` found no
-attached device in this workspace. Before release, use the target player and representative Android
-phones/Wear devices to confirm:
+The mandatory first-public-release matrix passed on the devices recorded above. Future compatibility
+and hardening work should additionally exercise more vendors, Android versions, and adverse states:
 
 - From a cold Phone launch and again immediately after **Pair new player**, scan and pair on shared
   LAN; confirm the Server process remains alive through secret exchange and API/WebSocket startup.
@@ -417,6 +436,6 @@ phones/Wear devices to confirm:
 
 ## Next scope
 
-Complete the Server `0.10.1` / Phone `0.4.2` retained regression hardware matrix above. Then
-continue multi-player foundation, pairing/transport security, Library, Queue, and Lyrics only as
-separately scoped work in [`ROADMAP.md`](ROADMAP.md).
+Continue broader vendor and edge-case coverage for Server `0.10.1` / Phone `0.4.2`. Then continue
+multi-player foundation, pairing/transport security, Library, Queue, and Lyrics only as separately
+scoped work in [`ROADMAP.md`](ROADMAP.md).

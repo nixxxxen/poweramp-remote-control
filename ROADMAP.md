@@ -57,9 +57,10 @@ Implemented:
   MediaSession/Wear controls, and embedded Web UI remain compatible. The additive
   `POST /api/v1/pair` route is used only for the one-time credential exchange.
 
-Remaining release validation is the real-device/OEM matrix in `STATUS.md`, especially scanner
-camera flow, QR expiry/reuse, LAN and pre-association P2P initial pairing, Activity recreation, and
-short-screen/accessibility behavior.
+The mandatory first-public-release fresh-install matrix passed on the Android 12 Server and Android
+16 Phone devices recorded in `STATUS.md`. Further post-release/OEM validation should continue to
+cover scanner camera variants, QR expiry/reuse, LAN and pre-association P2P initial pairing,
+Activity recreation, short-screen/accessibility behavior, and adverse permission/network states.
 
 ## 0.9.0 Server / 0.3.0 Phone — Remote system integration
 
