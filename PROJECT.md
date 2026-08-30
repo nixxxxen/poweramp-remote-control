@@ -68,6 +68,14 @@ runtime. No Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
 
+The main player also owns a presentation-only dynamic artwork theme. It samples the already decoded
+current artwork on a dedicated executor, deterministically selects two or three distinct color
+families, and normalizes them into a bounded dark-interface range. A process-local 12-entry LRU is
+keyed by the stable paired Server identity plus `RemoteState.artworkKey()`; revisions, transient LAN/
+P2P endpoints, Activity rebind, and playback-position updates therefore do not repeat analysis.
+Concurrent requests for one key are coalesced, the cache stores only compact color values, and
+generation checks prevent late results from an older track from changing the current screen.
+
 The Phone does not play or decode audio and never changes its own volume. The custom player forwards
 play, pause, previous, next, and seek to API v1, while metadata, artwork, playback state, duration,
 and position come from the existing WebSocket snapshots. There is no fake ExoPlayer, audio-focus
@@ -328,6 +336,16 @@ rounded image is always square and `centerCrop` never stretches it. The QR scann
 non-exported capture Activity: portrait is the default, while a caller already configured in
 landscape requests scanner-only landscape. The platform `SeekBar` continues to own touch/accuracy
 semantics while its playback track is rendered at `8dp` with a compact `14dp` thumb.
+
+Behind only this main player content, a custom hardware-accelerated View draws a dark base, a
+palette gradient, and three oversized radial-gradient color fields. Their centers move slowly by
+canvas transforms; no artwork blur, per-frame bitmap allocation, shader construction, or additional
+artwork request is used. Palette changes cross-fade as one visual state. Rapid retargeting starts
+from the currently displayed interpolation, while Activity state preserves that visual point over
+configuration changes. The motion animator runs only while `MainActivity` is visible. When Android
+animations are disabled, both palette transition and perpetual motion are skipped and the final
+dark palette is rendered immediately. A constant dark contrast gradient remains above all dynamic
+color so existing text, chips, icons, seek, and volume styling stays unchanged.
 
 ## Security model
 

@@ -90,6 +90,21 @@ public final class RemoteStateParserTest {
         assertNull(state.volumeControlAvailable);
     }
 
+    @Test
+    public void artworkKeyIgnoresRevisionAndPlaybackPositionChanges() {
+        RemoteState first = RemoteStateParser.parse(COMPLETE_STATE);
+        RemoteState laterSnapshot = RemoteStateParser.parse(COMPLETE_STATE
+                .replace("\"revision\":42", "\"revision\":43")
+                .replace("\"positionSeconds\":37", "\"positionSeconds\":91"));
+        RemoteState nextTrack = RemoteStateParser.parse(COMPLETE_STATE.replace(
+                "\"title\":\"Track\"",
+                "\"title\":\"Next track\""
+        ));
+
+        assertEquals(first.artworkKey(), laterSnapshot.artworkKey());
+        assertFalse(first.artworkKey().equals(nextTrack.artworkKey()));
+    }
+
     private static void assertInvalid(String json) {
         try {
             RemoteStateParser.parse(json);

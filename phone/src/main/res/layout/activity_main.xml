@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/player_root"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:gravity="center_horizontal"
-    android:orientation="vertical"
-    android:paddingLeft="@dimen/screen_padding"
-    android:paddingTop="4dp"
-    android:paddingRight="@dimen/screen_padding"
-    android:paddingBottom="4dp">
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <dev.powerampremote.phone.ArtworkThemeBackgroundView
+        android:id="@+id/artwork_theme_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:id="@+id/player_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingLeft="@dimen/screen_padding"
+        android:paddingTop="4dp"
+        android:paddingRight="@dimen/screen_padding"
+        android:paddingBottom="4dp">
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -371,4 +378,5 @@
         android:textColor="@color/error"
         android:textSize="11sp"
         android:visibility="gone" />
-</LinearLayout>
+    </LinearLayout>
+</merge>

@@ -1,7 +1,7 @@
 # Poweramp Remote Roadmap
 
-Current release-validated versions are Server `0.10.2` and Phone Client `0.5.0`; API remains
-backward-compatible `v1`. Publication remains a separate maintainer action.
+Current public, release-validated versions are Server `0.10.2` and Phone Client `0.5.0`; API remains
+backward-compatible `v1`. Post-release presentation work below intentionally keeps those versions.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
 
@@ -27,6 +27,28 @@ Implemented without a new service, connection runtime, transport, or API version
 
 The signed release pipeline and complete in-place real-device matrix passed with the exact final
 APKs; results are tracked in `STATUS.md` and `RELEASING.md`.
+
+## Post-0.5.0 Phone UI improvement — dynamic artwork theme
+
+Implemented locally without changing Server `0.10.2`, Phone `0.5.0`, version codes, or API `v1`:
+
+- the existing View-based main player derives one deterministic two/three-color dark palette from
+  its already loaded artwork, with normalization and a calm fallback for absent, failed, neutral,
+  or insufficiently diverse images;
+- analysis runs off the main thread and is coalesced through a 12-entry color-only LRU keyed by
+  paired Server identity plus the existing stable artwork key; Activity rebind, revision updates,
+  reconnect, and transient endpoint changes do not repeat it;
+- only the main player receives a dark palette gradient and three large soft radial-gradient fields;
+  their slow lifecycle-bound movement uses canvas transforms and prebuilt shaders, not bitmap blur;
+- palette transitions reject stale generations and retarget from the current visual interpolation,
+  including rapid track changes and configuration restoration; disabled system animations render
+  the final palette immediately and do not start perpetual movement;
+- existing player controls, chip/icon colors, non-scrolling geometry, safe insets, square artwork,
+  visible volume, service-owned playback state, MediaSession, transport, Server, and Web UI remain
+  unchanged.
+
+Swipe artwork navigation, artwork Previous/Next motion, control morphs/pulses, seek animation, a new
+connection indicator, and artwork-dependent control/chip colors remain separate future UI work.
 
 ## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
 

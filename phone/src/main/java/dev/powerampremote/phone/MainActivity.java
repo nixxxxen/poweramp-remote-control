@@ -23,14 +23,26 @@ import android.widget.PopupMenu;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import java.lang.ref.WeakReference;
+import java.util.Objects;
+
 /** Compact playback-only phone surface backed by the existing foreground connection service. */
 public final class MainActivity extends LocaleAwareActivity
         implements PhoneConnectionService.Listener {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 701;
     private static final String STATE_OPENED_DEVICES = "opened_devices";
+    private static final String STATE_THEME_CURRENT = "theme_current";
+    private static final String STATE_THEME_TARGET = "theme_target";
+    private static final String STATE_THEME_MOTION = "theme_motion";
+    private static final long ARTWORK_FALLBACK_DELAY_MILLISECONDS = 1_500L;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final ArtworkThemeRequestGate artworkThemeRequestGate =
+            new ArtworkThemeRequestGate();
+    private final ArtworkPaletteRepository artworkPaletteRepository =
+            ArtworkPaletteRepository.get();
 
+    private ArtworkThemeBackgroundView artworkThemeBackground;
     private ImageView albumArt;
     private TextView trackTitle;
     private TextView trackArtist;
@@ -74,6 +86,12 @@ public final class MainActivity extends LocaleAwareActivity
     private long pendingSeekExpiresRealtimeMilliseconds;
     private Integer pendingVolume;
     private long pendingVolumeExpiresRealtimeMilliseconds;
+    private String artworkThemeIdentity;
+    private String artworkServerIdentity;
+    private boolean artworkServerIdentityInitialized;
+    private String artworkPaletteKey;
+    private ArtworkThemeRequestGate.Request artworkThemeRequest;
+    private Runnable pendingArtworkFallback;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -83,6 +101,7 @@ public final class MainActivity extends LocaleAwareActivity
                 return;
             }
             controller = (PhoneConnectionService.LocalBinder) service;
+            updateArtworkServerIdentity(controller.playerDeviceSnapshot().serverId);
             controller.addListener(MainActivity.this);
             if (!controller.hasPairing() && !openedDevicesForMissingPairing) {
                 openedDevicesForMissingPairing = true;
@@ -120,9 +139,10 @@ public final class MainActivity extends LocaleAwareActivity
         openedDevicesForMissingPairing = savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_OPENED_DEVICES, false);
         setContentView(R.layout.activity_main);
-        SafeDrawingInsets.apply(findViewById(R.id.player_root));
+        SafeDrawingInsets.apply(findViewById(R.id.player_content));
         metadataFormatter = RemoteMetadataFormatter.from(this);
         bindViews();
+        restoreArtworkTheme(savedInstanceState);
         configureControls();
         try {
             PhoneConnectionService.start(this);
@@ -139,6 +159,7 @@ public final class MainActivity extends LocaleAwareActivity
     protected void onStart() {
         super.onStart();
         activityStarted = true;
+        artworkThemeBackground.onHostStart();
         bindingRequested = bindService(
                 PhoneConnectionService.bindingIntent(this),
                 serviceConnection,
@@ -152,6 +173,8 @@ public final class MainActivity extends LocaleAwareActivity
     protected void onStop() {
         activityStarted = false;
         uiHandler.removeCallbacks(progressTicker);
+        cancelPendingArtworkFallback();
+        artworkThemeBackground.onHostStop();
         if (controller != null) {
             controller.removeListener(this);
             controller = null;
@@ -165,6 +188,7 @@ public final class MainActivity extends LocaleAwareActivity
 
     @Override
     protected void onDestroy() {
+        artworkThemeRequestGate.invalidate();
         uiHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
@@ -172,10 +196,20 @@ public final class MainActivity extends LocaleAwareActivity
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         outState.putBoolean(STATE_OPENED_DEVICES, openedDevicesForMissingPairing);
+        outState.putIntArray(
+                STATE_THEME_CURRENT,
+                artworkThemeBackground.currentPaletteSnapshot().toStoredColors()
+        );
+        outState.putIntArray(
+                STATE_THEME_TARGET,
+                artworkThemeBackground.targetPaletteSnapshot().toStoredColors()
+        );
+        outState.putFloat(STATE_THEME_MOTION, artworkThemeBackground.motionPhaseSnapshot());
         super.onSaveInstanceState(outState);
     }
 
     private void bindViews() {
+        artworkThemeBackground = findViewById(R.id.artwork_theme_background);
         findViewById(R.id.album_art_container).setClipToOutline(true);
         albumArt = findViewById(R.id.album_art);
         trackTitle = findViewById(R.id.track_title);
@@ -346,6 +380,7 @@ public final class MainActivity extends LocaleAwareActivity
         boolean trackChanged = trackIdentity != null && !trackIdentity.equals(nextTrackIdentity);
         trackIdentity = nextTrackIdentity;
         state = newState;
+        if (isConnectedStatus(status)) updateArtworkThemeRequest(newState);
         durationSeconds = newState.durationSeconds == null ? 0 : newState.durationSeconds;
         if (trackChanged) {
             pendingSeekSeconds = null;
@@ -386,10 +421,147 @@ public final class MainActivity extends LocaleAwareActivity
             int padding = getResources().getDimensionPixelSize(R.dimen.album_placeholder_padding);
             albumArt.setPadding(padding, padding, padding, padding);
             albumArt.setImageResource(R.drawable.ic_album_placeholder);
+            handleMissingArtworkPalette();
         } else {
             albumArt.setPadding(0, 0, 0, 0);
             albumArt.setImageBitmap(artwork);
+            requestArtworkPalette(artwork);
         }
+    }
+
+    private void updateArtworkThemeRequest(RemoteState remoteState) {
+        String stateArtworkKey = remoteState == null ? null : remoteState.artworkKey();
+        String nextPaletteKey = ArtworkPaletteCacheKey.create(
+                artworkServerIdentity,
+                stateArtworkKey
+        );
+        String trackKey = remoteState == null || !remoteState.hasTrack
+                ? "no-track" : remoteState.trackIdentity();
+        String nextIdentity = nextPaletteKey == null
+                ? "fallback\u0000" + String.valueOf(artworkServerIdentity) + '\u0000' + trackKey
+                : "artwork\u0000" + nextPaletteKey;
+        if (Objects.equals(artworkThemeIdentity, nextIdentity)) return;
+
+        cancelPendingArtworkFallback();
+        artworkThemeIdentity = nextIdentity;
+        artworkPaletteKey = nextPaletteKey;
+        artworkThemeRequest = artworkThemeRequestGate.begin(nextIdentity);
+        if (nextPaletteKey == null) {
+            artworkThemeBackground.setPalette(ArtworkPalette.FALLBACK);
+            return;
+        }
+        ArtworkPalette cached = artworkPaletteRepository.getCached(nextPaletteKey);
+        if (cached != null && artworkThemeRequestGate.accepts(artworkThemeRequest)) {
+            artworkThemeBackground.setPalette(cached);
+        }
+        // If this key is not cached, retain the old visual palette until artwork arrives.
+    }
+
+    private void updateArtworkServerIdentity(String nextServerIdentity) {
+        boolean changed = artworkServerIdentityInitialized
+                && !Objects.equals(artworkServerIdentity, nextServerIdentity);
+        artworkServerIdentity = nextServerIdentity;
+        artworkServerIdentityInitialized = true;
+        if (changed) updateArtworkThemeRequest(null);
+    }
+
+    private void handleMissingArtworkPalette() {
+        cancelPendingArtworkFallback();
+        ArtworkThemeRequestGate.Request request = artworkThemeRequest;
+        String paletteKey = artworkPaletteKey;
+        if (paletteKey == null) {
+            if (artworkThemeRequestGate.accepts(request)) {
+                artworkThemeBackground.setPalette(ArtworkPalette.FALLBACK);
+            }
+            return;
+        }
+        ArtworkPalette cached = artworkPaletteRepository.getCached(paletteKey);
+        if (cached != null) {
+            if (artworkThemeRequestGate.accepts(request)) {
+                artworkThemeBackground.setPalette(cached);
+            }
+            scheduleArtworkFallback(request, paletteKey);
+            return;
+        }
+        scheduleArtworkFallback(request, paletteKey);
+    }
+
+    private void scheduleArtworkFallback(
+            ArtworkThemeRequestGate.Request request,
+            String paletteKey
+    ) {
+        cancelPendingArtworkFallback();
+        pendingArtworkFallback = () -> {
+            pendingArtworkFallback = null;
+            if (artworkThemeRequestGate.accepts(request)
+                    && Objects.equals(paletteKey, artworkPaletteKey)) {
+                artworkThemeBackground.setPalette(ArtworkPalette.FALLBACK);
+            }
+        };
+        uiHandler.postDelayed(
+                pendingArtworkFallback,
+                ARTWORK_FALLBACK_DELAY_MILLISECONDS
+        );
+    }
+
+    private void requestArtworkPalette(Bitmap artwork) {
+        cancelPendingArtworkFallback();
+        String paletteKey = artworkPaletteKey;
+        ArtworkThemeRequestGate.Request request = artworkThemeRequest;
+        if (paletteKey == null || !artworkThemeRequestGate.accepts(request)) return;
+
+        ArtworkPalette cached = artworkPaletteRepository.getCached(paletteKey);
+        if (cached != null) {
+            artworkThemeBackground.setPalette(cached);
+            return;
+        }
+        WeakReference<MainActivity> owner = new WeakReference<>(this);
+        boolean accepted = artworkPaletteRepository.request(
+                paletteKey,
+                artwork,
+                (completedKey, palette) -> {
+                    MainActivity activity = owner.get();
+                    if (activity != null) {
+                        activity.applyArtworkPalette(request, completedKey, palette);
+                    }
+                }
+        );
+        if (!accepted) scheduleArtworkFallback(request, paletteKey);
+    }
+
+    private void applyArtworkPalette(
+            ArtworkThemeRequestGate.Request request,
+            String completedKey,
+            ArtworkPalette palette
+    ) {
+        if (!artworkThemeRequestGate.accepts(request)
+                || !Objects.equals(completedKey, artworkPaletteKey)) {
+            return;
+        }
+        cancelPendingArtworkFallback();
+        artworkThemeBackground.setPalette(palette);
+    }
+
+    private void cancelPendingArtworkFallback() {
+        Runnable pending = pendingArtworkFallback;
+        pendingArtworkFallback = null;
+        if (pending != null) uiHandler.removeCallbacks(pending);
+    }
+
+    private void restoreArtworkTheme(Bundle savedInstanceState) {
+        if (savedInstanceState == null) return;
+        ArtworkPalette current = ArtworkPalette.fromStoredColors(
+                savedInstanceState.getIntArray(STATE_THEME_CURRENT)
+        );
+        ArtworkPalette target = ArtworkPalette.fromStoredColors(
+                savedInstanceState.getIntArray(STATE_THEME_TARGET)
+        );
+        if (current == null) return;
+        artworkThemeBackground.restoreState(
+                current,
+                target,
+                savedInstanceState.getFloat(STATE_THEME_MOTION, 0f)
+        );
     }
 
     @Override

@@ -9,16 +9,56 @@ Current versions:
 ## Stage
 
 The repository builds two native Android applications. Server `0.10.2` and Phone Client `0.5.0`
-form the release-validated second-public-release candidate for complete Phone English/Russian
+form the release-validated second-public-release baseline for complete Phone English/Russian
 localization, a minimal Phone navigation menu, Settings/app-language selection, About, and an
 English-only Server/Web UI. They do not add Library, Queue, Lyrics, a new transport, or full
 multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
 pairing/reconnect path, MediaSession, volume, Web UI, and API `v1` contracts remain in place.
 
-This candidate is locally release-ready. The complete signed release pipeline, APK/certificate
-verification, and exact-APK in-place real-device matrix passed on 2026-08-23. The checked APKs were
-built from commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; repository merge/push, tag creation,
-and GitHub Release publication remain deliberate maintainer actions.
+The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
+real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from
+commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; their public release remains the upgrade baseline
+for the unversioned post-release work below.
+
+Post-release development now contains only the first requested Phone UI refinement: a unified
+dynamic artwork theme on the existing View-based main player. Versions intentionally remain Server
+`0.10.2` / code 13 and Phone `0.5.0` / code 14; API remains `v1`. This working candidate does not
+change Server, Web UI, either service, connection/playback state, transport, or any other planned UI
+package. Automated verification is recorded below; physical-device visual/performance validation
+remains required before treating this post-release change as release-ready.
+
+## Current post-release Phone implementation: dynamic artwork theme
+
+- `RemoteState.artworkKey()` remains the stable artwork identity and is combined in memory with the
+  paired public Server ID. Revision, playback-position, Activity, and transient endpoint changes do
+  not alter the key. A process-local access-ordered LRU holds at most 12 palettes and never retains a
+  full-size bitmap; concurrent requests for one key share one analysis. The single analysis worker
+  also has a bounded three-item pending queue.
+- The already decoded artwork is sampled on that worker at no more than 40 × 40 points. Transparent,
+  near-black, near-white, and low-chroma pixels are rejected; remaining colors are grouped
+  deterministically by hue/saturation/lightness, ranked by prevalence and usable chroma, checked for
+  perceptual separation, and normalized to moderate saturation and dark-interface lightness. Fewer
+  than two useful colors, absent artwork, decode failure, or an unusable image selects the calm
+  built-in blue/violet/green fallback.
+- A dedicated `ArtworkThemeBackgroundView` exists only behind `MainActivity` content. It draws a
+  fixed dark base, artwork gradient, three oversized soft radial-gradient fields, and a permanent
+  contrast scrim. Shaders are rebuilt only for size/palette changes; each motion frame changes only
+  canvas positions and alpha, with no bitmap blur, bitmap allocation, network request, or shader/
+  Drawable construction in `onDraw()`.
+- Main presentation state owns a separate request generation. A result applies only when both its
+  generation and Server/artwork cache key are still current. Metadata may arrive first without
+  resetting the background; a missing/decode-failed image resolves smoothly to fallback after a
+  short grace period. A later valid palette then replaces it normally.
+- A track change cross-fades the full old gradient/forms into the new set. If another change arrives
+  mid-transition, the next transition begins from the current interpolated visual state, cancels the
+  old animator, and never builds overlapping animator chains. Activity saved state retains current/
+  target palettes and motion phase across configuration recreation; process cache covers ordinary
+  stop/start and rebind without repeat analysis.
+- Palette and motion animators are bound to `MainActivity` visibility. Motion stops at `onStop()` and
+  resumes from its retained phase. Android's disabled animator scale immediately selects the final
+  palette and starts no continuous movement. Existing controls, haptics, descriptions, selected
+  states, chip/icon colors, player geometry, safe insets, square artwork, and always-visible volume
+  remain unchanged.
 
 ## Implemented in Server 0.10.2 / Phone Client 0.5.0
 
@@ -358,6 +398,67 @@ manual actions.
 
 ## Verification
 
+### Post-release dynamic-artwork-theme automation (2026-08-30)
+
+- One clean no-build-cache debug pipeline completed through pinned Gradle Wrapper `8.14.3` with
+  Temurin JDK 21, Java 17 source/target, Android compile/target 36, and Build Tools 35.0.0:
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug`. All `100/100` actionable tasks executed from clean
+  outputs.
+- Server passed its unchanged `78/78` JVM tests; Phone passed `70/70` tests, with zero failures,
+  errors, or skips. New pure tests cover deterministic palette selection, absent/monochrome
+  fallback, bright-color normalization, Server-aware stable cache keys, bounded LRU eviction,
+  same-key in-flight coalescing/cache reuse, rejected-queue cleanup, current-generation acceptance,
+  rejection of two late rapid-track results, exact interpolation endpoints, mid-transition
+  retargeting, and immediate final state when animations are disabled. Existing pairing, network,
+  API, playback, formatting,
+  localization, MediaSession, and Server suites remain present and passing.
+- Phone lint reports `No issues found` (zero errors and zero warnings). Server lint has zero errors
+  and only its two existing dependency-update notices for pinned Gradle `8.14.3` and the
+  JVM-test-only `org.json` artifact; no lint rule was disabled or weakened.
+- Actual debug APK badging confirms unchanged Server package `dev.r4remote.poweramp`, code 13/name
+  0.10.2, and Phone package `dev.r4remote.poweramp.phone`, code 14/name 0.5.0. Both retain min API 26
+  and target/compile API 36.
+- The merged manifests still contain exactly one non-exported Server
+  `RemotePlaybackService(connectedDevice)` and one exported Media3 Phone
+  `PhoneConnectionService(connectedDevice|mediaPlayback)`, both with `stopWithTask=false`. Phone
+  retains its locale config and the same Main, Player devices, Settings, About, and scanner
+  Activities; no service, permission, provider, receiver, or application ID was added by the theme.
+- Both debug APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification with one
+  Android debug signer. This task deliberately did not build or publish release artifacts.
+- `git diff --check` passes. Server source, Web UI, API, Gradle dependency declarations, versions,
+  signing configuration, and release history are unchanged.
+
+### Dynamic artwork theme real-device checks still required
+
+Do not mark this unversioned post-release change release-ready until the following matrix passes on
+physical Phone devices, preferably including API 26–32 and Android 13+:
+
+- Play tracks with colorful, very bright, dark, low-saturation, nearly monochrome, missing, and
+  malformed/unavailable artwork. Confirm palettes remain characteristic but dark, fallback is calm,
+  and title/artist/album, chips, icons, seek, volume, and error text retain clear contrast.
+- Confirm metadata-first artwork loading keeps the previous visual palette without a black flash,
+  then transitions once; confirm unavailable artwork settles into fallback after the grace period.
+- Press Next/Previous rapidly across several tracks and exercise natural automatic changes. No late
+  palette may recolor the current track, no transition may jump backward, and animator chains must
+  not accumulate.
+- Background/reopen Main, open and return from Player devices/Settings/About, rotate/recreate, and
+  reconnect over LAN and Wi-Fi Direct. Same artwork should not re-analyze or flash. Then restart the
+  Phone process: one fresh process-local analysis may occur, but startup must remain calm and the
+  connection, pairing, playback anchor, and MediaSession must remain intact.
+- Check compact portrait, short-height, landscape, cutout, gesture-navigation, and three-button
+  navigation layouts. The player must remain non-scrolling, artwork square, volume visible, touch
+  targets/haptics/selected states unchanged, and the dynamic layer absent from every non-Main screen.
+- Set the system animator duration scale to off before launch and while Main is visible. The final
+  palette must apply immediately with no palette tween or perpetual form motion; restoring animator
+  scale and restarting visibility should restore the slow motion without a flash.
+- Profile ordinary playback, single and rapid track changes, return-to-Activity, and landscape for
+  frame pacing, CPU, and memory. Confirm no noticeable frame drops, sustained background work while
+  Main is hidden, growing bitmap retention, or additional artwork/network requests.
+- Repeat core playback regression: artwork, metadata, seek/elapsed time, volume, Previous,
+  Play/Pause, Next, rating, Like/Dislike, Shuffle, notification/lock-screen/Wear controls, screen-off,
+  and reconnect over LAN plus Wi-Fi Direct fallback.
+
 ### Second-public-release RC automation (2026-08-22)
 
 - A clean no-build-cache debug pipeline completed successfully through the pinned Gradle Wrapper:
@@ -586,8 +687,7 @@ and hardening work should additionally exercise more vendors, Android versions, 
 
 ## Next scope
 
-Merge the validated source branch, tag exact APK-source commit
-`675d1affd8776bb6b05dfa1795df51a18de08fcc`, and publish the already checked release bundle only
-through explicit maintainer actions. After release, continue broader vendor coverage,
-multi-player foundation, pairing/transport security, Library, Queue, and Lyrics as separately
-scoped work in [`ROADMAP.md`](ROADMAP.md).
+Complete the physical-device matrix above for the dynamic artwork theme. Keep Server `0.10.2`, Phone
+`0.5.0`, and API `v1` unchanged until a later release task explicitly assigns versions. Do not begin
+the other deferred UI animation packages, multi-player foundation, pairing/transport security,
+Library, Queue, or Lyrics without separate scope; their ordering remains in [`ROADMAP.md`](ROADMAP.md).
