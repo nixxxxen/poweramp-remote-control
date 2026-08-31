@@ -47,8 +47,47 @@ Implemented locally without changing Server `0.10.2`, Phone `0.5.0`, version cod
   visible volume, service-owned playback state, MediaSession, transport, Server, and Web UI remain
   unchanged.
 
-Swipe artwork navigation, artwork Previous/Next motion, control morphs/pulses, seek animation, a new
-connection indicator, and artwork-dependent control/chip colors remain separate future UI work.
+Control morphs/pulses, seek animation, a new connection indicator, and artwork-dependent control/
+chip colors remain separate future UI work.
+
+## Post-0.5.0 Phone UI improvement — artwork swipe and unified track transition
+
+Implemented locally as the second stage of the future Phone `0.6.0` UI series, while the declared
+versions remain Server `0.10.2` / Phone `0.5.0` and API `v1`:
+
+- horizontal gestures are recognized only inside the existing square artwork container; left maps
+  to Next and right to Previous after a centralized touch-slop, direction-dominance, and commit
+  threshold policy, with one threshold haptic and one command at most per gesture;
+- swipe and the existing Previous/Next buttons enter one navigation coordinator and the same
+  two-layer artwork transition: Next exits left/enters right, Previous exits right/enters left, and
+  external confirmed track changes use a neutral cross-fade without guessing direction;
+- remote snapshots remain authoritative. User input starts only presentation motion and sends the
+  unchanged command; metadata, track identity, and incoming artwork change only after existing
+  service/WebSocket confirmation;
+- the expected intermediate artwork `null` keeps the outgoing cover. Current track/artwork
+  generations reject late results, and a bounded grace period changes to the regular placeholder
+  only for genuinely missing, failed, or undecodable current artwork;
+- a Server-scoped process LRU retains at most three already displayed service-owned bitmaps and
+  learns directional neighbors only from an unambiguous local Previous/Next followed by the exact
+  confirmed remote content identity; no queue/list-position inference or artwork prefetch exists;
+- an exact cached neighbor is visible beside the current cover during the swipe and both layers move
+  as one carousel. With no exact neighbor, the current cover uses a bounded rubber-band/pending
+  offset over the dark dynamic background instead of exposing an empty gray card;
+- after a matching snapshot, cached artwork enters the existing transition immediately; the later
+  identical service bitmap only updates that layer. A mismatched preview, neutral/external change,
+  rapid ambiguous input, shuffle change, reconnect, no-track, failure, timeout, or Server change
+  removes unreliable adjacency;
+- rapid inputs each send one command but collapse to one latest visual intent and one active
+  animator. Retargeting promotes the latest confirmed layer from its current position, while
+  a generation-bound confirmation timeout, command error, disconnect, Activity stop/rebind, and
+  recreation settle safely on confirmed state without polling or cancelling remote commands;
+- the service replay and bounded presentation store prevent false placeholder/track transitions on
+  Activity rebind. The live artwork surface still holds only outgoing and incoming layers, does no
+  bitmap processing per frame, and leaves palette analysis in the existing cache/generation path;
+- disabled system animations preserve commands and immediately apply the final confirmed artwork.
+  Square geometry, crop/rounding, safe insets, the non-scrolling compact layout, visible volume,
+  all controls/accessibility state, both services, MediaSession/Wear, transports, Server/Web UI,
+  and API `v1` are unchanged.
 
 ## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
 

@@ -44,22 +44,33 @@
             android:src="@drawable/ic_devices" />
     </FrameLayout>
 
-    <dev.powerampremote.phone.SquareArtworkFrameLayout
+    <dev.powerampremote.phone.ArtworkTransitionFrameLayout
         android:id="@+id/album_art_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:background="@drawable/album_art_background">
+        android:background="@drawable/album_art_background"
+        android:contentDescription="@string/album_art_description">
 
         <ImageView
             android:id="@+id/album_art"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="@string/album_art_description"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
             android:padding="@dimen/album_placeholder_padding"
             android:scaleType="centerCrop"
             android:src="@drawable/ic_album_placeholder" />
-    </dev.powerampremote.phone.SquareArtworkFrameLayout>
+
+        <ImageView
+            android:id="@+id/album_art_incoming"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            android:visibility="invisible" />
+    </dev.powerampremote.phone.ArtworkTransitionFrameLayout>
 
     <TextView
         android:id="@+id/track_title"

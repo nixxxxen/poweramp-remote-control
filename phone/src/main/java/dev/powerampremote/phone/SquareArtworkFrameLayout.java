@@ -6,7 +6,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 
 /** Flexible artwork container whose measured width and height are always identical. */
-public final class SquareArtworkFrameLayout extends FrameLayout {
+public class SquareArtworkFrameLayout extends FrameLayout {
     public SquareArtworkFrameLayout(Context context) {
         super(context);
     }

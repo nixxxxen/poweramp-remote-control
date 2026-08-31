@@ -18,7 +18,6 @@ import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
-import android.widget.ImageView;
 import android.widget.PopupMenu;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -35,15 +34,18 @@ public final class MainActivity extends LocaleAwareActivity
     private static final String STATE_THEME_TARGET = "theme_target";
     private static final String STATE_THEME_MOTION = "theme_motion";
     private static final long ARTWORK_FALLBACK_DELAY_MILLISECONDS = 1_500L;
+    private static final long NAVIGATION_CONFIRMATION_TIMEOUT_MILLISECONDS = 2_200L;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final ArtworkThemeRequestGate artworkThemeRequestGate =
             new ArtworkThemeRequestGate();
     private final ArtworkPaletteRepository artworkPaletteRepository =
             ArtworkPaletteRepository.get();
+    private final ArtworkNavigationCoordinator artworkNavigationCoordinator =
+            new ArtworkNavigationCoordinator();
 
     private ArtworkThemeBackgroundView artworkThemeBackground;
-    private ImageView albumArt;
+    private ArtworkTransitionFrameLayout artworkTransition;
     private TextView trackTitle;
     private TextView trackArtist;
     private TextView trackAlbum;
@@ -92,6 +94,11 @@ public final class MainActivity extends LocaleAwareActivity
     private String artworkPaletteKey;
     private ArtworkThemeRequestGate.Request artworkThemeRequest;
     private Runnable pendingArtworkFallback;
+    private ArtworkNavigationCoordinator.ArtworkRequest artworkDisplayRequest;
+    private Runnable pendingArtworkDisplayFallback;
+    private Runnable pendingNavigationRecovery;
+    private boolean replayingServiceState;
+    private boolean artworkPresentationInitialized;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -101,8 +108,15 @@ public final class MainActivity extends LocaleAwareActivity
                 return;
             }
             controller = (PhoneConnectionService.LocalBinder) service;
-            updateArtworkServerIdentity(controller.playerDeviceSnapshot().serverId);
-            controller.addListener(MainActivity.this);
+            String serverIdentity = controller.playerDeviceSnapshot().serverId;
+            updateArtworkServerIdentity(serverIdentity);
+            initializeArtworkPresentation(serverIdentity);
+            replayingServiceState = true;
+            try {
+                controller.addListener(MainActivity.this);
+            } finally {
+                replayingServiceState = false;
+            }
             if (!controller.hasPairing() && !openedDevicesForMissingPairing) {
                 openedDevicesForMissingPairing = true;
                 uiHandler.post(MainActivity.this::openPlayerDevices);
@@ -112,6 +126,8 @@ public final class MainActivity extends LocaleAwareActivity
         @Override
         public void onServiceDisconnected(ComponentName name) {
             freezeProgress();
+            cancelPendingArtworkDisplayFallback();
+            abortArtworkNavigation();
             controller = null;
             status = RemoteClientController.Status.ERROR;
             renderControls();
@@ -174,6 +190,10 @@ public final class MainActivity extends LocaleAwareActivity
         activityStarted = false;
         uiHandler.removeCallbacks(progressTicker);
         cancelPendingArtworkFallback();
+        cancelPendingArtworkDisplayFallback();
+        cancelPendingNavigationRecovery();
+        artworkNavigationCoordinator.abortNavigation();
+        artworkTransition.onHostStop();
         artworkThemeBackground.onHostStop();
         if (controller != null) {
             controller.removeListener(this);
@@ -189,6 +209,7 @@ public final class MainActivity extends LocaleAwareActivity
     @Override
     protected void onDestroy() {
         artworkThemeRequestGate.invalidate();
+        artworkNavigationCoordinator.reset();
         uiHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
@@ -210,8 +231,8 @@ public final class MainActivity extends LocaleAwareActivity
 
     private void bindViews() {
         artworkThemeBackground = findViewById(R.id.artwork_theme_background);
-        findViewById(R.id.album_art_container).setClipToOutline(true);
-        albumArt = findViewById(R.id.album_art);
+        artworkTransition = findViewById(R.id.album_art_container);
+        artworkTransition.setClipToOutline(true);
         trackTitle = findViewById(R.id.track_title);
         trackArtist = findViewById(R.id.track_artist);
         trackAlbum = findViewById(R.id.track_album);
@@ -237,6 +258,33 @@ public final class MainActivity extends LocaleAwareActivity
     }
 
     private void configureControls() {
+        artworkTransition.setGestureListener(
+                new ArtworkTransitionFrameLayout.GestureListener() {
+                    @Override
+                    public boolean isNavigationAvailable() {
+                        return isTrackNavigationAvailable();
+                    }
+
+                    @Override
+                    public ArtworkPresentationStore.Entry findCachedNeighbor(
+                            ArtworkNavigationCoordinator.Direction direction
+                    ) {
+                        return findCachedArtworkNeighbor(direction);
+                    }
+
+                    @Override
+                    public boolean onSwipeCommitted(
+                            ArtworkNavigationCoordinator.Direction direction,
+                            String previewContentIdentity
+                    ) {
+                        return requestNavigation(
+                                direction,
+                                ArtworkNavigationCoordinator.Source.SWIPE,
+                                previewContentIdentity
+                        );
+                    }
+                }
+        );
         findViewById(R.id.main_menu_button).setOnClickListener(view -> {
             haptic(view);
             showMainMenu(view);
@@ -247,8 +295,10 @@ public final class MainActivity extends LocaleAwareActivity
         });
         previousButton.setOnClickListener(view -> {
             haptic(view);
-            hideError();
-            if (ensureServiceAvailable()) controller.previous();
+            requestNavigation(
+                    ArtworkNavigationCoordinator.Direction.PREVIOUS,
+                    ArtworkNavigationCoordinator.Source.BUTTON
+            );
         });
         playPauseButton.setOnClickListener(view -> {
             haptic(view);
@@ -259,8 +309,10 @@ public final class MainActivity extends LocaleAwareActivity
         });
         nextButton.setOnClickListener(view -> {
             haptic(view);
-            hideError();
-            if (ensureServiceAvailable()) controller.next();
+            requestNavigation(
+                    ArtworkNavigationCoordinator.Direction.NEXT,
+                    ArtworkNavigationCoordinator.Source.BUTTON
+            );
         });
         dislikeButton.setOnClickListener(view -> {
             haptic(view);
@@ -354,7 +406,12 @@ public final class MainActivity extends LocaleAwareActivity
             RemoteClientController.Status newStatus,
             long retryDelayMilliseconds
     ) {
-        if (isConnectedStatus(status) && !isConnectedStatus(newStatus)) freezeProgress();
+        if (isConnectedStatus(status) && !isConnectedStatus(newStatus)) {
+            freezeProgress();
+            cancelPendingArtworkDisplayFallback();
+            ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
+            abortArtworkNavigation();
+        }
         status = newStatus;
         renderControls();
         restartProgressTicker();
@@ -376,11 +433,34 @@ public final class MainActivity extends LocaleAwareActivity
     @Override
     public void onStateChanged(RemoteState newState, long receivedRealtimeMilliseconds) {
         long now = SystemClock.elapsedRealtime();
+        RemoteState previousState = state;
         String nextTrackIdentity = newState.trackIdentity();
         boolean trackChanged = trackIdentity != null && !trackIdentity.equals(nextTrackIdentity);
+        boolean shuffleChanged = previousState != null
+                && !Objects.equals(previousState.shuffle, newState.shuffle);
         trackIdentity = nextTrackIdentity;
         state = newState;
         if (isConnectedStatus(status)) updateArtworkThemeRequest(newState);
+        ArtworkNavigationCoordinator.StateUpdate artworkUpdate =
+                artworkNavigationCoordinator.confirmState(
+                        artworkTrackIdentity(newState),
+                        artworkDisplayKey(newState),
+                        replayingServiceState,
+                        ArtworkTransitionFrameLayout.animationsEnabled()
+        );
+        artworkDisplayRequest = artworkUpdate.artworkRequest;
+        if (artworkUpdate.changed) {
+            cancelPendingArtworkDisplayFallback();
+            handleConfirmedArtworkUpdate(artworkUpdate);
+            applyCachedConfirmedArtwork(artworkDisplayRequest);
+            if (artworkNavigationCoordinator.needsArtworkFallback(artworkDisplayRequest)) {
+                scheduleArtworkDisplayFallback(artworkDisplayRequest);
+            }
+        }
+        if (shuffleChanged || !newState.hasTrack) {
+            ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
+            if (!newState.hasTrack) artworkTransition.rejectPreview();
+        }
         durationSeconds = newState.durationSeconds == null ? 0 : newState.durationSeconds;
         if (trackChanged) {
             pendingSeekSeconds = null;
@@ -417,16 +497,96 @@ public final class MainActivity extends LocaleAwareActivity
 
     @Override
     public void onArtworkChanged(Bitmap artwork) {
+        ArtworkNavigationCoordinator.ArtworkRequest request = artworkDisplayRequest;
         if (artwork == null) {
-            int padding = getResources().getDimensionPixelSize(R.dimen.album_placeholder_padding);
-            albumArt.setPadding(padding, padding, padding, padding);
-            albumArt.setImageResource(R.drawable.ic_album_placeholder);
-            handleMissingArtworkPalette();
-        } else {
-            albumArt.setPadding(0, 0, 0, 0);
-            albumArt.setImageBitmap(artwork);
-            requestArtworkPalette(artwork);
+            ArtworkNavigationCoordinator.Display display =
+                    artworkNavigationCoordinator.onArtworkCleared(request);
+            boolean needsFallback = display.mode
+                    == ArtworkNavigationCoordinator.DisplayMode.KEEP_CURRENT
+                    && artworkNavigationCoordinator.needsArtworkFallback(request);
+            if (needsFallback) {
+                scheduleArtworkDisplayFallback(request);
+                handleMissingArtworkPalette();
+            }
+            return;
         }
+
+        String deliveredArtworkIdentity = artworkDisplayKey(state);
+        applyConfirmedArtwork(request, artwork, deliveredArtworkIdentity);
+    }
+
+    private void handleConfirmedArtworkUpdate(
+            ArtworkNavigationCoordinator.StateUpdate update
+    ) {
+        ArtworkNavigationCoordinator.ArtworkRequest request = update.artworkRequest;
+        if (request == null) return;
+
+        boolean ambiguousNavigation = request.direction
+                != ArtworkNavigationCoordinator.Direction.NEUTRAL
+                && request.artworkIdentity != null
+                && !request.relationReliable;
+        boolean externalTrackChange = update.trackChanged
+                && request.direction == ArtworkNavigationCoordinator.Direction.NEUTRAL
+                && !replayingServiceState;
+        if (update.previewMismatch || ambiguousNavigation || externalTrackChange) {
+            ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
+        }
+        if (update.previewMismatch) artworkTransition.rejectPreview();
+        if (update.navigationRelationReady) {
+            ArtworkPresentationStore.confirmNavigation(
+                    artworkServerIdentity,
+                    request.originArtworkIdentity,
+                    request.direction,
+                    request.artworkIdentity
+            );
+        }
+    }
+
+    private void applyCachedConfirmedArtwork(
+            ArtworkNavigationCoordinator.ArtworkRequest request
+    ) {
+        if (request == null || request.artworkIdentity == null) return;
+        ArtworkPresentationStore.Entry cached = ArtworkPresentationStore.getArtwork(
+                artworkServerIdentity,
+                request.artworkIdentity
+        );
+        if (cached != null && cached.artwork != null) {
+            applyConfirmedArtwork(request, cached.artwork, cached.contentIdentity);
+        }
+    }
+
+    private void applyConfirmedArtwork(
+            ArtworkNavigationCoordinator.ArtworkRequest request,
+            Bitmap artwork,
+            String deliveredArtworkIdentity
+    ) {
+        ArtworkNavigationCoordinator.Display display =
+                artworkNavigationCoordinator.onArtworkReady(
+                        request,
+                        deliveredArtworkIdentity,
+                        ArtworkTransitionFrameLayout.animationsEnabled()
+                );
+        if (display.mode == ArtworkNavigationCoordinator.DisplayMode.IGNORE) return;
+        cancelPendingArtworkDisplayFallback();
+        if (!artworkNavigationCoordinator.hasPendingNavigation()) {
+            cancelPendingNavigationRecovery();
+        }
+        if (display.mode == ArtworkNavigationCoordinator.DisplayMode.UPDATE) {
+            artworkTransition.updateContent(artwork, deliveredArtworkIdentity);
+        } else {
+            artworkTransition.showContent(
+                    artwork,
+                    deliveredArtworkIdentity,
+                    display.direction,
+                    display.mode == ArtworkNavigationCoordinator.DisplayMode.TRANSITION
+            );
+        }
+        ArtworkPresentationStore.put(
+                artworkServerIdentity,
+                deliveredArtworkIdentity,
+                artwork
+        );
+        requestArtworkPalette(artwork);
     }
 
     private void updateArtworkThemeRequest(RemoteState remoteState) {
@@ -447,7 +607,7 @@ public final class MainActivity extends LocaleAwareActivity
         artworkPaletteKey = nextPaletteKey;
         artworkThemeRequest = artworkThemeRequestGate.begin(nextIdentity);
         if (nextPaletteKey == null) {
-            artworkThemeBackground.setPalette(ArtworkPalette.FALLBACK);
+            scheduleArtworkFallback(artworkThemeRequest, null);
             return;
         }
         ArtworkPalette cached = artworkPaletteRepository.getCached(nextPaletteKey);
@@ -462,7 +622,31 @@ public final class MainActivity extends LocaleAwareActivity
                 && !Objects.equals(artworkServerIdentity, nextServerIdentity);
         artworkServerIdentity = nextServerIdentity;
         artworkServerIdentityInitialized = true;
-        if (changed) updateArtworkThemeRequest(null);
+        ArtworkPresentationStore.retainOnly(nextServerIdentity);
+        if (changed) {
+            updateArtworkThemeRequest(null);
+            artworkPresentationInitialized = false;
+            artworkNavigationCoordinator.reset();
+            artworkDisplayRequest = null;
+            cancelPendingArtworkDisplayFallback();
+            cancelPendingNavigationRecovery();
+        }
+    }
+
+    private void initializeArtworkPresentation(String serverIdentity) {
+        if (artworkPresentationInitialized) return;
+        ArtworkPresentationStore.retainOnly(serverIdentity);
+        ArtworkPresentationStore.Entry entry = ArtworkPresentationStore.get(serverIdentity);
+        if (entry == null) {
+            artworkTransition.setInitialContent(
+                    null,
+                    "startup-placeholder\u0000" + String.valueOf(serverIdentity)
+            );
+        } else {
+            artworkTransition.setInitialContent(entry.artwork, entry.contentIdentity);
+            artworkNavigationCoordinator.seedDisplayedContent(entry.contentIdentity);
+        }
+        artworkPresentationInitialized = true;
     }
 
     private void handleMissingArtworkPalette() {
@@ -470,9 +654,7 @@ public final class MainActivity extends LocaleAwareActivity
         ArtworkThemeRequestGate.Request request = artworkThemeRequest;
         String paletteKey = artworkPaletteKey;
         if (paletteKey == null) {
-            if (artworkThemeRequestGate.accepts(request)) {
-                artworkThemeBackground.setPalette(ArtworkPalette.FALLBACK);
-            }
+            scheduleArtworkFallback(request, null);
             return;
         }
         ArtworkPalette cached = artworkPaletteRepository.getCached(paletteKey);
@@ -548,6 +730,73 @@ public final class MainActivity extends LocaleAwareActivity
         if (pending != null) uiHandler.removeCallbacks(pending);
     }
 
+    private void scheduleArtworkDisplayFallback(
+            ArtworkNavigationCoordinator.ArtworkRequest request
+    ) {
+        if (request == null || !artworkNavigationCoordinator.accepts(request)) return;
+        cancelPendingArtworkDisplayFallback();
+        pendingArtworkDisplayFallback = () -> {
+            pendingArtworkDisplayFallback = null;
+            String placeholderIdentity = "placeholder\u0000" + request.trackIdentity;
+            ArtworkNavigationCoordinator.Display display =
+                    artworkNavigationCoordinator.onArtworkUnavailable(
+                            request,
+                            placeholderIdentity,
+                            ArtworkTransitionFrameLayout.animationsEnabled()
+                    );
+            if (display.mode == ArtworkNavigationCoordinator.DisplayMode.IGNORE) return;
+            ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
+            artworkTransition.rejectPreview();
+            if (!artworkNavigationCoordinator.hasPendingNavigation()) {
+                cancelPendingNavigationRecovery();
+            }
+            artworkTransition.showContent(
+                    null,
+                    placeholderIdentity,
+                    display.direction,
+                    display.mode == ArtworkNavigationCoordinator.DisplayMode.TRANSITION
+            );
+            ArtworkPresentationStore.put(
+                    artworkServerIdentity,
+                    placeholderIdentity,
+                    null
+            );
+        };
+        uiHandler.postDelayed(
+                pendingArtworkDisplayFallback,
+                ARTWORK_FALLBACK_DELAY_MILLISECONDS
+        );
+    }
+
+    private void cancelPendingArtworkDisplayFallback() {
+        Runnable pending = pendingArtworkDisplayFallback;
+        pendingArtworkDisplayFallback = null;
+        if (pending != null) uiHandler.removeCallbacks(pending);
+    }
+
+    private void scheduleNavigationRecovery(long navigationGeneration) {
+        cancelPendingNavigationRecovery();
+        pendingNavigationRecovery = () -> {
+            pendingNavigationRecovery = null;
+            if (artworkNavigationCoordinator.abortNavigation(navigationGeneration)) {
+                ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
+                artworkTransition.restoreConfirmedContent(
+                        ArtworkTransitionFrameLayout.animationsEnabled()
+                );
+            }
+        };
+        uiHandler.postDelayed(
+                pendingNavigationRecovery,
+                NAVIGATION_CONFIRMATION_TIMEOUT_MILLISECONDS
+        );
+    }
+
+    private void cancelPendingNavigationRecovery() {
+        Runnable pending = pendingNavigationRecovery;
+        pendingNavigationRecovery = null;
+        if (pending != null) uiHandler.removeCallbacks(pending);
+    }
+
     private void restoreArtworkTheme(Bundle savedInstanceState) {
         if (savedInstanceState == null) return;
         ArtworkPalette current = ArtworkPalette.fromStoredColors(
@@ -566,6 +815,10 @@ public final class MainActivity extends LocaleAwareActivity
 
     @Override
     public void onCommandError(boolean authenticationError) {
+        if (artworkNavigationCoordinator.hasPendingNavigation()) {
+            cancelPendingNavigationRecovery();
+            abortArtworkNavigation();
+        }
         if (pendingSeekSeconds != null) {
             pendingSeekSeconds = null;
             long now = SystemClock.elapsedRealtime();
@@ -766,6 +1019,106 @@ public final class MainActivity extends LocaleAwareActivity
                     NOTIFICATION_PERMISSION_REQUEST
             );
         }
+    }
+
+    private boolean requestNavigation(
+            ArtworkNavigationCoordinator.Direction direction,
+            ArtworkNavigationCoordinator.Source source
+    ) {
+        return requestNavigation(direction, source, null);
+    }
+
+    private boolean requestNavigation(
+            ArtworkNavigationCoordinator.Direction direction,
+            ArtworkNavigationCoordinator.Source source,
+            String gesturePreviewIdentity
+    ) {
+        ArtworkNavigationCoordinator.Navigation navigation =
+                artworkNavigationCoordinator.requestNavigation(
+                        direction,
+                        source,
+                        isTrackNavigationAvailable()
+                );
+        if (!navigation.accepted || controller == null) {
+            artworkTransition.restoreConfirmedContent(true);
+            return false;
+        }
+        ArtworkPresentationStore.Entry preview = null;
+        if (artworkTransition.hasConfirmedContent(navigation.fromArtworkIdentity)) {
+            ArtworkPresentationStore.Entry candidate = ArtworkPresentationStore.getNeighbor(
+                    artworkServerIdentity,
+                    navigation.fromArtworkIdentity,
+                    navigation.direction
+            );
+            if (candidate != null && (gesturePreviewIdentity == null
+                    || Objects.equals(gesturePreviewIdentity, candidate.contentIdentity))) {
+                preview = candidate;
+            }
+        }
+        artworkNavigationCoordinator.attachExpectedPreview(
+                navigation.generation,
+                preview == null ? null : preview.contentIdentity
+        );
+        hideError();
+        artworkTransition.onNavigationRequested(
+                navigation.direction,
+                preview == null ? null : preview.artwork,
+                preview == null ? null : preview.contentIdentity
+        );
+        scheduleNavigationRecovery(navigation.generation);
+        if (navigation.command == ArtworkNavigationCoordinator.Command.PREVIOUS) {
+            controller.previous();
+        } else if (navigation.command == ArtworkNavigationCoordinator.Command.NEXT) {
+            controller.next();
+        }
+        return true;
+    }
+
+    private void abortArtworkNavigation() {
+        cancelPendingNavigationRecovery();
+        artworkNavigationCoordinator.abortNavigation();
+        ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
+        if (artworkTransition != null) {
+            artworkTransition.restoreConfirmedContent(
+                    ArtworkTransitionFrameLayout.animationsEnabled()
+            );
+        }
+    }
+
+    private ArtworkPresentationStore.Entry findCachedArtworkNeighbor(
+            ArtworkNavigationCoordinator.Direction direction
+    ) {
+        String currentIdentity = artworkDisplayKey(state);
+        if (currentIdentity == null
+                || !artworkTransition.hasConfirmedContent(currentIdentity)) {
+            return null;
+        }
+        return ArtworkPresentationStore.getNeighbor(
+                artworkServerIdentity,
+                currentIdentity,
+                direction
+        );
+    }
+
+    private boolean isTrackNavigationAvailable() {
+        return controller != null
+                && isConnectedStatus(status)
+                && state != null
+                && state.powerampAvailable
+                && state.hasTrack;
+    }
+
+    private String artworkDisplayKey(RemoteState remoteState) {
+        return remoteState == null ? null : ArtworkPaletteCacheKey.create(
+                artworkServerIdentity,
+                remoteState.artworkKey()
+        );
+    }
+
+    private String artworkTrackIdentity(RemoteState remoteState) {
+        String remoteIdentity = remoteState == null || !remoteState.hasTrack
+                ? "no-track" : remoteState.trackIdentity();
+        return String.valueOf(artworkServerIdentity) + '\u0000' + remoteIdentity;
     }
 
     private boolean ensureServiceAvailable() {

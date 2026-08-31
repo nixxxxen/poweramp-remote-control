@@ -20,12 +20,13 @@ real-device matrix passed on 2026-08-23. The immutable checked APKs were built a
 commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; their public release remains the upgrade baseline
 for the unversioned post-release work below.
 
-Post-release development now contains only the first requested Phone UI refinement: a unified
-dynamic artwork theme on the existing View-based main player. Versions intentionally remain Server
+Post-release development now contains the first two requested Phone UI refinements on the existing
+View-based main player: the unified dynamic artwork theme plus artwork swipe and one shared track-
+change transition for gestures and Previous/Next buttons. Versions intentionally remain Server
 `0.10.2` / code 13 and Phone `0.5.0` / code 14; API remains `v1`. This working candidate does not
 change Server, Web UI, either service, connection/playback state, transport, or any other planned UI
 package. Automated verification is recorded below; physical-device visual/performance validation
-remains required before treating this post-release change as release-ready.
+remains required before treating this post-release series as release-ready.
 
 ## Current post-release Phone implementation: dynamic artwork theme
 
@@ -59,6 +60,67 @@ remains required before treating this post-release change as release-ready.
   palette and starts no continuous movement. Existing controls, haptics, descriptions, selected
   states, chip/icon colors, player geometry, safe insets, square artwork, and always-visible volume
   remain unchanged.
+
+## Current post-release Phone implementation: artwork swipe and track transition
+
+- The existing square artwork container is now a two-layer `ImageView` surface with the same 1:1
+  measurement, rounded clipping, `centerCrop`, placeholder padding, content description, and compact
+  weighted layout. Only this container recognizes the new gesture. Left maps to Next; right maps to
+  Previous.
+- A pure gesture policy owns touch slop, horizontal dominance, a 24%-width commit threshold bounded
+  by touch slop, multi-touch/cancel rejection, and release confirmation. The artwork follows the
+  single pointer. Vertical/diagonal or short gestures return to center, first threshold crossing
+  emits one light haptic, and one gesture can produce at most one command. Disabled transport never
+  enters a confirmed gesture state.
+- `ArtworkPresentationStore` is now the single process presentation cache: an access-ordered LRU of
+  at most three bitmap references, keyed by stable Server identity plus confirmed artwork/content
+  identity. It holds no Activity, View, Context, Drawable, callback, copied/encoded bitmap, or
+  credential, and never calls `recycle()` on service-owned images. Rewriting one identity updates
+  its entry without increasing the bound; changing/forgetting Server isolates and clears the cache.
+- The store learns adjacency only after one unambiguous local command and an authoritative matching
+  snapshot: confirmed `A --Next--> B` also records `B --Previous--> A`, with Previous mirrored.
+  It never derives neighbors from `positionInList`, list size, metadata, or filenames. Neutral/
+  external track changes, rapid ambiguous commands, shuffle changes, reconnect, no-track, command
+  error/timeout, Server change, or preview mismatch clear unreliable adjacency.
+- If an exact current-identity/direction neighbor and its bitmap are cached, the spare layer is
+  populated before horizontal movement and both covers follow the finger as one carousel. A short
+  or cancelled gesture moves both home and hides the preview; a committed preview remains
+  non-authoritative until its exact content identity is confirmed.
+- Without an exact neighbor, no second/duplicate cover is invented. Pure geometry maps raw drag to
+  a bounded 20%-width rubber band and committed motion to a 16%-width pending pose, so most of the
+  outgoing artwork stays visible over a translucent dark, dynamic-theme-compatible rounded surface
+  instead of revealing the former opaque gray card. The eventual directional transition continues
+  from that actual offset without a center reset.
+- Buttons and swipes call one `requestNavigation(Direction, Source)` path and one navigation/
+  artwork coordinator. Each accepted action immediately forwards exactly one existing
+  `controller.previous()` or `controller.next()` command. There is no optimistic metadata, track,
+  or artwork state and no service/transport change.
+- The coordinator uses a bounded latest-intent policy rather than a command/Animator queue. Rapid
+  inputs still all reach the existing service once, while only the newest visual direction and one
+  active animator survive. A new input cancels the prior animator, promotes the latest confirmed
+  incoming layer from its current translation, and retargets it deterministically. If intermediate
+  snapshots are coalesced, the final delivered snapshot/artwork remains authoritative. A stale
+  2.2-second generation-bound presentation timeout only recenters an unconfirmed pending pose; it
+  does not poll, cancel a command, or override a newer input.
+- Next moves the outgoing cover left and the confirmed incoming cover from the right; Previous is
+  mirrored. A track change with no pending local action uses a neutral cross-fade through the same
+  coordinator. Command failure, disconnect, Activity stop, or rebind recenters the latest confirmed
+  content and suppresses a stale requested direction.
+- The controller's normal `onArtworkChanged(null)` now means loading and never immediately replaces
+  the outgoing cover. The current `trackIdentity()` plus Server-aware `artworkKey()` and an Activity-
+  local generation reject old deliveries. Genuine no-artwork/decode/network failure changes to the
+  ordinary placeholder only after the bounded 1.5-second generation-bound grace period.
+- `onStateChanged()` checks the same bounded store as soon as a new identity is authoritative. An
+  exact cached bitmap immediately continues the one transition path; the later identical service
+  delivery is an in-place layer update, not a second animation or position reset. A cached mismatch
+  is rejected before correct artwork is awaited. Binder replay/configuration recreation can still
+  paint current content immediately without a false track transition.
+- The live surface holds no more than outgoing and incoming layers, uses one retargetable animator,
+  performs only View translation/alpha per frame, and never processes, copies, or recycles a bitmap.
+- Confirmed artwork continues through the existing `ArtworkThemeRequestGate`, Server/artwork-keyed
+  `ArtworkPaletteRepository`, and background transition. Gesture/motion code performs no palette
+  analysis or artwork request. Disabled animator scale leaves commands active, skips pending and
+  content tweening, and applies the final confirmed artwork immediately.
 
 ## Implemented in Server 0.10.2 / Phone Client 0.5.0
 
@@ -398,6 +460,71 @@ manual actions.
 
 ## Verification
 
+### Artwork cached-neighbor visual correction automation (2026-08-30)
+
+- The required clean debug pipeline completed through pinned Gradle Wrapper `8.14.3` with Temurin
+  JDK `21.0.12.1`, Java 17 source/target, Android compile/target 36, and Build Tools 35.0.0:
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug --no-build-cache`. All `100/100` actionable tasks ran from
+  clean outputs.
+- Server passed its unchanged `78/78` JVM tests across 18 suites. Phone passed `104/104` across 24
+  suites, with zero failures, errors, or skips. The 34 focused swipe/presentation executions cover
+  direction/threshold/cancellation/haptic/one-command rules, a common button/gesture request path,
+  the hard three-entry LRU, duplicate replacement, Server isolation, confirmed mirrored adjacency,
+  exact neighbor lookup, neutral changes, predicted-identity mismatch, immediate cached apply,
+  update-only late delivery, rapid ambiguous intent, abort/disconnect policy, bounded no-cache
+  rubber-band geometry, carousel geometry, continuous transition endpoints, stale generations,
+  grace fallback, binder replay, and disabled animations.
+- Phone lint reports `No issues found` (zero errors and warnings). Server lint has zero errors and
+  only its two unchanged dependency-update notices for pinned Gradle `8.14.3` and the JVM-test-only
+  `org.json` artifact. No lint rule was disabled or weakened.
+- Actual debug APK badging confirms unchanged Server package `dev.r4remote.poweramp`, code 13/name
+  0.10.2, and Phone package `dev.r4remote.poweramp.phone`, code 14/name 0.5.0; both retain min API 26,
+  target/compile API 36, and local API v1 constants/routes.
+- Merged manifests retain exactly one non-exported Server
+  `RemotePlaybackService(connectedDevice)` and one exported Media3 Phone
+  `PhoneConnectionService(connectedDevice|mediaPlayback)`, both with `stopWithTask=false`. No
+  service, Activity, permission, provider, receiver, dependency, application ID, Server/API/Web UI,
+  transport, pairing, notification, or MediaSession change was introduced.
+- Both debug APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification with one
+  debug signer. This task deliberately does not create, sign, tag, publish, push, or commit a
+  release artifact; external release-signing properties were neither needed nor exposed.
+- `git diff --check` passes. The final changed-file/generated-artifact/secret audit found no tracked
+  APK/AAB/build output, signing material, credential, QR payload, IP/SSID, local path, or new
+  dependency. Physical-device visual/frame-pacing validation remains outstanding as listed below.
+
+### Post-release artwork-navigation automation (2026-08-30)
+
+- One clean no-build-cache debug pipeline completed through the pinned Gradle Wrapper `8.14.3`
+  with Temurin JDK 21, Java 17 source/target, Android compile/target 36, and Build Tools 35.0.0:
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug`. All `100/100` actionable tasks executed from clean
+  outputs.
+- Server passed its unchanged `78/78` JVM tests across 18 suites. Phone passed `89/89` across 24
+  suites, with zero failures, errors, or skips. The 19 added executions cover swipe direction and
+  threshold, short/vertical/diagonal/cancel/multi-touch rejection, one haptic/command, unavailable
+  controls, the common button/swipe command path, one-entry rapid intent, stale timeout and artwork
+  generations, metadata-before-artwork, intermediate `null`, grace placeholder, binder replay,
+  error/disconnect recovery, reduced motion, one-entry presentation retention, and exact slide/
+  retarget geometry.
+- Phone lint reports `No issues found` (zero errors and warnings). Server lint has zero errors and
+  only its two existing dependency-update notices for pinned Gradle `8.14.3` and the JVM-test-only
+  `org.json` artifact. No lint rule was disabled or weakened.
+- Actual debug APK badging confirms unchanged Server package `dev.r4remote.poweramp`, code 13/name
+  0.10.2, and Phone package `dev.r4remote.poweramp.phone`, code 14/name 0.5.0. Both retain min API 26
+  and target/compile API 36.
+- Merged manifests retain exactly one Server `RemotePlaybackService(connectedDevice)` and one Phone
+  `PhoneConnectionService(connectedDevice|mediaPlayback)`, both with `stopWithTask=false`. Phone
+  keeps its `localeConfig` and the same Main, Player devices, Settings, About, and scanner
+  Activities. No service, permission, provider, receiver, application ID, dependency, or API route
+  was added.
+- Both debug APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification with one
+  debug signer. This stage does not build, sign, publish, tag, push, or commit a release artifact.
+- `git diff --check` and the final changed-file/generated-artifact/public-repository audit pass.
+  Server source/Web UI, both services, MediaSession, connection/transport/pairing code, API v1,
+  Gradle dependency declarations, version metadata, signing configuration, and release history are
+  unchanged.
+
 ### Post-release dynamic-artwork-theme automation (2026-08-30)
 
 - One clean no-build-cache debug pipeline completed through pinned Gradle Wrapper `8.14.3` with
@@ -428,6 +555,55 @@ manual actions.
   Android debug signer. This task deliberately did not build or publish release artifacts.
 - `git diff --check` passes. Server source, Web UI, API, Gradle dependency declarations, versions,
   signing configuration, and release history are unchanged.
+
+### Artwork swipe/track-transition real-device checks still required
+
+Do not mark this second unversioned Phone UI stage release-ready until the exact candidate passes on
+a physical Phone device:
+
+- Navigate for the first time to an artwork that has never been cached. During drag and the load
+  gap, confirm the current cover uses only a restrained elastic/pending offset, most of it stays
+  visible, and the revealed rounded area shows the dark dynamic background rather than a gray card
+  or a duplicate cover.
+- Return to the just-viewed track, then move forward again across that now-known pair. In both
+  directions the cached neighbor must appear beside the current cover under the finger, move as one
+  carousel, become current only after the matching snapshot, and avoid a second transition when the
+  service later delivers the same bitmap.
+- On current artwork, make a short horizontal drag in both directions and release below threshold;
+  test both cached and uncached directions, and confirm all visible layers return smoothly, preview
+  is hidden, no command is produced, and metadata, square crop/rounding, seek, and volume remain
+  undisturbed. Repeat vertical, clearly diagonal, cancelled, and two-finger gestures; none may
+  navigate.
+- Cross the threshold left and right. Confirm one light haptic per gesture, exactly one Next for
+  left and Previous for right, outgoing/incoming direction, and no additional haptic when crossing
+  the threshold repeatedly before release. Repeat with controls unavailable/disconnected.
+- Exercise Previous/Next buttons and alternate buttons with swipes. Both sources must use the same
+  transition, keep their existing button ripple/haptic/accessibility behavior, and send one command
+  per accepted action.
+- Perform rapid Next/Previous sequences, including mixed directions while a prior cover is still
+  moving and while Server snapshots are coalesced. Confirm one active visual transition, no growing
+  queue, no jump back to an old/cached cover, no stale preview after an identity mismatch, and final
+  rest on the newest confirmed remote track. Repeat after enabling Shuffle; no old adjacency may be
+  treated as a known queue neighbor.
+- Throttle or disrupt artwork loading. The expected intermediate `null` must retain the outgoing
+  cover with no placeholder flash; a current valid bitmap must enter only for its matching track,
+  while genuine missing/failed artwork reaches the normal placeholder after the grace period.
+- Change tracks externally from Poweramp, Phone notification, MediaSession/lock screen, and Wear.
+  Confirm the same coordinator uses a neutral transition and never guesses Previous/Next.
+- Background/reopen Main, open and return from another Activity, disconnect/reconnect, and rotate
+  during idle, drag, pending command, artwork load, and content transition. Binder replay must show
+  current content immediately without a false track animation; stop/error paths must recenter the
+  latest confirmed content.
+- Repeat on compact portrait and landscape/cutout/gesture-navigation layouts. Artwork remains square
+  and clipped, all metadata/controls remain reachable, volume stays visible, and no gesture leaks
+  outside the artwork container.
+- Disable system animator duration scale, then repeat buttons, both swipe directions, external track
+  change, and rebind. Commands must still work, direct dragging may follow the finger, and confirmed
+  content must snap to final state with no continuing animator.
+- Profile normal playback, a single track change, rapid mixed input, slow artwork, Activity return,
+  and rotation for frame pacing and memory. Confirm no bitmap decoding/processing per frame, no
+  more than three process-cache bitmap entries, no more than two live artwork layers, no animator
+  accumulation, and no extra network/artwork/palette request.
 
 ### Dynamic artwork theme real-device checks still required
 
@@ -687,7 +863,8 @@ and hardening work should additionally exercise more vendors, Android versions, 
 
 ## Next scope
 
-Complete the physical-device matrix above for the dynamic artwork theme. Keep Server `0.10.2`, Phone
-`0.5.0`, and API `v1` unchanged until a later release task explicitly assigns versions. Do not begin
-the other deferred UI animation packages, multi-player foundation, pairing/transport security,
-Library, Queue, or Lyrics without separate scope; their ordering remains in [`ROADMAP.md`](ROADMAP.md).
+Complete the physical-device matrices above for the dynamic artwork theme and unified artwork
+navigation/track transition. Keep Server `0.10.2`, Phone `0.5.0`, and API `v1` unchanged until a
+later release task explicitly assigns versions. Do not begin the other deferred UI animation
+packages, multi-player foundation, pairing/transport security, Library, Queue, or Lyrics without
+separate scope; their ordering remains in [`ROADMAP.md`](ROADMAP.md).

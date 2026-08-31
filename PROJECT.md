@@ -76,6 +76,14 @@ P2P endpoints, Activity rebind, and playback-position updates therefore do not r
 Concurrent requests for one key are coalesced, the cache stores only compact color values, and
 generation checks prevent late results from an older track from changing the current screen.
 
+The same player presentation now owns one artwork-navigation coordinator shared by the existing
+Previous/Next buttons and horizontal gestures that begin inside the square artwork container. The
+coordinator keeps only the latest visual intent while every accepted action still sends exactly one
+existing `previous` or `next` command through the bound service. Complete remote snapshots remain
+authoritative: metadata and track identity are never invented optimistically, external track changes
+use a neutral transition, and generation-bound artwork results can update only the latest confirmed
+`trackIdentity()`/`artworkKey()` pair.
+
 The Phone does not play or decode audio and never changes its own volume. The custom player forwards
 play, pause, previous, next, and seek to API v1, while metadata, artwork, playback state, duration,
 and position come from the existing WebSocket snapshots. There is no fake ExoPlayer, audio-focus
@@ -346,6 +354,41 @@ configuration changes. The motion animator runs only while `MainActivity` is vis
 animations are disabled, both palette transition and perpetual motion are skipped and the final
 dark palette is rendered immediately. A constant dark contrast gradient remains above all dynamic
 color so existing text, chips, icons, seek, and volume styling stays unchanged.
+
+The square artwork surface contains exactly two reusable `ImageView` layers. A left swipe and Next
+move the outgoing layer left while the confirmed incoming artwork enters from the right; a right
+swipe and Previous use the opposite direction. Buttons and gestures enter the same request and
+transition path. Direct finger movement is governed by a pure touch-slop/direction/commit policy,
+with one threshold haptic and at most one command per gesture. Short, vertical, diagonal, cancelled,
+multi-touch, or unavailable-control gestures return the artwork to the confirmed center state.
+
+The presentation store keeps a process-local, Server-scoped access-ordered LRU of at most three
+service-owned artwork bitmaps. It learns Previous/Next adjacency only from one unambiguous local
+command followed by the matching authoritative remote identity; it never infers queue order from
+metadata or list position. An exact cached neighbor becomes the second layer during the gesture, so
+both covers move as a carousel, but the preview is not promoted until the Server confirms that
+identity. Neutral/external changes, rapid ambiguous command sequences, shuffle changes, reconnect,
+no-track, command failure, timeout, Server change, or a preview mismatch discard unreliable
+adjacency without recycling or copying any bitmap.
+
+The controller's expected interim `onArtworkChanged(null)` is treated as loading rather than absent
+artwork, so the outgoing bitmap remains visible. A generation-bound grace timer selects the normal
+placeholder only when the current track truly has no artwork or the current load does not complete.
+When no exact cached neighbor exists, finger movement uses a bounded rubber-band offset that keeps
+most of the current cover visible over the palette-compatible dynamic background; after commit it
+holds that small offset until the confirmed incoming bitmap is available. A cached bitmap for a
+newly confirmed identity is applied synchronously from `onStateChanged()`, while the later identical
+service delivery updates the existing layer without a second transition. Ordinary Activity rebind/
+configuration replay likewise paints current presentation state without a false transition. The
+live two-layer View never holds more than outgoing and incoming artwork and never calls `recycle()`
+on service-owned bitmaps.
+Rapid input cancels the single active animator, promotes the newest confirmed layer from its current
+visual position, and retargets one latest direction without an unbounded animation/command queue.
+If no confirming track/artwork state arrives, a generation-bound 2.2-second presentation timeout
+recenters the retained confirmed cover; it never polls or cancels the remote command. Disconnect,
+command failure, stop, and rebind likewise settle to confirmed state. With system animations
+disabled, commands still run but pending motion and confirmed artwork transitions snap directly to
+their final states.
 
 ## Security model
 
