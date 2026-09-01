@@ -5,4 +5,6 @@
     <dimen name="transport_button_size">54dp</dimen>
     <dimen name="transport_primary_size">64dp</dimen>
     <dimen name="secondary_button_size">40dp</dimen>
+    <dimen name="metadata_chip_stroke_width">1dp</dimen>
+    <dimen name="metadata_chip_corner_radius">20dp</dimen>
 </resources>

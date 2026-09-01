@@ -84,12 +84,20 @@ authoritative: metadata and track identity are never invented optimistically, ex
 use a neutral transition, and generation-bound artwork results can update only the latest confirmed
 `trackIdentity()`/`artworkKey()` pair.
 
-The main player also owns small presentation-only motion policies for Play/Pause, Like, Shuffle,
-and playback progress. Play/Pause and Shuffle use custom tint-aware Drawables whose internal glyph
-geometry morphs while the existing buttons, backgrounds, ripples, padding, and touch targets remain
-fixed. Like wraps only its vector glyph in one bounded pulse. These policies remember confirmed
-remote values, ignore duplicate renders, retarget one active animator from its current progress, and
-apply replay/disabled-animation state immediately. They never issue or predict a remote command.
+The main player also owns small presentation-only motion policies for Previous/Next, Play/Pause,
+Like/Dislike, Shuffle, and playback progress. Play/Pause and Shuffle use custom tint-aware Drawables
+whose internal glyph geometry morphs; Previous/Next nudge in the requested direction; and Like and
+Dislike wrap only their vector glyphs in one bounded pulse. Animated playback buttons use rounded
+pressed-state surfaces instead of a foreground ripple, while padding and touch targets stay fixed.
+The policies remember confirmed remote values, ignore duplicate renders, retarget one active
+animator from its current progress, and apply replay/disabled-animation state immediately.
+
+The right top-bar action remains the direct entry to `PlayerDevicesActivity`, but its compact pill
+now summarizes the existing controller status as LAN, Wi-Fi Direct, Connecting, or Disconnected.
+It is callback-driven from the existing `PlayerDeviceSnapshot`/`RemoteClientController.Status` and
+never exposes endpoint, API, or Server diagnostics on the player. The four metadata chips retain
+their formatted text while a pure raw-value policy selects fixed muted codec, bit-depth, sample-rate,
+and bitrate families. Those styles are cached per Activity and never depend on the artwork palette.
 
 The Phone does not play or decode audio and never changes its own volume. The custom player forwards
 play, pause, previous, next, and seek to API v1, while metadata, artwork, playback state, duration,
@@ -345,13 +353,14 @@ optimistic state changes.
 
 The Phone main screen is deliberately player-only and non-scrolling on a typical smartphone:
 rounded artwork receives the flexible space; Previous/Play-Pause/Next remain primary; rating,
-Like/Dislike, and Shuffle are compact secondary controls with selected states, ripple feedback, and
-haptics. Seek and volume use player-specific tracks/thumbs, and codec/file type, bit depth, sample
-rate, and bitrate use muted metadata chips. A symmetric left menu button opens the small native
-Settings/About menu while the existing right Player devices button remains direct. Connection
-transport, API diagnostics, pairing,
-re-pair, and forget actions live on the separate **Player devices** screen. The current data model
-exposes a generic saved-device snapshot but intentionally persists only one slot in this release.
+Like/Dislike, and Shuffle are compact secondary controls with selected states, pressed feedback, and
+haptics. Seek and volume use player-specific tracks/thumbs. Codec/file type, bit depth, sample rate,
+and bitrate use fixed, artwork-independent muted metadata families selected from their raw values
+without changing formatted text. A symmetric left menu button opens the small native Settings/About
+menu while the compact right connection pill remains the direct Player devices action. It exposes
+only LAN, Wi-Fi Direct, Connecting, or Disconnected; endpoint, API, Server-ID, pairing, re-pair, and
+forget details remain on the separate **Player devices** screen. The current data model exposes a
+generic saved-device snapshot but intentionally persists only one slot in this release.
 All Phone presentation Activities use one edge-to-edge View path and add system-bar plus
 display-cutout insets to their root padding. The player keeps required controls in a fixed no-scroll
 budget and gives only
@@ -409,14 +418,15 @@ command failure, stop, and rebind likewise settle to confirmed state. With syste
 disabled, commands still run but pending motion and confirmed artwork transitions snap directly to
 their final states.
 
-Confirmed Play/Pause changes morph only the inner play triangle/pause bars, and confirmed Shuffle
-changes morph parallel non-crossing arrows into crossed shuffle arrows. Duplicate snapshots do not
-restart either animation; a rapid reverse cancels and retargets the same Drawable animator from its
-current geometry. Like pulses once only for a visible confirmed transition from a non-Like rating to
-rating `5`; initial/rebound Like, duplicate rating `5`, and Like removal do not celebrate. Main
-settles these Drawables in `onStop()` and each motion button also settles its Drawable when detached.
-Content/state descriptions and selected tint update synchronously with confirmed state, not with
-animation completion.
+An accepted Play/Pause tap immediately retargets only the inner play triangle/pause bars while the
+existing command is sent; a matching newer snapshot confirms that presentation, and mismatch,
+failure, timeout, stop, or rebind restores the authoritative state. Confirmed external Play/Pause
+and Shuffle changes use the same retargetable morph, with Shuffle moving parallel non-crossing
+arrows into crossed arrows. Previous/Next taps nudge their glyphs without moving their buttons.
+Like and Dislike pulse once only for visible confirmed transitions to ratings `5` and `1`; initial/
+rebound state, duplicate ratings, and removal do not pulse. Main settles all motion Drawables in
+`onStop()`, and motion buttons settle on detach. Content/state descriptions and selected tint remain
+synchronized with confirmed state rather than animation completion.
 
 ## Security model
 

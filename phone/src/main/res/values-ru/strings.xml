@@ -27,6 +27,14 @@
     <string name="link_open_error">Нет приложения, способного открыть эту ссылку.</string>
 
     <string name="player_devices">Устройства воспроизведения</string>
+    <string name="connection_indicator_lan">LAN</string>
+    <string name="connection_indicator_wifi_direct">Wi‑Fi Direct</string>
+    <string name="connection_indicator_connecting">Подключение</string>
+    <string name="connection_indicator_disconnected">Не подключено</string>
+    <string name="connection_indicator_description_lan">Соединение по LAN. Открыть устройства воспроизведения</string>
+    <string name="connection_indicator_description_wifi_direct">Соединение по Wi‑Fi Direct. Открыть устройства воспроизведения</string>
+    <string name="connection_indicator_description_connecting">Идёт подключение. Открыть устройства воспроизведения</string>
+    <string name="connection_indicator_description_disconnected">Не подключено. Открыть устройства воспроизведения</string>
     <string name="no_player_devices">Нет сохранённых устройств воспроизведения. Используйте одноразовый QR-код или вручную введите Bearer-токен с Сервера.</string>
     <string name="device_connected">Подключено</string>
     <string name="device_disconnected">Не подключено</string>

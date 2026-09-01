@@ -32,6 +32,14 @@
     <string name="link_open_error">No application could open this link.</string>
 
     <string name="player_devices">Player devices</string>
+    <string name="connection_indicator_lan">LAN</string>
+    <string name="connection_indicator_wifi_direct">Wi‑Fi Direct</string>
+    <string name="connection_indicator_connecting">Connecting</string>
+    <string name="connection_indicator_disconnected">Disconnected</string>
+    <string name="connection_indicator_description_lan">LAN connection. Open Player devices</string>
+    <string name="connection_indicator_description_wifi_direct">Wi‑Fi Direct connection. Open Player devices</string>
+    <string name="connection_indicator_description_connecting">Connecting. Open Player devices</string>
+    <string name="connection_indicator_description_disconnected">Disconnected. Open Player devices</string>
     <string name="no_player_devices">No playback devices are saved. Use a one-time QR code or enter a Bearer token from the Server manually.</string>
     <string name="device_connected">Connected</string>
     <string name="device_disconnected">Disconnected</string>

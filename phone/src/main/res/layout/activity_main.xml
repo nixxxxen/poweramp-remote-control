@@ -32,16 +32,36 @@
             android:padding="10dp"
             android:src="@drawable/ic_menu" />
 
-        <ImageButton
+        <Button
             android:id="@+id/player_devices_button"
-            android:layout_width="40dp"
+            android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:layout_gravity="end|center_vertical"
-            android:background="@drawable/control_button_background"
-            android:contentDescription="@string/player_devices"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="10dp"
-            android:src="@drawable/ic_devices" />
+            android:autoSizeMaxTextSize="11sp"
+            android:autoSizeMinTextSize="8sp"
+            android:autoSizeStepGranularity="1sp"
+            android:autoSizeTextType="uniform"
+            android:background="@drawable/connection_indicator_background"
+            android:backgroundTint="@null"
+            android:contentDescription="@string/connection_indicator_description_connecting"
+            android:drawableStart="@drawable/connection_indicator_dot_connecting"
+            android:drawablePadding="6dp"
+            android:elevation="0dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:maxWidth="148dp"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:singleLine="true"
+            android:stateListAnimator="@null"
+            android:text="@string/connection_indicator_connecting"
+            android:textAllCaps="false"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp" />
     </FrameLayout>
 
     <dev.powerampremote.phone.ArtworkTransitionFrameLayout

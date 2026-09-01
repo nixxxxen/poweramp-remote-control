@@ -45,6 +45,8 @@ public final class MainActivity extends LocaleAwareActivity
             ArtworkPaletteRepository.get();
     private final ArtworkNavigationCoordinator artworkNavigationCoordinator =
             new ArtworkNavigationCoordinator();
+    private final ConnectionIndicatorPolicy.Tracker connectionIndicatorTracker =
+            new ConnectionIndicatorPolicy.Tracker();
     private final ControlMotionPolicy.Binary playPauseMotionPolicy =
             new ControlMotionPolicy.Binary();
     private final ControlMotionPolicy.Like likeMotionPolicy =
@@ -74,6 +76,7 @@ public final class MainActivity extends LocaleAwareActivity
     private View volumePanel;
     private SeekBar volumeSeek;
     private TextView volumeValue;
+    private Button playerDevicesButton;
     private ImageButton previousButton;
     private MotionImageButton playPauseButton;
     private ImageButton nextButton;
@@ -83,6 +86,11 @@ public final class MainActivity extends LocaleAwareActivity
     private MotionImageButton shuffleButton;
     private TextView errorMessage;
     private RemoteMetadataFormatter metadataFormatter;
+    private MetadataChipDrawableFactory metadataChipDrawableFactory;
+    private MetadataChipStylePolicy.Style renderedCodecChipStyle;
+    private MetadataChipStylePolicy.Style renderedBitDepthChipStyle;
+    private MetadataChipStylePolicy.Style renderedSampleRateChipStyle;
+    private MetadataChipStylePolicy.Style renderedBitrateChipStyle;
     private ControlMotionDrawables.Nudge previousGlyph;
     private ControlMotionDrawables.PlayPause playPauseGlyph;
     private ControlMotionDrawables.Nudge nextGlyph;
@@ -127,7 +135,9 @@ public final class MainActivity extends LocaleAwareActivity
                 return;
             }
             controller = (PhoneConnectionService.LocalBinder) service;
-            String serverIdentity = controller.playerDeviceSnapshot().serverId;
+            PlayerDeviceSnapshot deviceSnapshot = controller.playerDeviceSnapshot();
+            String serverIdentity = deviceSnapshot.serverId;
+            renderConnectionIndicator(deviceSnapshot.runtimeStatus);
             updateArtworkServerIdentity(serverIdentity);
             initializeArtworkPresentation(serverIdentity);
             replayingServiceState = true;
@@ -150,6 +160,7 @@ public final class MainActivity extends LocaleAwareActivity
             abortArtworkNavigation();
             controller = null;
             status = RemoteClientController.Status.ERROR;
+            renderConnectionIndicator(status);
             renderControls();
         }
 
@@ -157,6 +168,8 @@ public final class MainActivity extends LocaleAwareActivity
         public void onNullBinding(ComponentName name) {
             rollbackPendingPlayPause(false);
             controller = null;
+            status = RemoteClientController.Status.ERROR;
+            renderConnectionIndicator(status);
             showError(R.string.connection_service_error);
         }
     };
@@ -183,7 +196,9 @@ public final class MainActivity extends LocaleAwareActivity
         setContentView(R.layout.activity_main);
         SafeDrawingInsets.apply(findViewById(R.id.player_content));
         metadataFormatter = RemoteMetadataFormatter.from(this);
+        metadataChipDrawableFactory = new MetadataChipDrawableFactory(this);
         bindViews();
+        renderConnectionIndicator(status);
         restoreArtworkTheme(savedInstanceState);
         configureControls();
         try {
@@ -281,6 +296,7 @@ public final class MainActivity extends LocaleAwareActivity
         volumePanel = findViewById(R.id.volume_panel);
         volumeSeek = findViewById(R.id.volume_seek);
         volumeValue = findViewById(R.id.volume_value);
+        playerDevicesButton = findViewById(R.id.player_devices_button);
         previousButton = findViewById(R.id.previous_button);
         playPauseButton = findViewById(R.id.play_pause_button);
         nextButton = findViewById(R.id.next_button);
@@ -337,7 +353,7 @@ public final class MainActivity extends LocaleAwareActivity
             haptic(view);
             showMainMenu(view);
         });
-        findViewById(R.id.player_devices_button).setOnClickListener(view -> {
+        playerDevicesButton.setOnClickListener(view -> {
             haptic(view);
             openPlayerDevices();
         });
@@ -485,6 +501,7 @@ public final class MainActivity extends LocaleAwareActivity
             progressSnapshotMustApplyImmediately = true;
         }
         status = newStatus;
+        renderConnectionIndicator(newStatus);
         renderProgress();
         renderControls();
         restartProgressTicker();
@@ -919,11 +936,94 @@ public final class MainActivity extends LocaleAwareActivity
         trackTitle.setText(valueOrFallback(state.title, R.string.unknown_title));
         trackArtist.setText(valueOrFallback(state.artist, R.string.unknown_artist));
         trackAlbum.setText(valueOrFallback(state.album, R.string.unknown_album));
-        setOptionalText(codecChip, metadataFormatter.codec(state));
-        setOptionalText(bitDepthChip, metadataFormatter.bitDepth(state));
-        setOptionalText(sampleRateChip, metadataFormatter.sampleRate(state));
-        setOptionalText(bitrateChip, metadataFormatter.bitrate(state));
+        String codec = metadataFormatter.codec(state);
+        String bitDepth = metadataFormatter.bitDepth(state);
+        String sampleRate = metadataFormatter.sampleRate(state);
+        String bitrate = metadataFormatter.bitrate(state);
+        setOptionalText(codecChip, codec);
+        setOptionalText(bitDepthChip, bitDepth);
+        setOptionalText(sampleRateChip, sampleRate);
+        setOptionalText(bitrateChip, bitrate);
+        renderedCodecChipStyle = applyMetadataChipStyle(
+                codecChip,
+                renderedCodecChipStyle,
+                codec == null ? null : MetadataChipStylePolicy.codec(
+                        state.fileTypeName,
+                        state.codec
+                )
+        );
+        renderedBitDepthChipStyle = applyMetadataChipStyle(
+                bitDepthChip,
+                renderedBitDepthChipStyle,
+                bitDepth == null ? null : MetadataChipStylePolicy.bitDepth(
+                        state.bitsPerSample
+                )
+        );
+        renderedSampleRateChipStyle = applyMetadataChipStyle(
+                sampleRateChip,
+                renderedSampleRateChipStyle,
+                sampleRate == null ? null : MetadataChipStylePolicy.sampleRate(
+                        state.sampleRate
+                )
+        );
+        renderedBitrateChipStyle = applyMetadataChipStyle(
+                bitrateChip,
+                renderedBitrateChipStyle,
+                bitrate == null ? null : MetadataChipStylePolicy.bitrate(state.bitRate)
+        );
         setOptionalText(sourceInfo, metadataFormatter.source(state));
+    }
+
+    private MetadataChipStylePolicy.Style applyMetadataChipStyle(
+            TextView chip,
+            MetadataChipStylePolicy.Style renderedStyle,
+            MetadataChipStylePolicy.Style nextStyle
+    ) {
+        if (nextStyle == null || nextStyle == renderedStyle) return renderedStyle;
+        chip.setBackground(metadataChipDrawableFactory.background(nextStyle));
+        chip.setTextColor(metadataChipDrawableFactory.textColor(nextStyle));
+        return nextStyle;
+    }
+
+    private void renderConnectionIndicator(RemoteClientController.Status connectionStatus) {
+        ConnectionIndicatorPolicy.PresentationState presentation =
+                connectionIndicatorTracker.update(connectionStatus);
+        if (presentation == null) return;
+
+        int textResource;
+        int descriptionResource;
+        int dotResource;
+        switch (presentation) {
+            case LAN:
+                textResource = R.string.connection_indicator_lan;
+                descriptionResource = R.string.connection_indicator_description_lan;
+                dotResource = R.drawable.connection_indicator_dot_connected;
+                break;
+            case WI_FI_DIRECT:
+                textResource = R.string.connection_indicator_wifi_direct;
+                descriptionResource = R.string.connection_indicator_description_wifi_direct;
+                dotResource = R.drawable.connection_indicator_dot_connected;
+                break;
+            case CONNECTING:
+                textResource = R.string.connection_indicator_connecting;
+                descriptionResource = R.string.connection_indicator_description_connecting;
+                dotResource = R.drawable.connection_indicator_dot_connecting;
+                break;
+            case DISCONNECTED:
+            default:
+                textResource = R.string.connection_indicator_disconnected;
+                descriptionResource = R.string.connection_indicator_description_disconnected;
+                dotResource = R.drawable.connection_indicator_dot_disconnected;
+                break;
+        }
+        playerDevicesButton.setText(textResource);
+        playerDevicesButton.setContentDescription(getText(descriptionResource));
+        playerDevicesButton.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                dotResource,
+                0,
+                0,
+                0
+        );
     }
 
     private void renderProgress() {

@@ -47,8 +47,9 @@ Implemented locally without changing Server `0.10.2`, Phone `0.5.0`, version cod
   visible volume, service-owned playback state, MediaSession, transport, Server, and Web UI remain
   unchanged.
 
-Control morphs/pulses and smooth seek presentation are implemented as the third stage below. A new
-connection indicator and artwork-dependent control/chip colors remain separate future UI work.
+Control morphs/pulses and smooth seek presentation are implemented as the third stage below. The
+compact connection indicator and fixed, artwork-independent metadata-chip families are implemented
+as the fourth stage below; artwork-dependent control/chip colors remain separate future work.
 
 ## Post-0.5.0 Phone UI improvement — artwork swipe and unified track transition
 
@@ -94,12 +95,15 @@ versions remain Server `0.10.2` / Phone `0.5.0` and API `v1`:
 Implemented locally as the third stage of the future Phone `0.6.0` UI series, with Server `0.10.2`
 / code 13, Phone `0.5.0` / code 14, and API `v1` intentionally unchanged:
 
-- confirmed Play/Pause state morphs one internal glyph between play and pause without moving or
-  scaling the primary button, background, ripple, padding, or touch target;
+- an accepted Play/Pause tap immediately retargets one internal glyph while the unchanged command
+  is sent; matching confirmation keeps it, while mismatch/failure/timeout returns to authoritative
+  state without moving the primary button, background, padding, or touch target;
+- Previous/Next taps nudge only their glyphs in the requested direction, and animated playback
+  buttons use rounded pressed surfaces rather than a square foreground ripple;
 - confirmed Shuffle state morphs between parallel non-crossing OFF arrows and crossed ON arrows,
   while its existing selected tint and binary command semantics remain unchanged;
-- Like pulses only on a visible confirmed transition from any non-Like rating to rating `5`; initial
-  replay, duplicate `5`, removal, Dislike, and the rating dialog retain their existing behavior;
+- Like and Dislike pulse only on visible confirmed transitions to ratings `5` and `1`; initial
+  replay, duplicate active ratings, removal, and the rating dialog retain their existing behavior;
 - pure confirmed-state policies make duplicate renders idempotent and rapid binary reversals retarget
   one Drawable animator from current progress. Activity replay, stop/detach, and disabled animator
   scale settle immediately without an animator queue;
@@ -117,6 +121,29 @@ Implemented locally as the third stage of the future Phone `0.6.0` UI series, wi
 - artwork theme/swipe/cache/transitions, square/non-scrolling layout, safe insets, visible volume,
   metadata/chip/control colors, both services, MediaSession/Wear, transports, Server/Web UI, and API
   `v1` remain unchanged.
+
+## Post-0.5.0 Phone UI improvement — connection indicator and metadata chip styles
+
+Implemented locally as the fourth and final UI package planned before the future Phone `0.6.0`
+versioning task. Declared Server `0.10.2` / code 13, Phone `0.5.0` / code 14, and API `v1` remain
+unchanged:
+
+- the direct top-right Player devices action is now a compact, one-line pill driven only by the
+  existing controller callbacks and `PlayerDeviceSnapshot`: LAN and Wi-Fi Direct have distinct
+  transport labels, active discovery/connection/retry states collapse to Connecting, and required-
+  action/auth/unsupported/error states collapse to Disconnected;
+- the pill exposes no endpoint, API version, Server ID, or other diagnostic text; those details and
+  all pairing/recovery actions remain in `PlayerDevicesActivity`;
+- a pure metadata policy normalizes codec/container input with `Locale.ROOT` and assigns stable muted
+  variants for common codecs, 16/24/32-bit depth, standard/high sample rates, and safe fallbacks;
+- bitrate retains one muted amber/neutral style and its existing tolerant value formatter, avoiding
+  an unverified quality classification;
+- an Activity-owned, enum-bounded drawable cache supplies one dark translucent surface, fixed
+  borders, and readable accent text without retaining a static Context or creating Drawables on
+  duplicate snapshots;
+- chip styles do not consume artwork palette state, and no animation runs for position-only or
+  repeated metadata updates. Layout dimensions, horizontal chip scrolling, artwork and control
+  motion, services, transport, MediaSession/Wear, Server/Web UI, and API `v1` remain unchanged.
 
 ## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
 
