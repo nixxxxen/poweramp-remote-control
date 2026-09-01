@@ -93,6 +93,7 @@
     <string name="unknown_album">Неизвестный альбом</string>
     <string name="album_art_description">Обложка текущего трека</string>
     <string name="playback_position">Позиция воспроизведения</string>
+    <string name="playback_position_value">%1$s из %2$s</string>
     <string name="elapsed_placeholder">0:00</string>
     <string name="duration_placeholder">0:00</string>
     <string name="remote_volume_description">Громкость на устройстве с Poweramp</string>
@@ -101,6 +102,8 @@
     <string name="previous_track">Предыдущий трек</string>
     <string name="play">Воспроизвести</string>
     <string name="pause">Пауза</string>
+    <string name="playback_state_playing">Воспроизводится</string>
+    <string name="playback_state_paused">На паузе</string>
     <string name="next_track">Следующий трек</string>
     <string name="dislike">Не нравится</string>
     <string name="remove_dislike">Убрать отметку «Не нравится»</string>
@@ -108,6 +111,8 @@
     <string name="remove_like">Убрать отметку «Нравится»</string>
     <string name="shuffle_enable">Включить перемешивание</string>
     <string name="shuffle_disable">Выключить перемешивание</string>
+    <string name="shuffle_state_on">Перемешивание включено</string>
+    <string name="shuffle_state_off">Перемешивание выключено</string>
     <string name="rating_value">%1$d/5</string>
     <string name="rating_unknown">—/5</string>
     <string name="rating_change">Изменить рейтинг</string>

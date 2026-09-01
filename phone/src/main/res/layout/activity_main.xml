@@ -280,22 +280,20 @@
             android:id="@+id/previous_button"
             android:layout_width="@dimen/transport_button_size"
             android:layout_height="@dimen/transport_button_size"
-            android:background="@drawable/control_button_background"
+            android:background="@drawable/control_motion_button_background"
             android:contentDescription="@string/previous_track"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
             android:padding="16dp"
             android:src="@drawable/ic_previous"
             android:tint="@color/control_icon" />
 
         <Space android:layout_width="18dp" android:layout_height="1dp" />
 
-        <ImageButton
+        <dev.powerampremote.phone.MotionImageButton
             android:id="@+id/play_pause_button"
             android:layout_width="@dimen/transport_primary_size"
             android:layout_height="@dimen/transport_primary_size"
-            android:background="@drawable/control_primary_background"
+            android:background="@drawable/control_motion_primary_background"
             android:contentDescription="@string/play"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
             android:padding="20dp"
             android:src="@drawable/ic_play"
             android:tint="@color/primary_icon" />
@@ -306,9 +304,8 @@
             android:id="@+id/next_button"
             android:layout_width="@dimen/transport_button_size"
             android:layout_height="@dimen/transport_button_size"
-            android:background="@drawable/control_button_background"
+            android:background="@drawable/control_motion_button_background"
             android:contentDescription="@string/next_track"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
             android:padding="16dp"
             android:src="@drawable/ic_next"
             android:tint="@color/control_icon" />
@@ -325,9 +322,8 @@
             android:id="@+id/dislike_button"
             android:layout_width="@dimen/secondary_button_size"
             android:layout_height="@dimen/secondary_button_size"
-            android:background="@drawable/control_button_background"
+            android:background="@drawable/control_motion_button_background"
             android:contentDescription="@string/dislike"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
             android:padding="11dp"
             android:src="@drawable/ic_thumb_down"
             android:tint="@color/control_icon" />
@@ -352,26 +348,24 @@
 
         <Space android:layout_width="8dp" android:layout_height="1dp" />
 
-        <ImageButton
+        <dev.powerampremote.phone.MotionImageButton
             android:id="@+id/like_button"
             android:layout_width="@dimen/secondary_button_size"
             android:layout_height="@dimen/secondary_button_size"
-            android:background="@drawable/control_button_background"
+            android:background="@drawable/control_motion_button_background"
             android:contentDescription="@string/like"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
             android:padding="11dp"
             android:src="@drawable/ic_thumb_up"
             android:tint="@color/control_icon" />
 
         <Space android:layout_width="8dp" android:layout_height="1dp" />
 
-        <ImageButton
+        <dev.powerampremote.phone.MotionImageButton
             android:id="@+id/shuffle_button"
             android:layout_width="@dimen/secondary_button_size"
             android:layout_height="@dimen/secondary_button_size"
-            android:background="@drawable/control_button_background"
+            android:background="@drawable/control_motion_button_background"
             android:contentDescription="@string/shuffle_enable"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
             android:padding="11dp"
             android:src="@drawable/ic_shuffle"
             android:tint="@color/control_icon" />

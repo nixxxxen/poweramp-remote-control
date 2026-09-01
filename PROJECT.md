@@ -84,6 +84,13 @@ authoritative: metadata and track identity are never invented optimistically, ex
 use a neutral transition, and generation-bound artwork results can update only the latest confirmed
 `trackIdentity()`/`artworkKey()` pair.
 
+The main player also owns small presentation-only motion policies for Play/Pause, Like, Shuffle,
+and playback progress. Play/Pause and Shuffle use custom tint-aware Drawables whose internal glyph
+geometry morphs while the existing buttons, backgrounds, ripples, padding, and touch targets remain
+fixed. Like wraps only its vector glyph in one bounded pulse. These policies remember confirmed
+remote values, ignore duplicate renders, retarget one active animator from its current progress, and
+apply replay/disabled-animation state immediately. They never issue or predict a remote command.
+
 The Phone does not play or decode audio and never changes its own volume. The custom player forwards
 play, pause, previous, next, and seek to API v1, while metadata, artwork, playback state, duration,
 and position come from the existing WebSocket snapshots. There is no fake ExoPlayer, audio-focus
@@ -320,6 +327,16 @@ change, seek, and reconnect establish fresh confirmed anchors; disconnect freeze
 anchor without losing its extrapolated millisecond fraction. This keeps the player screen and
 notification aligned without network or UI polling.
 
+While Main is visible and confirmed playback is advancing, its existing platform `SeekBar` uses
+millisecond presentation units and a lifecycle-bound `Choreographer` callback to sample that same
+service-owned anchor. It does not accumulate frame deltas or create a second remote position model.
+Small same-track snapshot differences are reconciled by a bounded 280 ms visual offset that converges
+to the new anchor; a large discontinuity, pause/resume, track change, seek timeout/failure, or
+reconnect applies authoritative state immediately. Manual drag owns the thumb until release, then
+the existing integer-second seek command and bounded pending-seek policy take precedence over stale
+snapshots. `onStop()` removes every frame callback; with animator scale disabled, accurate local
+sampling continues at a conservative 250 ms cadence.
+
 The embedded Web UI remains available on either reachable Server address and retains cookie
 sessions, CSP, Origin checks, artwork, transport, seek, rating, Like/Dislike, shuffle, and a compact
 remote-volume slider. The native Phone Client adds the same volume control and a MediaSession while
@@ -343,7 +360,9 @@ first remote snapshot. The artwork container measures to the smaller available d
 rounded image is always square and `centerCrop` never stretches it. The QR scanner uses its own
 non-exported capture Activity: portrait is the default, while a caller already configured in
 landscape requests scanner-only landscape. The platform `SeekBar` continues to own touch/accuracy
-semantics while its playback track is rendered at `8dp` with a compact `14dp` thumb.
+semantics while its playback track is rendered at `8dp` with a compact `14dp` thumb. Its elapsed
+label changes only when the displayed whole second changes; Android 11+ accessibility state reports
+the same formatted elapsed/duration values rather than the internal millisecond range.
 
 Behind only this main player content, a custom hardware-accelerated View draws a dark base, a
 palette gradient, and three oversized radial-gradient color fields. Their centers move slowly by
@@ -389,6 +408,15 @@ recenters the retained confirmed cover; it never polls or cancels the remote com
 command failure, stop, and rebind likewise settle to confirmed state. With system animations
 disabled, commands still run but pending motion and confirmed artwork transitions snap directly to
 their final states.
+
+Confirmed Play/Pause changes morph only the inner play triangle/pause bars, and confirmed Shuffle
+changes morph parallel non-crossing arrows into crossed shuffle arrows. Duplicate snapshots do not
+restart either animation; a rapid reverse cancels and retargets the same Drawable animator from its
+current geometry. Like pulses once only for a visible confirmed transition from a non-Like rating to
+rating `5`; initial/rebound Like, duplicate rating `5`, and Like removal do not celebrate. Main
+settles these Drawables in `onStop()` and each motion button also settles its Drawable when detached.
+Content/state descriptions and selected tint update synchronously with confirmed state, not with
+animation completion.
 
 ## Security model
 

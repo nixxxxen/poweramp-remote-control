@@ -98,6 +98,7 @@
     <string name="unknown_album">Unknown album</string>
     <string name="album_art_description">Artwork for the current track</string>
     <string name="playback_position">Playback position</string>
+    <string name="playback_position_value">%1$s of %2$s</string>
     <string name="elapsed_placeholder">0:00</string>
     <string name="duration_placeholder">0:00</string>
     <string name="remote_volume_description">Volume on the Poweramp device</string>
@@ -106,6 +107,8 @@
     <string name="previous_track">Previous track</string>
     <string name="play">Play</string>
     <string name="pause">Pause</string>
+    <string name="playback_state_playing">Playing</string>
+    <string name="playback_state_paused">Paused</string>
     <string name="next_track">Next track</string>
     <string name="dislike">Dislike</string>
     <string name="remove_dislike">Remove Dislike</string>
@@ -113,6 +116,8 @@
     <string name="remove_like">Remove Like</string>
     <string name="shuffle_enable">Enable shuffle</string>
     <string name="shuffle_disable">Disable shuffle</string>
+    <string name="shuffle_state_on">Shuffle on</string>
+    <string name="shuffle_state_off">Shuffle off</string>
     <string name="rating_value">%1$d/5</string>
     <string name="rating_unknown">—/5</string>
     <string name="rating_change">Change rating</string>

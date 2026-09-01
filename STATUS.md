@@ -20,13 +20,14 @@ real-device matrix passed on 2026-08-23. The immutable checked APKs were built a
 commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; their public release remains the upgrade baseline
 for the unversioned post-release work below.
 
-Post-release development now contains the first two requested Phone UI refinements on the existing
-View-based main player: the unified dynamic artwork theme plus artwork swipe and one shared track-
-change transition for gestures and Previous/Next buttons. Versions intentionally remain Server
-`0.10.2` / code 13 and Phone `0.5.0` / code 14; API remains `v1`. This working candidate does not
-change Server, Web UI, either service, connection/playback state, transport, or any other planned UI
-package. Automated verification is recorded below; physical-device visual/performance validation
-remains required before treating this post-release series as release-ready.
+Post-release development now contains the first three requested Phone UI refinements on the existing
+View-based main player: the unified dynamic artwork theme; artwork swipe and one shared track-change
+transition for gestures and Previous/Next buttons; and confirmed-state Play/Pause/Shuffle morphs,
+Like pulse, plus smooth playback progress. Versions intentionally remain Server `0.10.2` / code 13
+and Phone `0.5.0` / code 14; API remains `v1`. This working candidate does not change Server, Web UI,
+either service, connection/playback semantics, transport, or any other planned UI package. Automated
+verification is recorded below; physical-device visual/performance validation remains required
+before treating this post-release series as release-ready.
 
 ## Current post-release Phone implementation: dynamic artwork theme
 
@@ -121,6 +122,47 @@ remains required before treating this post-release series as release-ready.
   `ArtworkPaletteRepository`, and background transition. Gesture/motion code performs no palette
   analysis or artwork request. Disabled animator scale leaves commands active, skips pending and
   content tweening, and applies the final confirmed artwork immediately.
+
+## Current post-release Phone implementation: control motion and smooth progress
+
+- Play/Pause now uses one custom tint-aware Drawable that interpolates two compatible internal paths
+  between the play triangle and pause bars. Shuffle uses the same bounded Drawable pattern to morph
+  two parallel non-crossing OFF arrows into crossed ON arrows. Only glyph geometry changes; existing
+  button bounds, backgrounds, ripples, padding, haptics, enabled alpha, and touch targets do not move.
+- Each binary control has a pure confirmed-state policy. Initial state and binder/configuration replay
+  apply the endpoint immediately, duplicate snapshots return no motion, and a rapid confirmed reverse
+  cancels and retargets one active animator from its current progress. Content descriptions, Shuffle
+  selected tint, and Android 11+ state descriptions change synchronously with the confirmed snapshot.
+- Like keeps its existing vector and selected tint inside a Drawable wrapper. It scales only that
+  glyph to 1.14× and softly returns once when a visible confirmed rating changes from anything other
+  than `5` to `5`. Initial/rebound Like, duplicate rating `5`, Like removal, and all Dislike/rating
+  dialog behavior do not pulse; a contrary rating cancels and resets the same animator.
+- `MainActivity.onStop()` settles all three glyph Drawables and removes playback callbacks. The three
+  motion buttons also settle their Drawable on detach, so no static Activity/View reference or
+  hidden-screen animation survives. Animator scale `0` applies Play/Pause and Shuffle endpoints
+  immediately and skips Like pulse.
+- Playback progress now gives the existing platform `SeekBar` millisecond presentation units while
+  commands remain one rounded integer second. The thumb is sampled from the unchanged service-owned
+  `PlaybackUiSnapshot.positionMillisecondsAt(monotonicNow)`: callback delivery time never replaces
+  the WebSocket receipt anchor and `RemoteSessionPlayer` remains unchanged on the same snapshot.
+- A pure `PlaybackProgressCoordinator` stores only presentation state around that authoritative
+  object. A same-track playing discrepancy from 25 through 1500 ms becomes a current-to-authoritative
+  offset that reaches zero over a bounded 280 ms smoothstep. Smaller differences need no visible
+  correction; larger discontinuities, track change, pause/resume, reconnect/rebind, disabled motion,
+  and seek timeout/failure apply the authoritative position immediately.
+- Manual drag stops local scheduling and owns the thumb/elapsed label. Release emits one existing
+  integer-second seek and one haptic, then a two-second presentation-only pending seek advances from
+  the requested point while rejecting old snapshots. Confirmation returns to the remote anchor;
+  timeout, command failure, disconnect, or track change discards the pending override and returns to
+  the last confirmed position.
+- One retained `Choreographer.FrameCallback` runs only while Main is visible, connected, confirmed
+  playing, has a positive duration, and is not dragging. Every frame recomputes from monotonic time,
+  creates no Drawable/Animator, and changes elapsed text only on a whole-second boundary. `onStop()`
+  removes both frame and Handler callbacks. With animator scale disabled, precise position continues
+  at a conservative 250 ms local cadence without any extra REST/WebSocket traffic.
+- The non-scrolling layout, square artwork, cached swipe transition, dynamic palette path, volume,
+  metadata chips, control colors, services, transport, pairing/reconnect, MediaSession/Wear,
+  notification, Server/Web UI, and API `v1` remain unchanged.
 
 ## Implemented in Server 0.10.2 / Phone Client 0.5.0
 
@@ -443,7 +485,8 @@ manual actions.
 - Flexible rounded artwork receives the released space. Previous/Play-Pause/Next remain large;
   rating, Like, Dislike, and Shuffle are compact, with selected states, platform ripple/pressed
   feedback, and haptics.
-- Seek and volume use dedicated player-style tracks/thumbs while retaining exact integer control.
+- Seek and volume use dedicated player-style tracks/thumbs. Playback seek now has millisecond visual
+  progress while retaining one integer-second remote command; volume retains exact integer control.
   Codec/file type, bit depth, sample rate, and bitrate are separate muted metadata chips.
 - Metadata, artwork, transport, seek, rating `0…5`, Like/Dislike, shuffle, player-device volume,
   MediaSession, notification/lock-screen, and Wear control paths are retained.
@@ -459,6 +502,39 @@ manual actions.
 - Raw Poweramp `bitRate` and `positionInList` values remain unchanged.
 
 ## Verification
+
+### Post-release control-motion/smooth-progress automation (2026-08-31)
+
+- The required clean debug pipeline completed through pinned Gradle Wrapper `8.14.3` with Temurin
+  JDK 17, Java 17 source/target, Android compile/target 36, and Build Tools 35.0.0:
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug --no-build-cache --no-daemon --console=plain`. All
+  `100/100` actionable tasks executed from clean outputs.
+- Server passed its unchanged `78/78` JVM tests across 18 suites. Phone passed `120/120` across 26
+  suites, with zero failures, errors, or skips. The 16 new pure executions cover initial/immediate,
+  confirmed bidirectional and rapid-retarget control motion, duplicate/disabled/replay behavior,
+  one-shot Like pulse, Shuffle endpoints, original monotonic-anchor extrapolation, pause/clamp,
+  bounded reconciliation endpoints, large/track discontinuities, correction reset, callback-delay
+  handling, drag/pending-seek priority, seek confirmation/failure/timeout, lifecycle/reduced-motion
+  scheduling, and whole-second label boundaries.
+- Phone lint reports no issues. Server lint has zero errors and only its two unchanged informational
+  update warnings for pinned Gradle `8.14.3` and JVM-test-only `org.json`; no lint rule was disabled
+  or weakened.
+- Actual debug APK badging confirms unchanged Server package `dev.r4remote.poweramp`, code 13/name
+  0.10.2, and Phone package `dev.r4remote.poweramp.phone`, code 14/name 0.5.0. Both retain min API 26,
+  target/compile API 36, Phone `localeConfig`, and the unchanged API v1 constants/routes.
+- Merged manifests retain exactly one non-exported Server
+  `RemotePlaybackService(connectedDevice)` and one exported Media3 Phone
+  `PhoneConnectionService(connectedDevice|mediaPlayback)`, both with `stopWithTask=false`. No service,
+  Activity, permission, provider, receiver, application ID, dependency, connection/runtime,
+  MediaSession, notification, Server/Web UI, or API change was introduced.
+- Both debug APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification with one
+  Android debug signer. This stage does not create a release build, tag, release, commit, push, or
+  published artifact, and it does not access or expose release-signing configuration.
+- `git diff --check` passes. The final changed-file/generated-artifact/secret audit finds no tracked
+  APK/AAB/build output, signing material, credential, QR payload, IP/SSID, local path, or new
+  dependency. Physical-device motion, frame-pacing, lifecycle-load, and layout validation remains
+  outstanding in the matrix below.
 
 ### Artwork cached-neighbor visual correction automation (2026-08-30)
 
@@ -555,6 +631,44 @@ manual actions.
   Android debug signer. This task deliberately did not build or publish release artifacts.
 - `git diff --check` passes. Server source, Web UI, API, Gradle dependency declarations, versions,
   signing configuration, and release history are unchanged.
+
+### Control motion/smooth-progress real-device checks still required
+
+Do not mark this third unversioned Phone UI stage release-ready until the exact candidate passes on
+a physical Phone device:
+
+- Exercise Play/Pause during ordinary playback, then change confirmed state rapidly in both
+  directions. The inner glyph must reverse smoothly from its current shape while the primary button,
+  ripple, touch target, content description, and command behavior stay fixed. Repeat an external
+  change from Poweramp, notification, MediaSession/lock screen, and Wear.
+- Add and remove Like, repeat duplicate rating `5`, move rapidly among ratings, and change rating
+  externally. Only a newly confirmed non-Like → `5` transition while Main is visible may pulse once;
+  selected tint and exact Poweramp rating semantics must remain correct.
+- Toggle Shuffle OFF/ON normally and rapidly, then change it externally. Confirm parallel OFF arrows,
+  recognizable crossed ON arrows, one retargeted morph, immediate selected/content/state description,
+  and unchanged binary command behavior.
+- Observe seekbar motion through long playback and around whole-second label boundaries. Confirm a
+  smooth thumb, no extra network traffic, no cumulative drift, no visible frame drops, and agreement
+  with notification/MediaSession position.
+- Repeat pause/resume and manual seek, including slow confirmation, stale intermediate snapshots,
+  command failure, and timeout. The thumb must not fight a finger; release must send one command and
+  one haptic; confirmation must continue from the remote anchor and failure must restore it.
+- Change tracks with buttons, artwork swipe, rapid mixed Next/Previous, and an external automatic
+  transition while progress is moving. Duration/position correction must reset to the latest
+  confirmed track without disturbing the artwork theme/cache/transition path.
+- Background/resume Main, rotate/configuration-recreate it, and disconnect/reconnect during playing,
+  paused, morphing, pulsing, correcting, and pending-seek states. Rebind must immediately show current
+  endpoints and current extrapolated service position without a false celebration or stale callback
+  re-anchor.
+- Set animator duration scale to `0` before launch and while Main is visible. Play/Pause and Shuffle
+  must snap to confirmed endpoints, Like must not pulse, and playback position must remain accurate at
+  the conservative cadence. Restore scale and verify later confirmed changes animate normally.
+- Repeat on compact portrait and landscape/cutout/navigation-inset layouts. All controls, square
+  artwork, metadata, seek precision, always-visible volume, haptics, selected states, touch targets,
+  and accessibility descriptions must remain intact.
+- Profile CPU/frame scheduling with Main visible and hidden. No progress frame callback or decorative
+  animator may run after `onStop()`/detach, and no new artwork request, network polling, service,
+  MediaSession path, or growing animator chain may appear.
 
 ### Artwork swipe/track-transition real-device checks still required
 
@@ -863,8 +977,9 @@ and hardening work should additionally exercise more vendors, Android versions, 
 
 ## Next scope
 
-Complete the physical-device matrices above for the dynamic artwork theme and unified artwork
-navigation/track transition. Keep Server `0.10.2`, Phone `0.5.0`, and API `v1` unchanged until a
-later release task explicitly assigns versions. Do not begin the other deferred UI animation
-packages, multi-player foundation, pairing/transport security, Library, Queue, or Lyrics without
-separate scope; their ordering remains in [`ROADMAP.md`](ROADMAP.md).
+Complete the physical-device matrices above for the dynamic artwork theme, unified artwork
+navigation/track transition, and control-motion/smooth-progress package. Keep Server `0.10.2`, Phone
+`0.5.0`, and API `v1` unchanged until a later release task explicitly assigns versions. Do not begin
+the deferred connection indicator, Player devices redesign, artwork-dependent control/chip colors,
+multi-player foundation, pairing/transport security, Library, Queue, or Lyrics without separate
+scope; their ordering remains in [`ROADMAP.md`](ROADMAP.md).

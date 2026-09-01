@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.view.Choreographer;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.Button;
@@ -35,6 +36,7 @@ public final class MainActivity extends LocaleAwareActivity
     private static final String STATE_THEME_MOTION = "theme_motion";
     private static final long ARTWORK_FALLBACK_DELAY_MILLISECONDS = 1_500L;
     private static final long NAVIGATION_CONFIRMATION_TIMEOUT_MILLISECONDS = 2_200L;
+    private static final long PLAY_PAUSE_CONFIRMATION_TIMEOUT_MILLISECONDS = 1_200L;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final ArtworkThemeRequestGate artworkThemeRequestGate =
@@ -43,6 +45,18 @@ public final class MainActivity extends LocaleAwareActivity
             ArtworkPaletteRepository.get();
     private final ArtworkNavigationCoordinator artworkNavigationCoordinator =
             new ArtworkNavigationCoordinator();
+    private final ControlMotionPolicy.Binary playPauseMotionPolicy =
+            new ControlMotionPolicy.Binary();
+    private final ControlMotionPolicy.Like likeMotionPolicy =
+            new ControlMotionPolicy.Like();
+    private final ControlMotionPolicy.Like dislikeMotionPolicy =
+            new ControlMotionPolicy.Like();
+    private final ControlMotionPolicy.Binary shuffleMotionPolicy =
+            new ControlMotionPolicy.Binary();
+    private final PlaybackProgressCoordinator playbackProgressCoordinator =
+            new PlaybackProgressCoordinator();
+    private final PlaybackProgressCoordinator.DisplayedSecondTracker elapsedSecondTracker =
+            new PlaybackProgressCoordinator.DisplayedSecondTracker();
 
     private ArtworkThemeBackgroundView artworkThemeBackground;
     private ArtworkTransitionFrameLayout artworkTransition;
@@ -61,14 +75,20 @@ public final class MainActivity extends LocaleAwareActivity
     private SeekBar volumeSeek;
     private TextView volumeValue;
     private ImageButton previousButton;
-    private ImageButton playPauseButton;
+    private MotionImageButton playPauseButton;
     private ImageButton nextButton;
     private ImageButton dislikeButton;
     private Button ratingButton;
-    private ImageButton likeButton;
-    private ImageButton shuffleButton;
+    private MotionImageButton likeButton;
+    private MotionImageButton shuffleButton;
     private TextView errorMessage;
     private RemoteMetadataFormatter metadataFormatter;
+    private ControlMotionDrawables.Nudge previousGlyph;
+    private ControlMotionDrawables.PlayPause playPauseGlyph;
+    private ControlMotionDrawables.Nudge nextGlyph;
+    private ControlMotionDrawables.Pulse dislikeGlyph;
+    private ControlMotionDrawables.Pulse likeGlyph;
+    private ControlMotionDrawables.Shuffle shuffleGlyph;
 
     private PhoneConnectionService.LocalBinder controller;
     private RemoteClientController.Status status = RemoteClientController.Status.SEARCHING;
@@ -76,16 +96,11 @@ public final class MainActivity extends LocaleAwareActivity
     private boolean activityStarted;
     private boolean bindingRequested;
     private boolean openedDevicesForMissingPairing;
-    private boolean draggingSeek;
     private boolean draggingVolume;
     private int durationSeconds;
-    private int anchorPositionSeconds;
-    private long anchorRealtimeMilliseconds;
-    private boolean anchorAdvancing;
-    private PlaybackUiSnapshot latestPlaybackSnapshot;
     private String trackIdentity;
-    private Integer pendingSeekSeconds;
-    private long pendingSeekExpiresRealtimeMilliseconds;
+    private boolean progressSnapshotMustApplyImmediately = true;
+    private int renderedDurationSeconds = Integer.MIN_VALUE;
     private Integer pendingVolume;
     private long pendingVolumeExpiresRealtimeMilliseconds;
     private String artworkThemeIdentity;
@@ -97,6 +112,10 @@ public final class MainActivity extends LocaleAwareActivity
     private ArtworkNavigationCoordinator.ArtworkRequest artworkDisplayRequest;
     private Runnable pendingArtworkDisplayFallback;
     private Runnable pendingNavigationRecovery;
+    private Boolean pendingPlayPauseTarget;
+    private long pendingPlayPauseRequestedAfterRevision;
+    private long pendingPlayPauseGeneration;
+    private Runnable pendingPlayPauseRecovery;
     private boolean replayingServiceState;
     private boolean artworkPresentationInitialized;
 
@@ -126,6 +145,7 @@ public final class MainActivity extends LocaleAwareActivity
         @Override
         public void onServiceDisconnected(ComponentName name) {
             freezeProgress();
+            rollbackPendingPlayPause(true);
             cancelPendingArtworkDisplayFallback();
             abortArtworkNavigation();
             controller = null;
@@ -135,6 +155,7 @@ public final class MainActivity extends LocaleAwareActivity
 
         @Override
         public void onNullBinding(ComponentName name) {
+            rollbackPendingPlayPause(false);
             controller = null;
             showError(R.string.connection_service_error);
         }
@@ -144,8 +165,13 @@ public final class MainActivity extends LocaleAwareActivity
         @Override
         public void run() {
             renderProgress();
-            if (shouldAdvanceProgress()) uiHandler.postDelayed(this, 1_000L);
+            restartProgressTicker();
         }
+    };
+
+    private final Choreographer.FrameCallback progressFrameCallback = frameTimeNanos -> {
+        renderProgress();
+        restartProgressTicker();
     };
 
     @Override
@@ -188,7 +214,14 @@ public final class MainActivity extends LocaleAwareActivity
     @Override
     protected void onStop() {
         activityStarted = false;
-        uiHandler.removeCallbacks(progressTicker);
+        stopProgressTicker();
+        rollbackPendingPlayPause(false);
+        previousGlyph.stopMotion();
+        playPauseButton.stopImageMotion();
+        nextGlyph.stopMotion();
+        dislikeGlyph.stopMotion();
+        likeButton.stopImageMotion();
+        shuffleButton.stopImageMotion();
         cancelPendingArtworkFallback();
         cancelPendingArtworkDisplayFallback();
         cancelPendingNavigationRecovery();
@@ -210,6 +243,7 @@ public final class MainActivity extends LocaleAwareActivity
     protected void onDestroy() {
         artworkThemeRequestGate.invalidate();
         artworkNavigationCoordinator.reset();
+        stopProgressTicker();
         uiHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
@@ -255,6 +289,20 @@ public final class MainActivity extends LocaleAwareActivity
         likeButton = findViewById(R.id.like_button);
         shuffleButton = findViewById(R.id.shuffle_button);
         errorMessage = findViewById(R.id.error_message);
+
+        float density = getResources().getDisplayMetrics().density;
+        previousGlyph = new ControlMotionDrawables.Nudge(previousButton.getDrawable(), -1);
+        previousButton.setImageDrawable(previousGlyph);
+        playPauseGlyph = new ControlMotionDrawables.PlayPause(density);
+        playPauseButton.setImageDrawable(playPauseGlyph);
+        nextGlyph = new ControlMotionDrawables.Nudge(nextButton.getDrawable(), 1);
+        nextButton.setImageDrawable(nextGlyph);
+        dislikeGlyph = new ControlMotionDrawables.Pulse(dislikeButton.getDrawable());
+        dislikeButton.setImageDrawable(dislikeGlyph);
+        likeGlyph = new ControlMotionDrawables.Pulse(likeButton.getDrawable());
+        likeButton.setImageDrawable(likeGlyph);
+        shuffleGlyph = new ControlMotionDrawables.Shuffle(density);
+        shuffleButton.setImageDrawable(shuffleGlyph);
     }
 
     private void configureControls() {
@@ -295,6 +343,7 @@ public final class MainActivity extends LocaleAwareActivity
         });
         previousButton.setOnClickListener(view -> {
             haptic(view);
+            previousGlyph.nudge(animationsEnabled());
             requestNavigation(
                     ArtworkNavigationCoordinator.Direction.PREVIOUS,
                     ArtworkNavigationCoordinator.Source.BUTTON
@@ -304,11 +353,14 @@ public final class MainActivity extends LocaleAwareActivity
             haptic(view);
             hideError();
             if (!ensureServiceAvailable()) return;
-            if (state != null && "playing".equals(state.playbackState)) controller.pause();
-            else controller.play();
+            boolean targetPlaying = state == null || !"playing".equals(state.playbackState);
+            beginPendingPlayPause(targetPlaying);
+            if (targetPlaying) controller.play();
+            else controller.pause();
         });
         nextButton.setOnClickListener(view -> {
             haptic(view);
+            nextGlyph.nudge(animationsEnabled());
             requestNavigation(
                     ArtworkNavigationCoordinator.Direction.NEXT,
                     ArtworkNavigationCoordinator.Source.BUTTON
@@ -346,25 +398,40 @@ public final class MainActivity extends LocaleAwareActivity
         trackSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser) elapsedTime.setText(TimeFormatter.formatSeconds(progress));
+                if (fromUser) {
+                    playbackProgressCoordinator.updateDragPosition(progress);
+                    int displayedSeconds = PlaybackProgressCoordinator.secondsFloor(progress);
+                    if (elapsedSecondTracker.shouldUpdate(progress)) {
+                        elapsedTime.setText(TimeFormatter.formatSeconds(displayedSeconds));
+                        updateSeekStateDescription(displayedSeconds);
+                    }
+                }
             }
 
             @Override
             public void onStartTrackingTouch(SeekBar seekBar) {
-                draggingSeek = true;
+                playbackProgressCoordinator.startDragging(seekBar.getProgress());
+                elapsedSecondTracker.reset();
+                stopProgressTicker();
             }
 
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
-                int requestedPosition = seekBar.getProgress();
-                draggingSeek = false;
-                setPositionAnchor(requestedPosition, SystemClock.elapsedRealtime());
-                pendingSeekSeconds = requestedPosition;
-                pendingSeekExpiresRealtimeMilliseconds = SystemClock.elapsedRealtime() + 2_000L;
+                long now = SystemClock.elapsedRealtime();
+                int requestedPosition = playbackProgressCoordinator.commitSeek(
+                        seekBar.getProgress(),
+                        now,
+                        isConfirmedPlaybackAdvancing()
+                );
                 haptic(seekBar);
                 hideError();
-                if (ensureServiceAvailable()) controller.seek(requestedPosition);
+                if (ensureServiceAvailable()) {
+                    controller.seek(requestedPosition);
+                } else {
+                    playbackProgressCoordinator.onCommandFailure(now);
+                }
                 renderProgress();
+                restartProgressTicker();
             }
         });
         volumeSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -406,13 +473,19 @@ public final class MainActivity extends LocaleAwareActivity
             RemoteClientController.Status newStatus,
             long retryDelayMilliseconds
     ) {
-        if (isConnectedStatus(status) && !isConnectedStatus(newStatus)) {
+        boolean wasConnected = isConnectedStatus(status);
+        boolean nowConnected = isConnectedStatus(newStatus);
+        if (wasConnected && !nowConnected) {
             freezeProgress();
+            rollbackPendingPlayPause(true);
             cancelPendingArtworkDisplayFallback();
             ArtworkPresentationStore.clearAdjacency(artworkServerIdentity);
             abortArtworkNavigation();
+        } else if (!wasConnected && nowConnected) {
+            progressSnapshotMustApplyImmediately = true;
         }
         status = newStatus;
+        renderProgress();
         renderControls();
         restartProgressTicker();
         if (newStatus == RemoteClientController.Status.AUTH_REQUIRED) {
@@ -432,7 +505,6 @@ public final class MainActivity extends LocaleAwareActivity
 
     @Override
     public void onStateChanged(RemoteState newState, long receivedRealtimeMilliseconds) {
-        long now = SystemClock.elapsedRealtime();
         RemoteState previousState = state;
         String nextTrackIdentity = newState.trackIdentity();
         boolean trackChanged = trackIdentity != null && !trackIdentity.equals(nextTrackIdentity);
@@ -440,6 +512,7 @@ public final class MainActivity extends LocaleAwareActivity
                 && !Objects.equals(previousState.shuffle, newState.shuffle);
         trackIdentity = nextTrackIdentity;
         state = newState;
+        reconcilePendingPlayPause(newState);
         if (isConnectedStatus(status)) updateArtworkThemeRequest(newState);
         ArtworkNavigationCoordinator.StateUpdate artworkUpdate =
                 artworkNavigationCoordinator.confirmState(
@@ -462,36 +535,34 @@ public final class MainActivity extends LocaleAwareActivity
             if (!newState.hasTrack) artworkTransition.rejectPreview();
         }
         durationSeconds = newState.durationSeconds == null ? 0 : newState.durationSeconds;
-        if (trackChanged) {
-            pendingSeekSeconds = null;
-            draggingSeek = false;
-        } else if (!newState.hasTrack) {
-            pendingSeekSeconds = null;
-            setPositionAnchor(0, now);
+        long durationMilliseconds = durationMilliseconds();
+        if (trackChanged || !newState.hasTrack) {
+            playbackProgressCoordinator.onTrackChanged(durationMilliseconds);
+            elapsedSecondTracker.reset();
+            renderedDurationSeconds = Integer.MIN_VALUE;
+            progressSnapshotMustApplyImmediately = true;
+        } else {
+            playbackProgressCoordinator.updateDuration(durationMilliseconds);
         }
         renderPlayer();
+        if (trackChanged || !newState.hasTrack) renderProgress();
         renderVolume();
         renderControls();
     }
 
     @Override
     public void onPlaybackSnapshot(PlaybackUiSnapshot snapshot) {
-        if (snapshot == null || draggingSeek) return;
-        latestPlaybackSnapshot = snapshot;
-        anchorAdvancing = snapshot.isAdvancing();
+        if (snapshot == null) return;
         long now = SystemClock.elapsedRealtime();
-        boolean seekConfirmed = pendingSeekSeconds != null
-                && Math.abs(snapshot.positionSeconds - pendingSeekSeconds) <= 2;
-        if (pendingSeekSeconds == null
-                || seekConfirmed
-                || now >= pendingSeekExpiresRealtimeMilliseconds) {
-            pendingSeekSeconds = null;
-            setPositionAnchor(
-                    snapshot.positionSeconds,
-                    snapshot.capturedRealtimeMilliseconds
-            );
-        }
-        renderProgress();
+        playbackProgressCoordinator.onSnapshot(
+                snapshot,
+                now,
+                durationMilliseconds(),
+                progressSnapshotMustApplyImmediately || replayingServiceState,
+                animationsEnabled()
+        );
+        progressSnapshotMustApplyImmediately = false;
+        if (!playbackProgressCoordinator.isDragging()) renderProgress();
         restartProgressTicker();
     }
 
@@ -815,20 +886,15 @@ public final class MainActivity extends LocaleAwareActivity
 
     @Override
     public void onCommandError(boolean authenticationError) {
+        rollbackPendingPlayPause(true);
         if (artworkNavigationCoordinator.hasPendingNavigation()) {
             cancelPendingNavigationRecovery();
             abortArtworkNavigation();
         }
-        if (pendingSeekSeconds != null) {
-            pendingSeekSeconds = null;
-            long now = SystemClock.elapsedRealtime();
-            PlaybackUiSnapshot confirmed = latestPlaybackSnapshot == null
-                    ? null : latestPlaybackSnapshot.capturedAt(now);
-            setPositionAnchor(
-                    confirmed == null ? 0 : confirmed.positionSeconds,
-                    confirmed == null ? now : confirmed.capturedRealtimeMilliseconds
-            );
+        if (playbackProgressCoordinator.hasPendingSeek()) {
+            playbackProgressCoordinator.onCommandFailure(SystemClock.elapsedRealtime());
             renderProgress();
+            restartProgressTicker();
         }
         if (pendingVolume != null) {
             pendingVolume = null;
@@ -861,12 +927,23 @@ public final class MainActivity extends LocaleAwareActivity
     }
 
     private void renderProgress() {
-        if (draggingSeek) return;
-        int position = calculatedPositionSeconds();
-        trackSeek.setMax(Math.max(durationSeconds, 1));
-        trackSeek.setProgress(Math.min(position, Math.max(durationSeconds, 1)));
-        elapsedTime.setText(TimeFormatter.formatSeconds(position));
-        durationTime.setText(TimeFormatter.formatSeconds(durationSeconds));
+        if (playbackProgressCoordinator.isDragging()) return;
+        long now = SystemClock.elapsedRealtime();
+        long positionMilliseconds = playbackProgressCoordinator.positionMillisecondsAt(now);
+        int maximum = seekBarMaximumMilliseconds();
+        int progress = (int) Math.min(positionMilliseconds, maximum);
+        if (trackSeek.getMax() != maximum) trackSeek.setMax(maximum);
+        if (trackSeek.getProgress() != progress) trackSeek.setProgress(progress);
+
+        int displayedSeconds = PlaybackProgressCoordinator.secondsFloor(positionMilliseconds);
+        boolean elapsedChanged = elapsedSecondTracker.shouldUpdate(positionMilliseconds);
+        boolean durationChanged = renderedDurationSeconds != durationSeconds;
+        if (elapsedChanged) elapsedTime.setText(TimeFormatter.formatSeconds(displayedSeconds));
+        if (durationChanged) {
+            renderedDurationSeconds = durationSeconds;
+            durationTime.setText(TimeFormatter.formatSeconds(durationSeconds));
+        }
+        if (elapsedChanged || durationChanged) updateSeekStateDescription(displayedSeconds);
     }
 
     private void renderVolume() {
@@ -914,7 +991,6 @@ public final class MainActivity extends LocaleAwareActivity
         );
 
         boolean playing = state != null && "playing".equals(state.playbackState);
-        playPauseButton.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
         playPauseButton.setContentDescription(getText(playing ? R.string.pause : R.string.play));
 
         Integer rating = state == null ? null : state.rating;
@@ -926,6 +1002,50 @@ public final class MainActivity extends LocaleAwareActivity
         ratingButton.setSelected(starRated);
         likeButton.setSelected(liked);
         shuffleButton.setSelected(shuffled);
+        if (state != null) {
+            applyBinaryMotion(
+                    playPauseGlyph,
+                    playPauseMotionPolicy.update(
+                            playing,
+                            replayingServiceState,
+                            activityStarted,
+                            animationsEnabled(),
+                            playPauseGlyph.progress()
+                    )
+            );
+            ControlMotionPolicy.Mode likeMotion = likeMotionPolicy.update(
+                    liked,
+                    replayingServiceState,
+                    activityStarted,
+                    animationsEnabled()
+            );
+            if (likeMotion == ControlMotionPolicy.Mode.PULSE) {
+                likeGlyph.pulse(animationsEnabled());
+            } else if (likeMotion == ControlMotionPolicy.Mode.RESET) {
+                likeGlyph.reset();
+            }
+            ControlMotionPolicy.Mode dislikeMotion = dislikeMotionPolicy.update(
+                    disliked,
+                    replayingServiceState,
+                    activityStarted,
+                    animationsEnabled()
+            );
+            if (dislikeMotion == ControlMotionPolicy.Mode.PULSE) {
+                dislikeGlyph.pulse(animationsEnabled());
+            } else if (dislikeMotion == ControlMotionPolicy.Mode.RESET) {
+                dislikeGlyph.reset();
+            }
+            applyBinaryMotion(
+                    shuffleGlyph,
+                    shuffleMotionPolicy.update(
+                            shuffled,
+                            replayingServiceState,
+                            activityStarted,
+                            animationsEnabled(),
+                            shuffleGlyph.progress()
+                    )
+            );
+        }
         ratingButton.setText(rating == null
                 ? getText(R.string.rating_unknown)
                 : getString(R.string.rating_value, rating));
@@ -937,41 +1057,164 @@ public final class MainActivity extends LocaleAwareActivity
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             ratingButton.setStateDescription(rating == null ? null
                     : getString(R.string.rating_value, rating));
+            playPauseButton.setStateDescription(getText(playing
+                    ? R.string.playback_state_playing : R.string.playback_state_paused));
+            shuffleButton.setStateDescription(getText(shuffled
+                    ? R.string.shuffle_state_on : R.string.shuffle_state_off));
         }
     }
 
-    private int calculatedPositionSeconds() {
-        long position = anchorPositionSeconds;
-        if (shouldAdvanceProgress()) {
-            position += Math.max(0L, SystemClock.elapsedRealtime() - anchorRealtimeMilliseconds)
-                    / 1_000L;
+    private void applyBinaryMotion(
+            ControlMotionDrawables.BinaryMorphDrawable drawable,
+            ControlMotionPolicy.Update update
+    ) {
+        if (update.mode == ControlMotionPolicy.Mode.IMMEDIATE) {
+            drawable.setProgressImmediately(update.targetProgress);
+        } else if (update.mode == ControlMotionPolicy.Mode.ANIMATE) {
+            drawable.animateTo(update.targetProgress, animationsEnabled());
         }
-        if (durationSeconds > 0) position = Math.min(position, durationSeconds);
-        return position > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) Math.max(position, 0L);
     }
 
-    private void setPositionAnchor(int positionSeconds, long realtimeMilliseconds) {
-        anchorPositionSeconds = Math.max(positionSeconds, 0);
-        anchorRealtimeMilliseconds = realtimeMilliseconds;
+    private void beginPendingPlayPause(boolean targetPlaying) {
+        cancelPendingPlayPauseRecovery();
+        pendingPlayPauseTarget = targetPlaying;
+        pendingPlayPauseRequestedAfterRevision = state == null
+                ? Long.MIN_VALUE : state.revision;
+        long generation = ++pendingPlayPauseGeneration;
+        playPauseGlyph.animateTo(targetPlaying ? 1f : 0f, animationsEnabled());
+        pendingPlayPauseRecovery = () -> {
+            if (generation != pendingPlayPauseGeneration
+                    || !Objects.equals(pendingPlayPauseTarget, targetPlaying)) {
+                return;
+            }
+            pendingPlayPauseRecovery = null;
+            pendingPlayPauseTarget = null;
+            playPauseGlyph.animateTo(
+                    confirmedPlayPauseProgress(),
+                    activityStarted && animationsEnabled()
+            );
+        };
+        uiHandler.postDelayed(
+                pendingPlayPauseRecovery,
+                PLAY_PAUSE_CONFIRMATION_TIMEOUT_MILLISECONDS
+        );
+    }
+
+    private void reconcilePendingPlayPause(RemoteState confirmedState) {
+        Boolean targetPlaying = pendingPlayPauseTarget;
+        if (targetPlaying == null) return;
+        boolean confirmedPlaying = "playing".equals(confirmedState.playbackState);
+        if (targetPlaying == confirmedPlaying) {
+            clearPendingPlayPause();
+            playPauseMotionPolicy.update(
+                    confirmedPlaying,
+                    replayingServiceState,
+                    activityStarted,
+                    animationsEnabled(),
+                    playPauseGlyph.progress()
+            );
+        } else if (confirmedState.revision > pendingPlayPauseRequestedAfterRevision) {
+            rollbackPendingPlayPause(true);
+        }
+    }
+
+    private void rollbackPendingPlayPause(boolean animate) {
+        if (pendingPlayPauseTarget == null && pendingPlayPauseRecovery == null) return;
+        clearPendingPlayPause();
+        float confirmedProgress = confirmedPlayPauseProgress();
+        if (animate && activityStarted) {
+            playPauseGlyph.animateTo(confirmedProgress, animationsEnabled());
+        } else {
+            playPauseGlyph.setProgressImmediately(confirmedProgress);
+        }
+    }
+
+    private void clearPendingPlayPause() {
+        pendingPlayPauseTarget = null;
+        pendingPlayPauseGeneration++;
+        cancelPendingPlayPauseRecovery();
+    }
+
+    private void cancelPendingPlayPauseRecovery() {
+        Runnable pending = pendingPlayPauseRecovery;
+        pendingPlayPauseRecovery = null;
+        if (pending != null) uiHandler.removeCallbacks(pending);
+    }
+
+    private float confirmedPlayPauseProgress() {
+        return state != null && "playing".equals(state.playbackState) ? 1f : 0f;
     }
 
     private void freezeProgress() {
-        setPositionAnchor(calculatedPositionSeconds(), SystemClock.elapsedRealtime());
-        anchorAdvancing = false;
+        playbackProgressCoordinator.freezeAt(SystemClock.elapsedRealtime());
+        progressSnapshotMustApplyImmediately = true;
+        renderProgress();
         restartProgressTicker();
     }
 
-    private boolean shouldAdvanceProgress() {
-        return activityStarted
-                && isConnectedStatus(status)
+    private boolean isConfirmedPlaybackAdvancing() {
+        return isConnectedStatus(status)
                 && state != null
-                && anchorAdvancing
+                && state.hasTrack
+                && durationSeconds > 0
                 && "playing".equals(state.playbackState);
     }
 
     private void restartProgressTicker() {
+        stopProgressTicker();
+        if (!activityStarted) return;
+        long now = SystemClock.elapsedRealtime();
+        boolean continuous = playbackProgressCoordinator.shouldRunContinuousUpdates(
+                true,
+                isConnectedStatus(status),
+                state != null
+                        && state.hasTrack
+                        && durationSeconds > 0
+                        && "playing".equals(state.playbackState)
+        );
+        if (continuous) {
+            if (animationsEnabled()) {
+                Choreographer.getInstance().postFrameCallback(progressFrameCallback);
+            } else {
+                uiHandler.postDelayed(
+                        progressTicker,
+                        PlaybackProgressCoordinator.REDUCED_MOTION_TICK_MILLISECONDS
+                );
+            }
+            return;
+        }
+
+        long pendingTimeout = playbackProgressCoordinator.pendingTimeoutDelayMilliseconds(now);
+        if (pendingTimeout >= 0L) {
+            uiHandler.postDelayed(progressTicker, Math.max(1L, pendingTimeout));
+        }
+    }
+
+    private void stopProgressTicker() {
         uiHandler.removeCallbacks(progressTicker);
-        if (shouldAdvanceProgress()) uiHandler.postDelayed(progressTicker, 1_000L);
+        Choreographer.getInstance().removeFrameCallback(progressFrameCallback);
+    }
+
+    private long durationMilliseconds() {
+        return Math.max(durationSeconds, 0) * 1_000L;
+    }
+
+    private int seekBarMaximumMilliseconds() {
+        long maximum = Math.max(durationMilliseconds(), 1L);
+        return maximum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) maximum;
+    }
+
+    private void updateSeekStateDescription(int displayedSeconds) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        trackSeek.setStateDescription(getString(
+                R.string.playback_position_value,
+                TimeFormatter.formatSeconds(displayedSeconds),
+                TimeFormatter.formatSeconds(durationSeconds)
+        ));
+    }
+
+    private static boolean animationsEnabled() {
+        return ArtworkTransitionFrameLayout.animationsEnabled();
     }
 
     private void showRatingDialog() {

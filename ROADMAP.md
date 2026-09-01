@@ -47,8 +47,8 @@ Implemented locally without changing Server `0.10.2`, Phone `0.5.0`, version cod
   visible volume, service-owned playback state, MediaSession, transport, Server, and Web UI remain
   unchanged.
 
-Control morphs/pulses, seek animation, a new connection indicator, and artwork-dependent control/
-chip colors remain separate future UI work.
+Control morphs/pulses and smooth seek presentation are implemented as the third stage below. A new
+connection indicator and artwork-dependent control/chip colors remain separate future UI work.
 
 ## Post-0.5.0 Phone UI improvement — artwork swipe and unified track transition
 
@@ -88,6 +88,35 @@ versions remain Server `0.10.2` / Phone `0.5.0` and API `v1`:
   Square geometry, crop/rounding, safe insets, the non-scrolling compact layout, visible volume,
   all controls/accessibility state, both services, MediaSession/Wear, transports, Server/Web UI,
   and API `v1` are unchanged.
+
+## Post-0.5.0 Phone UI improvement — control motion and smooth playback progress
+
+Implemented locally as the third stage of the future Phone `0.6.0` UI series, with Server `0.10.2`
+/ code 13, Phone `0.5.0` / code 14, and API `v1` intentionally unchanged:
+
+- confirmed Play/Pause state morphs one internal glyph between play and pause without moving or
+  scaling the primary button, background, ripple, padding, or touch target;
+- confirmed Shuffle state morphs between parallel non-crossing OFF arrows and crossed ON arrows,
+  while its existing selected tint and binary command semantics remain unchanged;
+- Like pulses only on a visible confirmed transition from any non-Like rating to rating `5`; initial
+  replay, duplicate `5`, removal, Dislike, and the rating dialog retain their existing behavior;
+- pure confirmed-state policies make duplicate renders idempotent and rapid binary reversals retarget
+  one Drawable animator from current progress. Activity replay, stop/detach, and disabled animator
+  scale settle immediately without an animator queue;
+- the existing platform playback SeekBar uses millisecond presentation progress sampled locally from
+  the unchanged service-owned monotonic `PlaybackUiSnapshot`; no network polling, callback-time
+  re-anchoring, second service model, or `RemoteSessionPlayer` change is introduced;
+- a pure reconciliation policy eases only small same-track playing discrepancies over a bounded
+  280 ms interval. Large discontinuities, track change, pause/resume, reconnect, and failed/timed-out
+  seek return directly to authoritative state;
+- manual drag blocks automatic thumb updates and retains one integer-second existing seek command,
+  one completion haptic, and the bounded pending-seek protection against stale snapshots;
+- a reusable lifecycle-bound frame callback runs only while Main is visible, connected, playing,
+  and not dragging. Elapsed text updates only at whole-second boundaries; animator scale `0` keeps
+  position accurate using a conservative 250 ms local cadence;
+- artwork theme/swipe/cache/transitions, square/non-scrolling layout, safe insets, visible volume,
+  metadata/chip/control colors, both services, MediaSession/Wear, transports, Server/Web UI, and API
+  `v1` remain unchanged.
 
 ## 0.10.1 Server / 0.4.2 Phone — QR and playback/UI regression fixes
 
