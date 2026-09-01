@@ -1,7 +1,7 @@
 # Poweramp Remote Roadmap
 
-Current public, release-validated versions are Server `0.10.2` and Phone Client `0.5.0`; API remains
-backward-compatible `v1`. Post-release presentation work below intentionally keeps those versions.
+Current release versions are Server `0.10.2` and Phone Client `0.6.0`; API remains backward-
+compatible `v1`. Server is unchanged in the Phone UI release.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
 
@@ -28,9 +28,9 @@ Implemented without a new service, connection runtime, transport, or API version
 The signed release pipeline and complete in-place real-device matrix passed with the exact final
 APKs; results are tracked in `STATUS.md` and `RELEASING.md`.
 
-## Post-0.5.0 Phone UI improvement — dynamic artwork theme
+## Phone 0.6.0 — dynamic artwork theme
 
-Implemented locally without changing Server `0.10.2`, Phone `0.5.0`, version codes, or API `v1`:
+Released without changing Server `0.10.2` or API `v1`:
 
 - the existing View-based main player derives one deterministic two/three-color dark palette from
   its already loaded artwork, with normalization and a calm fallback for absent, failed, neutral,
@@ -51,10 +51,9 @@ Control morphs/pulses and smooth seek presentation are implemented as the third 
 compact connection indicator and fixed, artwork-independent metadata-chip families are implemented
 as the fourth stage below; artwork-dependent control/chip colors remain separate future work.
 
-## Post-0.5.0 Phone UI improvement — artwork swipe and unified track transition
+## Phone 0.6.0 — artwork swipe and unified track transition
 
-Implemented locally as the second stage of the future Phone `0.6.0` UI series, while the declared
-versions remain Server `0.10.2` / Phone `0.5.0` and API `v1`:
+Released as the second Phone `0.6.0` UI package with Server `0.10.2` and API `v1` unchanged:
 
 - horizontal gestures are recognized only inside the existing square artwork container; left maps
   to Next and right to Previous after a centralized touch-slop, direction-dominance, and commit
@@ -90,10 +89,10 @@ versions remain Server `0.10.2` / Phone `0.5.0` and API `v1`:
   all controls/accessibility state, both services, MediaSession/Wear, transports, Server/Web UI,
   and API `v1` are unchanged.
 
-## Post-0.5.0 Phone UI improvement — control motion and smooth playback progress
+## Phone 0.6.0 — control motion and smooth playback progress
 
-Implemented locally as the third stage of the future Phone `0.6.0` UI series, with Server `0.10.2`
-/ code 13, Phone `0.5.0` / code 14, and API `v1` intentionally unchanged:
+Released as the third Phone `0.6.0` UI package, with Server `0.10.2` / code 13, Phone `0.6.0` /
+code 15, and API `v1`:
 
 - an accepted Play/Pause tap immediately retargets one internal glyph while the unchanged command
   is sent; matching confirmation keeps it, while mismatch/failure/timeout returns to authoritative
@@ -122,11 +121,10 @@ Implemented locally as the third stage of the future Phone `0.6.0` UI series, wi
   metadata/chip/control colors, both services, MediaSession/Wear, transports, Server/Web UI, and API
   `v1` remain unchanged.
 
-## Post-0.5.0 Phone UI improvement — connection indicator and metadata chip styles
+## Phone 0.6.0 — connection indicator and metadata chip styles
 
-Implemented locally as the fourth and final UI package planned before the future Phone `0.6.0`
-versioning task. Declared Server `0.10.2` / code 13, Phone `0.5.0` / code 14, and API `v1` remain
-unchanged:
+Released as the fourth and final planned Phone `0.6.0` UI package. Server `0.10.2` / code 13 and API
+`v1` remain unchanged; Phone advances to code 15:
 
 - the direct top-right Player devices action is now a compact, one-line pill driven only by the
   existing controller callbacks and `PlayerDeviceSnapshot`: LAN and Wi-Fi Direct have distinct

@@ -7,7 +7,7 @@ controls, or a compatible Wear OS controller operates it over a local connection
 Current versions:
 
 - Server `0.10.2` (`versionCode 13`)
-- Phone Client `0.5.0` (`versionCode 14`)
+- Phone Client `0.6.0` (`versionCode 15`)
 - local API `v1`
 
 The Server and Phone Client are separate APKs with independent version numbers.
@@ -35,7 +35,11 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
 - manual persistent Bearer-token pairing as a camera-free fallback;
 - LAN NSD discovery with automatic Wi-Fi Direct fallback;
 - Android MediaSession, media notification/lock-screen controls, and compatible Wear OS controls;
-- a compact Phone main menu with Player devices, Settings, app language, and About surfaces;
+- a compact Phone connection entry plus a main menu with Settings, app language, and About;
+- an artwork-derived dark theme with smooth palette transitions and cached Previous/Next artwork
+  gestures;
+- animated playback controls, smooth event-driven seek presentation, a compact LAN/Wi-Fi Direct
+  status indicator, and stable muted metadata-chip families;
 - complete English and Russian Phone UI, scanner, dialogs, accessibility text, and notifications;
 - an authenticated English embedded Web UI for browsers on the local network.
 
@@ -93,14 +97,14 @@ group owner for the current fallback connection to work.
 Download the two APKs from the [latest GitHub Release](../../releases/latest):
 
 - `Poweramp-Remote-Server-v0.10.2.apk`
-- `Poweramp-Remote-Phone-v0.5.0.apk`
+- `Poweramp-Remote-Phone-v0.6.0.apk`
 
 The release also provides `SHA256SUMS.txt` plus the project and third-party license notices.
 
-> **Update from the first public release:** install Server `0.10.2` over `0.10.1` and Phone Client
-> `0.5.0` over `0.4.2` without uninstalling. Both applications retain their existing IDs and use
-> the same permanent release certificate, so the Server identity/API token and Phone pairing/
-> Bearer credential remain in place. Re-pairing is not required.
+> **Phone UI update:** Server remains `0.10.2`. Install Phone Client `0.6.0` directly over public
+> Phone `0.5.0` without uninstalling. The application ID and permanent release certificate are
+> unchanged, so the saved Server identity and Bearer credential remain in place and re-pairing is
+> not required.
 
 > **Historical debug-build boundary:** pre-release APKs were signed with Android debug
 > certificates. Release-signed APKs still cannot update those installations. Uninstall both old
@@ -122,11 +126,12 @@ After successful pairing, the Phone Client stores the Server identity and creden
 backup-excluded app storage and reconnects automatically. If LAN discovery fails, the client may
 offer or start Wi-Fi Direct fallback; confirm any system dialogs shown on either device.
 
-The Phone main screen keeps **Player devices** on the right and adds a menu button on the left.
-**Settings** selects **System default**, **Russian**, or **English** without changing pairing or
-stopping the connection service; **About** shows exact installed version metadata, licenses,
-repository links, and the project independence notice. System default uses Russian only for a
-primary Russian system locale and English otherwise.
+The Phone main screen uses a compact LAN/Wi-Fi Direct connection pill on the right; tapping it opens
+**Player devices**. The menu button on the left opens **Settings** and **About**. Settings selects
+**System default**, **Russian**, or **English** without changing pairing or stopping the connection
+service; About shows exact installed version metadata, licenses, repository links, and the project
+independence notice. System default uses Russian only for a primary Russian system locale and
+English otherwise.
 
 For browser control, open `http://<SERVER-IP>:8765/` from a device on the same trusted LAN and log
 in with the credential copied through the Server's explicit Web UI credential action.
@@ -186,7 +191,6 @@ Poweramp Remote is an independent open-source project. It is not affiliated with
 sponsored by, or supported by Poweramp or Max MP. Poweramp and related names and logos are the
 property of their respective owners and are used only to describe compatibility.
 
-> Google Play Protect may classify this first public release as an “Uncommon” app because its new
-> release certificate has not yet accumulated reputation. This warning does not indicate a detected
-> malware category. Download APKs only from this repository and verify them against
-> `SHA256SUMS.txt` before installation.
+> Google Play Protect may classify a sideloaded release as an “Uncommon” app. This warning does not
+> by itself indicate a detected malware category. Download APKs only from this repository and verify
+> them against `SHA256SUMS.txt` before installation.

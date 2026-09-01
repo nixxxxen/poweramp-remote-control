@@ -6,11 +6,11 @@ Poweramp Remote provides a reliable native Android Server for any compatible And
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
 - Server: `0.10.2` (`versionCode 13`)
-- Phone Client: `0.5.0` (`versionCode 14`)
+- Phone Client: `0.6.0` (`versionCode 15`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; the Server counter is now `13` and the Phone counter is `14`. This preserves
+`versionCode 7`; the Server counter is now `13` and the Phone counter is `15`. This preserves
 Android upgrade compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
@@ -445,9 +445,9 @@ API v1 intentionally preserves both. Wi-Fi Direct behavior also varies by vendor
 be selected as group owner for the current IPv4 client path, system approval may be required after
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
-Exact completed automation and the passed Server `0.10.2` / Phone `0.5.0` in-place hardware matrix
-are recorded in `STATUS.md`. Broader Android/OEM coverage remains ongoing rather than a blocker for
-this release.
+Exact completed automation, the earlier Server `0.10.2` / Phone `0.5.0` in-place release matrix,
+and the maintainer-confirmed Phone `0.6.0` UI validation are recorded in `STATUS.md`. Broader
+Android/OEM coverage remains ongoing rather than a blocker for this release.
 
 ## Roadmap
 

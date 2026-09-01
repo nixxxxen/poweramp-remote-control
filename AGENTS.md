@@ -8,13 +8,13 @@ Android player device with Poweramp, plus a separate native Phone Client.
 Current application versions are independent:
 
 - Server: `0.10.2` (`versionCode 13`);
-- Phone Client: `0.5.0` (`versionCode 14`);
+- Phone Client: `0.6.0` (`versionCode 15`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
 Both legacy apps previously shipped `versionCode 7`; the Server counter is now `13` and the Phone
-counter is `14`. Future Server and Phone codes must continue to advance separately. The legacy IDs
+counter is `15`. Future Server and Phone codes must continue to advance separately. The legacy IDs
 are not the current product or source namespace.
 
 ## Read first
@@ -25,7 +25,7 @@ Before any non-trivial change:
 2. Read `STATUS.md`.
 3. Read `ROADMAP.md` when changing planned scope.
 4. Inspect the existing implementation before adding a new integration path.
-5. Preserve all functionality confirmed working in version `0.4.0`.
+5. Preserve all functionality confirmed working in Phone Client `0.6.0`.
 6. Prefer documented/public Poweramp and Android APIs.
 7. Do not assume an API field, unit, index base, event, command, permission, or network behavior
    unless verified by documentation, source/API definitions, tests, or device behavior.
@@ -103,11 +103,15 @@ Version history:
   platform `LocaleManager` on Android 13+ with a configuration-context fallback on API 26–32.
   Pairing, credentials, discovery, services, MediaSession, notification controls, and API `v1`
   remain compatible with the first public release.
+- Phone Client `0.6.0` adds the unified dynamic artwork theme, cached artwork swipe/navigation,
+  retargetable playback-control motion, smooth locally extrapolated seek presentation, a compact
+  connection-status indicator, and fixed artwork-independent metadata-chip families. Server stays
+  `0.10.2`; services, transport, pairing, MediaSession, Web UI, and API `v1` are unchanged.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
 
-## Regression-sensitive baseline: Server 0.10.2 / Phone Client 0.5.0
+## Regression-sensitive baseline: Server 0.10.2 / Phone Client 0.6.0
 
 The following functionality is implemented and working:
 
@@ -163,8 +167,10 @@ The following functionality is implemented and working:
 - manual Bearer-token fallback for devices without a usable camera;
 - exact target discovery through LAN first and Wi-Fi Direct fallback;
 - separate generic `Player devices` screen with status, transport, diagnostics, re-pair, and forget;
-- playback-only, non-scrolling main Phone screen with metadata chips and compact controls;
-- symmetric main-menu and Player devices buttons plus presentation-only Settings/About screens;
+- playback-only, non-scrolling main Phone screen with dynamic artwork styling, fixed metadata-chip
+  families, smooth seek presentation, animated compact controls, and cached artwork navigation;
+- compact main-menu and connection-indicator actions plus presentation-only Player devices,
+  Settings, and About screens;
 - persisted System default / Russian / English Phone language selection that never clears pairing or
   restarts the connection runtime;
 - complete English-fallback and Russian Phone resources, including scanner/dialog/status/error,

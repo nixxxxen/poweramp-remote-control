@@ -52,7 +52,7 @@ private key or passwords.
 Create exactly these public artifacts:
 
 - `Poweramp-Remote-Server-v0.10.2.apk`
-- `Poweramp-Remote-Phone-v0.5.0.apk`
+- `Poweramp-Remote-Phone-v0.6.0.apk`
 - `SHA256SUMS.txt`
 - `LICENSE`
 - `THIRD_PARTY_NOTICES.md`
@@ -82,33 +82,39 @@ public release. A fresh install is useful additional coverage but does not repla
 Build the exact release-signed APKs from the final release commit with the same permanent signing
 certificate, install those exact files, and record device models and Android versions.
 
-For Server `0.10.2` / Phone Client `0.5.0`, complete every item:
+For Server `0.10.2` / Phone Client `0.6.0`, complete every item:
 
-1. Install Server `0.10.2` over public Server `0.10.1` without uninstalling it.
-2. Confirm that Server identity, API token, browser/API access, and pairing state remain intact.
-3. Install Phone `0.5.0` over public Phone `0.4.2` without uninstalling it.
-4. Confirm that the saved Server identity and Bearer credential remain intact and reconnect without
+1. Keep the existing public Server `0.10.2` installed and confirm its identity, API token,
+   browser/API access, and pairing state remain intact.
+2. Install Phone `0.6.0` over public Phone `0.5.0` without uninstalling it.
+3. Confirm that the saved Server identity and Bearer credential remain intact and reconnect without
    re-pairing.
-5. Check the first launch in **System default**.
-6. Switch **Russian → English → Russian** and confirm immediate presentation changes.
-7. Check Main, Player devices, Settings, About, dialogs, scanner, notification actions, foreground
-   notification text, and notification-channel copy in both languages.
-8. Restart Activities, both applications, and both devices; confirm language selection and pairing
-   survive every restart.
-9. Check the Server Activity, foreground notification/channel, and embedded Web UI for English-only
-   presentation.
-10. Repeat both QR pairing and manual Bearer-token pairing.
-11. Repeat LAN/NSD operation and Wi-Fi Direct fallback, including recovery back to preferred LAN.
-12. Repeat background/screen-off operation, artwork, all metadata, playback, seek, rating,
-    Like/Dislike, shuffle, player-device volume, MediaSession, lock screen, compatible Wear OS, and
-    reconnect behavior.
+4. Check Main, Player devices, Settings, About, dialogs, scanner, foreground notification, and
+   notification actions in **System default**, **Russian**, and **English**.
+5. Exercise dynamic artwork palettes with bright, dark, neutral, missing, and rapidly changing
+   covers; confirm lifecycle restoration and disabled-animation behavior.
+6. Exercise cached and uncached artwork swipes, short/cancelled gestures, rapid Previous/Next, and
+   external track changes without stale artwork or extra commands.
+7. Exercise Play/Pause, Previous/Next, Like/Dislike, Shuffle, smooth progress, manual seek, command
+   failure/timeout, pause/resume, and track changes.
+8. Verify LAN, Wi-Fi Direct, Connecting, and Disconnected indicator states plus stable codec,
+   bit-depth, sample-rate, and bitrate chip families in both languages and compact layouts.
+9. Repeat background/resume, rotation, disconnect/reconnect, screen-off operation, and application/
+   device restarts while preserving pairing, language, playback position, and current presentation.
+10. Repeat QR and manual Bearer pairing, LAN/NSD operation, Wi-Fi Direct fallback, and recovery back
+    to preferred LAN.
+11. Repeat player-device volume, MediaSession, notification/lock-screen, compatible Wear OS, and Web
+    UI controls.
+12. Confirm Library, Queue, Lyrics, audio streaming, and full multi-player selection remain absent
+    rather than partially exposed.
 
 Only the exact release-signed APKs intended for upload count as validated. Any failure remains a
 release blocker until understood, fixed or explicitly documented, and re-tested. Do not call the
 release ready before the maintainer confirms every hardware item.
 
-Server `0.10.2` / Phone Client `0.5.0` passed this complete matrix on 2026-08-23 using the exact
-release-signed APKs built from commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`. Server ran on a
+The previous Server `0.10.2` / Phone Client `0.5.0` release passed its complete matrix on
+2026-08-23 using the exact release-signed APKs built from commit
+`675d1affd8776bb6b05dfa1795df51a18de08fcc`. Server ran on a
 Hiby R4 with Android 12 and Phone Client ran on a Samsung Galaxy S24 Ultra with Android 16. APK
 metadata, signing-certificate continuity, alignment, and file hashes are recorded in `STATUS.md`.
 The release tag must point to that APK-source commit; any later validation-only documentation

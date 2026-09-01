@@ -3,33 +3,30 @@
 Current versions:
 
 - Server: `0.10.2` (`versionCode 13`)
-- Phone Client: `0.5.0` (`versionCode 14`)
+- Phone Client: `0.6.0` (`versionCode 15`)
 - API: backward-compatible `v1`
 
 ## Stage
 
-The repository builds two native Android applications. Server `0.10.2` and Phone Client `0.5.0`
-form the release-validated second-public-release baseline for complete Phone English/Russian
-localization, a minimal Phone navigation menu, Settings/app-language selection, About, and an
-English-only Server/Web UI. They do not add Library, Queue, Lyrics, a new transport, or full
-multi-player persistence. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
+The repository builds two native Android applications. Server `0.10.2` remains unchanged; Phone
+Client `0.6.0` is the completed UI-refinement release with dynamic artwork styling, cached artwork
+navigation, control motion, smooth playback progress, a compact connection indicator, and fixed
+metadata-chip families. It retains complete English/Russian Phone localization, Settings/About,
+and the English-only Server/Web UI. Library, Queue, Lyrics, a new transport, and full multi-player
+persistence remain absent. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
 pairing/reconnect path, MediaSession, volume, Web UI, and API `v1` contracts remain in place.
 
 The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
 real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from
 commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; their public release remains the upgrade baseline
-for the unversioned post-release work below.
+for the Phone `0.6.0` in-place upgrade described below.
 
-Post-release development now contains all four requested Phone UI refinements on the existing
-View-based main player: the unified dynamic artwork theme; artwork swipe and one shared track-change
-transition; control morph/pulse motion plus smooth playback progress; and the compact connection
-indicator with fixed metadata-chip style families. Versions intentionally remain Server `0.10.2` /
-code 13 and Phone `0.5.0` / code 14; API remains `v1`. This working candidate does not change Server,
-Web UI, either service, connection/playback semantics, or transport. Automated verification is
-recorded below; physical-device visual/performance validation remains required before treating this
-post-release series as release-ready or assigning the future Phone `0.6.0` version.
+All four requested Phone UI refinements are now assigned to Phone `0.6.0` / code 15 while Server
+remains `0.10.2` / code 13 and API remains `v1`. The maintainer confirmed the complete UI and core
+regression matrices on the existing physical-device setup on 2026-09-01. Automated verification is
+recorded below; the final release task rebuilds and verifies the exact permanently signed APKs.
 
-## Current post-release Phone implementation: dynamic artwork theme
+## Phone 0.6.0: dynamic artwork theme
 
 - `RemoteState.artworkKey()` remains the stable artwork identity and is combined in memory with the
   paired public Server ID. Revision, playback-position, Activity, and transient endpoint changes do
@@ -63,7 +60,7 @@ post-release series as release-ready or assigning the future Phone `0.6.0` versi
   descriptions, selected states, player geometry, safe insets, square artwork, and always-visible
   volume remain unchanged.
 
-## Current post-release Phone implementation: artwork swipe and track transition
+## Phone 0.6.0: artwork swipe and track transition
 
 - The existing square artwork container is now a two-layer `ImageView` surface with the same 1:1
   measurement, rounded clipping, `centerCrop`, placeholder padding, content description, and compact
@@ -124,7 +121,7 @@ post-release series as release-ready or assigning the future Phone `0.6.0` versi
   analysis or artwork request. Disabled animator scale leaves commands active, skips pending and
   content tweening, and applies the final confirmed artwork immediately.
 
-## Current post-release Phone implementation: control motion and smooth progress
+## Phone 0.6.0: control motion and smooth progress
 
 - Play/Pause now uses one custom tint-aware Drawable whose single filled play endpoint and compatible
   intermediate geometry morph cleanly into pause bars. Shuffle uses the same bounded pattern to
@@ -167,7 +164,7 @@ post-release series as release-ready or assigning the future Phone `0.6.0` versi
   metadata formatting, control colors, services, transport, pairing/reconnect, MediaSession/Wear,
   notification, Server/Web UI, and API `v1` remain unchanged.
 
-## Current post-release Phone implementation: connection indicator and metadata chip styles
+## Phone 0.6.0: connection indicator and metadata chip styles
 
 - The top-right action still opens the existing `PlayerDevicesActivity`, but now renders a compact
   one-line pill without a square ripple. Its existing 40 dp touch area contains a 36 dp rounded
@@ -534,6 +531,22 @@ manual actions.
 
 ## Verification
 
+### Phone 0.6.0 release-candidate automation (2026-09-01)
+
+- A clean permanently signed release pipeline completed through the pinned Gradle Wrapper `8.14.3`
+  with JDK 17 and Android SDK 36:
+  `clean :app:testReleaseUnitTest :phone:testReleaseUnitTest :app:lintRelease :phone:lintRelease
+  :app:assembleRelease :phone:assembleRelease --no-build-cache --no-daemon --console=plain`.
+- Server passed `78/78` release JVM tests and Phone passed `134/134`; all 212 executions have zero
+  failures or errors. Phone release lint reports no issues. Server release lint has zero errors and
+  only the two unchanged dependency-update notices for the pinned Gradle wrapper and test-only
+  `org.json`.
+- Both release variants used the permanent signing configuration stored outside the repository.
+  No keystore, signing property, credential, pairing secret, or generated APK is tracked.
+- The maintainer confirmed the complete Phone `0.6.0` UI and core regression matrices on the
+  existing physical-device setup. Exact APK metadata, certificate continuity, alignment, and
+  checksums are verified again after the final release commit.
+
 ### Connection indicator/metadata-style automation (2026-09-01)
 
 - The required final clean debug pipeline completed through pinned Gradle Wrapper `8.14.3` with
@@ -695,10 +708,10 @@ manual actions.
 - `git diff --check` passes. Server source, Web UI, API, Gradle dependency declarations, versions,
   signing configuration, and release history are unchanged.
 
-### Connection indicator/metadata styles real-device checks still required
+### Connection indicator/metadata styles real-device validation (passed 2026-09-01)
 
-Do not mark this fourth unversioned Phone UI stage complete until the exact candidate passes on a
-physical Phone device:
+The maintainer confirmed the exact Phone `0.6.0` candidate passed this matrix on the existing
+physical Phone setup:
 
 - Verify the pill shows LAN on ordinary NSD/LAN, Wi-Fi Direct on direct fallback, Connecting during
   discovery/connection/retry, and Disconnected for ordinary loss plus every reachable permission,
@@ -723,18 +736,20 @@ physical Phone device:
   position-only updates. Missing optional values remain hidden and existing formatter output,
   horizontal scrolling, chip spacing, artwork/control motion, seek, and volume remain intact.
 
-### Control motion/smooth-progress real-device checks still required
+### Control motion/smooth-progress real-device validation (passed 2026-09-01)
 
-Do not mark this third unversioned Phone UI stage release-ready until the exact candidate passes on
-a physical Phone device:
+The maintainer confirmed the exact Phone `0.6.0` candidate passed this matrix on the existing
+physical Phone setup:
 
-- Exercise Play/Pause during ordinary playback, then change confirmed state rapidly in both
-  directions. The inner glyph must reverse smoothly from its current shape while the primary button,
-  ripple, touch target, content description, and command behavior stay fixed. Repeat an external
-  change from Poweramp, notification, MediaSession/lock screen, and Wear.
-- Add and remove Like, repeat duplicate rating `5`, move rapidly among ratings, and change rating
-  externally. Only a newly confirmed non-Like → `5` transition while Main is visible may pulse once;
-  selected tint and exact Poweramp rating semantics must remain correct.
+- Exercise Play/Pause during ordinary playback and rapidly in both directions. Accepted taps must
+  retarget immediately, matching snapshots must not replay the morph, and mismatch/failure/timeout
+  must restore confirmed state while the primary button, rounded pressed surface, touch target,
+  content description, and command behavior stay fixed. Repeat an external change from Poweramp,
+  notification, MediaSession/lock screen, and Wear.
+- Add and remove Like and Dislike, repeat duplicate ratings `5` and `1`, move rapidly among ratings,
+  and change rating externally. Only newly confirmed inactive-to-active Like/Dislike transitions
+  while Main is visible may pulse once; selected tint and exact Poweramp rating semantics must remain
+  correct.
 - Toggle Shuffle OFF/ON normally and rapidly, then change it externally. Confirm parallel OFF arrows,
   recognizable crossed ON arrows, one retargeted morph, immediate selected/content/state description,
   and unchanged binary command behavior.
@@ -752,8 +767,9 @@ a physical Phone device:
   endpoints and current extrapolated service position without a false celebration or stale callback
   re-anchor.
 - Set animator duration scale to `0` before launch and while Main is visible. Play/Pause and Shuffle
-  must snap to confirmed endpoints, Like must not pulse, and playback position must remain accurate at
-  the conservative cadence. Restore scale and verify later confirmed changes animate normally.
+  must snap to endpoints, Previous/Next must not nudge, Like/Dislike must not pulse, and playback
+  position must remain accurate at the conservative cadence. Restore scale and verify later changes
+  animate normally.
 - Repeat on compact portrait and landscape/cutout/navigation-inset layouts. All controls, square
   artwork, metadata, seek precision, always-visible volume, haptics, selected states, touch targets,
   and accessibility descriptions must remain intact.
@@ -761,10 +777,10 @@ a physical Phone device:
   animator may run after `onStop()`/detach, and no new artwork request, network polling, service,
   MediaSession path, or growing animator chain may appear.
 
-### Artwork swipe/track-transition real-device checks still required
+### Artwork swipe/track-transition real-device validation (passed 2026-09-01)
 
-Do not mark this second unversioned Phone UI stage release-ready until the exact candidate passes on
-a physical Phone device:
+The maintainer confirmed the exact Phone `0.6.0` candidate passed this matrix on the existing
+physical Phone setup:
 
 - Navigate for the first time to an artwork that has never been cached. During drag and the load
   gap, confirm the current cover uses only a restrained elastic/pending offset, most of it stays
@@ -783,8 +799,8 @@ a physical Phone device:
   left and Previous for right, outgoing/incoming direction, and no additional haptic when crossing
   the threshold repeatedly before release. Repeat with controls unavailable/disconnected.
 - Exercise Previous/Next buttons and alternate buttons with swipes. Both sources must use the same
-  transition, keep their existing button ripple/haptic/accessibility behavior, and send one command
-  per accepted action.
+  transition, keep rounded pressed/haptic/accessibility behavior, nudge the button glyphs, and send
+  one command per accepted action.
 - Perform rapid Next/Previous sequences, including mixed directions while a prior cover is still
   moving and while Server snapshots are coalesced. Confirm one active visual transition, no growing
   queue, no jump back to an old/cached cover, no stale preview after an identity mismatch, and final
@@ -810,10 +826,10 @@ a physical Phone device:
   more than three process-cache bitmap entries, no more than two live artwork layers, no animator
   accumulation, and no extra network/artwork/palette request.
 
-### Dynamic artwork theme real-device checks still required
+### Dynamic artwork theme real-device validation (passed 2026-09-01)
 
-Do not mark this unversioned post-release change release-ready until the following matrix passes on
-physical Phone devices, preferably including API 26–32 and Android 13+:
+The maintainer confirmed the exact Phone `0.6.0` candidate passed this matrix on the existing
+physical Phone setup. Broader API 26–32/OEM coverage remains useful follow-up work:
 
 - Play tracks with colorful, very bright, dark, low-saturation, nearly monochrome, missing, and
   malformed/unavailable artwork. Confirm palettes remain characteristic but dark, fallback is calm,
@@ -1068,10 +1084,7 @@ and hardening work should additionally exercise more vendors, Android versions, 
 
 ## Next scope
 
-Complete the physical-device matrices above for all four Phone UI packages: dynamic artwork theme,
-unified artwork navigation/track transition, control motion/smooth progress, and the connection
-indicator/fixed metadata styles. Keep Server `0.10.2`, Phone `0.5.0`, and API `v1` unchanged until a
-later task performs the one coordinated Phone `0.6.0` version increase. Do not begin Player devices
-redesign, artwork-dependent control/chip colors, multi-player foundation, pairing/transport
-security, Library, Queue, or Lyrics without separate scope; their ordering remains in
-[`ROADMAP.md`](ROADMAP.md).
+Phone `0.6.0` completes the planned UI series. The next product scope is the multi-player foundation
+and pairing hardening described in [`ROADMAP.md`](ROADMAP.md). Do not begin Player devices redesign,
+artwork-dependent control/chip colors, multi-player persistence, pairing/transport security,
+Library, Queue, or Lyrics without separate scope.
