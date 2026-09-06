@@ -8,13 +8,13 @@ Current versions:
 
 ## Stage
 
-The repository builds two native Android applications. Server `0.10.2` remains unchanged; Phone
-Client `0.6.0` is the completed UI-refinement release with dynamic artwork styling, cached artwork
-navigation, control motion, smooth playback progress, a compact connection indicator, and fixed
-metadata-chip families. It retains complete English/Russian Phone localization, Settings/About,
-and the English-only Server/Web UI. Library, Queue, Lyrics, a new transport, and full multi-player
-persistence remain absent. The one Server service, one Phone service, LAN/NSD, Wi-Fi Direct,
-pairing/reconnect path, MediaSession, volume, Web UI, and API `v1` contracts remain in place.
+The repository builds two native Android applications. At unchanged Server `0.10.2`, the first
+Library/Queue-series stage now provides the additive Server Library/Search/current-Queue API
+foundation. Phone Client remains `0.6.0`; it has no Library/Search/Queue UI or network integration
+yet. API stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
+Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
+volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
+full multi-player persistence remain absent.
 
 The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
 real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from
@@ -25,6 +25,130 @@ All four requested Phone UI refinements are now assigned to Phone `0.6.0` / code
 remains `0.10.2` / code 13 and API remains `v1`. The maintainer confirmed the complete UI and core
 regression matrices on the existing physical-device setup on 2026-09-01. Automated verification is
 recorded below; the final release task rebuilds and verifies the exact permanently signed APKs.
+
+## Server 0.10.2: Library/Search/Queue API foundation
+
+### Official Poweramp API audit
+
+- The current official `maxmpz/powerampapi` master was audited at commit
+  `60cac5a24348bde03e0619c0ab891bd752750b92` dated 2026-09-01: `PowerampAPI.java`, Intent API
+  comments/readme, `TableDefs.kt`, and the official example Activities.
+- Public data queries are under `content://com.maxmpz.audioplayer.data`. Confirmed foundation paths
+  cover All tracks, Artists and artist files, Albums and album files, plain Folders, folder hierarchy,
+  Playlists and playlist entries, and Queue. The source also mentions `search?flt`, but that obsolete
+  path was rejected after the device failure described below. Public query parameters include
+  integer `lim` and `shf`; Server uses only `lim`. No public offset/continuation parameter is documented.
+- Confirmed fields are limited to public `TableDefs`: underlying `folder_files._id`, title/file name,
+  artist, album, millisecond duration, category `num_files`/hierarchy counts, folder parent ID,
+  `playlist_entries._id`, and `queue._id`. Filesystem paths, raw URLs, and internal-only data are not
+  returned.
+- `OPEN_TO_PLAY` is public command `20`. Official documentation explicitly requires a playlist
+  entry ID or queue entry ID, rather than the underlying track ID, where duplicates are allowed.
+  Exact track, album, playlist, playlist-entry, and queue-entry URIs are allowlisted and built only
+  by Server.
+- Android 8+ data access uses public `ACTION_ASK_FOR_DATA_PERMISSION` with caller package extra
+  `pak`. The official example states Poweramp must be running for the request to work.
+- The public album-art authority is `com.maxmpz.audioplayer.aa`; track art uses `files/{realId}`.
+  The documented `hd`/`dl` parameters are left at provider defaults, and Server never requests a
+  download.
+- The official example contains an Add-to-Queue implementation using public queue inserts plus
+  `ACTION_RELOAD_DATA`, but this stage intentionally does not expose it. No documented public
+  Remove, Reorder, or Play Next contract was found. The official MediaSession notes explicitly say
+  `AddQueueItem` and `RemoveQueueItem` are unsupported. Mutation capabilities all remain `false`.
+
+### Service-owned source and additive API v1
+
+- `PowerampLibrarySource` is owned by the existing `RemotePlaybackService`; its small
+  `PowerampLibraryProvider` boundary has one Android `ContentResolver` adapter and fake JVM sources.
+  There is no service, connection path, network runtime, polling loop, database copy, or Phone path.
+- New Bearer-only routes are fully specified in `PROJECT.md`: `/api/v1/library/...`,
+  `/api/v1/search`, `/api/v1/queue`, `/api/v1/library/play`, and lazy authenticated track artwork.
+  Browser-session cookies cannot use them, so the current Web UI remains unchanged. Existing v1
+  routes and payloads are untouched.
+- `limit` defaults to 25 and is capped at 100. Opaque 24-character Base64URL page tokens last five
+  minutes, are category/container/search-bound, and are bounded to a 1000-row continuation window.
+  Server uses only Poweramp's documented increasing `lim`, closes each Cursor per request, and emits
+  `truncated=true` rather than inventing provider offset semantics.
+- Input validation rejects unknown categories/parameters, duplicate/malformed query parameters,
+  invalid UTF-8, non-positive/overflow IDs, invalid/expired/cross-query tokens, and every client URI.
+  Search is 1–160 non-control characters. Items preserve separate playlist/queue `entryId`, handle
+  null/missing/unexpected columns, bound text, and expose no private path or raw provider URI.
+- Every play request is structured ID JSON, revalidated against the exact provider item, converted
+  to one allowlisted Poweramp URI, and dispatched through the existing `PowerampClient`. Queue order
+  is retained. `current=true` requires exact Queue category plus playback `track.id == queue._id`;
+  without that Queue snapshot the nullable field stays `null`. Duplicate-current matching remains a
+  real-device check because the public `Track.ID` wording is less explicit for Queue than for a
+  playlist entry.
+- Library artwork is a lazy Bearer-protected proxy for documented `aa/files/{trackId}`, reusing the
+  existing bounded decoding/encoding policy: closed streams, 720 px decode target, 5 MiB JPEG cap,
+  and no more than two concurrent loads.
+
+### Data permission and failures
+
+- Provider success, Poweramp missing, permission required, provider unavailable, and provider error
+  are distinct sanitized states. Data routes return controlled `403`/`503` errors; capability
+  discovery remains available. Exceptions, credentials, search strings, and provider URIs are not
+  reflected in responses or logs.
+- HTTP never opens Poweramp UI. The English-only existing Server Activity shows Library access and
+  exposes the official permission Activity only after an explicit user press. Binding, return from
+  Poweramp, and explicit refresh probe again, so granting access is recognized without a Server
+  restart. Required Poweramp/system confirmation is not bypassed.
+- Active provider requests have request-local Android cancellation and are cancelled during Server
+  shutdown. Search results are request-local and cannot overwrite another request; the entire
+  library is never pushed over WebSocket.
+
+### Search through `/files`: device-confirmed (2026-09-06)
+
+- On Poweramp `1025004-fa3ec08671d`, `/files`, Albums, and track launch work, while
+  `/search?flt=...` crashes `RestProvider.query` with either the custom or default projection.
+  Upstream commit `8ca1dcbfbd573c221733bba34f4a20d9ebe2482f` marks `PARAM_FILTER` as “not used
+  anymore”. The existing unstable `ContentProviderClient` protection remains unchanged.
+- The implementation never calls `/search`: API search queries `/files?lim=N` with the working
+  track projection and a fixed `LIKE ? ESCAPE '!'` selection over `title_tag`,
+  `folder_files.name`, `artist`, and `album`. Real-device logcat confirmed that unqualified `name`
+  was ambiguous in Poweramp's `/files` join with `folders`; the implementation qualifies that one
+  column. The escaped contains-pattern is supplied only through four `selectionArgs`; there is no
+  local filtering, fallback, full-library load, or index.
+- The maintainer retested both cases: a known query returns the matching track with its metadata,
+  artwork route and play target; a nonexistent query returns `items: []`, `nextPageToken: null`,
+  and `truncated: false`. Together with the generated SQL in device logcat, this confirms that
+  Poweramp applies `selection`/`selectionArgs`, rather than ignoring them and returning All tracks.
+  No private search text, track metadata, or device identifiers are copied into this handoff.
+- Earlier, acquiring an unstable `ContentProviderClient` fixed Android killing Server as a stable
+  dependent of the crashed Poweramp provider. The adapter performs one query only, maps provider
+  death/remote failures to a controlled `503`, and closes the Cursor before the client. That
+  protection remains; the working search avoids the crashing endpoint altogether.
+- Basic All tracks, Albums (including `trackCount` and `durationMilliseconds`), and track-ID play
+  are also maintainer-confirmed. Album artwork and extra category metadata remain intentionally
+  `null`; they are not regressions and are not part of this foundation.
+
+### Foundation review and next-stage readiness (2026-09-06)
+
+- Reviewed the complete tracked/untracked foundation: one service-owned provider adapter, strict
+  query/ID/play validation, Bearer-only new routes, bounded paging/artwork, permission presentation,
+  controlled failures, and the unchanged existing state/control/pairing/WebSocket paths.
+- Found and fixed one continuation edge case: for a page size such as 33, the final partial page
+  could include the 1001st provider row and report `truncated: false`. The page end is now clipped
+  to 1000 before iteration, preserving the extra row solely as a more-data detector. A regression
+  first failed on the old code and now covers 999, 1000, and 1001 matching rows with 33-item pages.
+- The Server base is ready for the separately scoped Phone navigation and Library/Search task.
+  This does not certify the entire device matrix: remaining categories, permission recovery,
+  Unicode/artist/album search, live large-library pagination, arbitrary artwork, and exact duplicate
+  playlist/Queue selection still need device checks. Verify the Queue-specific matrix before its
+  Phone UI. No Queue mutations, new Phone UI, version bump, or transport changes are included.
+
+### Automated coverage
+
+- The full Server debug JVM suite before the `/files` search correction passed
+  `104/104` executions with zero failures. New regressions
+  cover provider/play/artwork URI allowlists, arbitrary/malformed URI rejection, IDs, UTF-8 search,
+  query/limit/token validation, bounded continuation/truncation, JSON/null serialization, every
+  foundation category, missing/unexpected fields, cancellation/result isolation, typed and
+  unexpected failure containment, queue order/duplicate entry IDs/current matching, exact
+  existing-entry selection, Bearer-only
+  routing, browser-session rejection, mutation flags, and unchanged legacy state/control/pairing.
+- The full clean two-module tests/lint/debug APK/signature/manifest verification is recorded below.
+  No physical Poweramp ContentProvider behavior is claimed by JVM tests.
 
 ## Phone 0.6.0: dynamic artwork theme
 
@@ -531,6 +655,80 @@ manual actions.
 
 ## Verification
 
+### Foundation review / commit verification (2026-09-06)
+
+- Added one regression for a partial last search page (`limit=33`, datasets of 999/1000/1001 rows).
+  It failed before the page-boundary fix (11 items instead of 10 on the final page), then passed
+  in the full suite after the fix.
+- Ran one clean final pipeline with the pinned wrapper, JDK 17 and the existing SDK 36:
+  `./gradlew clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug --offline --no-build-cache --no-daemon --console=plain`.
+  All 100 actionable tasks executed successfully.
+- Server: `106/106` tests across 23 suites. Phone: `134/134` across 28 suites. Total: `240/240`,
+  zero failures, errors or skips. This includes the existing API v1/pairing/WebSocket regression
+  suite; no separate redundant test rerun was needed.
+- Both offline lint reports say `No issues found`; network dependency-update advisories were not
+  rechecked. The toolchain still prints its existing SDK-XML/Gradle deprecation notices.
+- Both debug APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification.
+  APK metadata confirms Server `0.10.2` / code 13 and Phone `0.6.0` / code 15, unchanged legacy
+  application IDs, min API 26 and target API 36. Merged manifests retain the existing single
+  Server service and single Phone service with their prior foreground types.
+- Reviewed source/docs and `git diff --check`. Generated APKs, build outputs, private device logs,
+  and toolchain paths are not part of the commit. No release-signing material was accessed,
+  no device installation was performed, and no branch was pushed. Real-device claims above are
+  limited to the maintainer's reported checks, not inferred from JVM fakes.
+
+### Search through `/files` candidate automation (2026-09-06)
+
+- The two requested targeted Server tests passed: fixed selection/escaped bound arguments and
+  search pagination with bounded increasing `lim` plus query-bound continuation. A single
+  `:app:assembleDebug` run then succeeded and produced
+  `app/build/outputs/apk/debug/app-debug.apk`. Clean, lint, Phone tests, full Server regression,
+  release, and signature checks were intentionally not run.
+- After real-device logcat identified ambiguous unqualified `name`, the updated exact selection
+  test passed with `folder_files.name` and one new `:app:assembleDebug` candidate was produced.
+  The maintainer's subsequent matching/empty-query retest passed, as recorded above.
+
+### Search provider-death candidate automation (2026-09-03)
+
+- Targeted Server tests for `DeadObjectException`, resource close order, single-attempt search,
+  default search projection/mapping, and controlled API failure passed. The requested one-time
+  `./gradlew :app:testDebugUnitTest :app:assembleDebug` run then passed with `104/104` Server JVM
+  executions and produced `app/build/outputs/apk/debug/app-debug.apk`. Phone tests, lint, clean,
+  release, and signature checks were intentionally not run.
+
+### Library/Search/Queue Server foundation automation (2026-09-03)
+
+- The required clean debug pipeline completed through pinned Gradle Wrapper `8.14.3` with Temurin
+  JDK 17, Android SDK/compile/target 36, and Build Tools 36.0.0:
+  `clean :app:testDebugUnitTest :phone:testDebugUnitTest :app:lintDebug :phone:lintDebug
+  :app:assembleDebug :phone:assembleDebug --no-build-cache --no-daemon --console=plain`. All
+  `100/100` actionable tasks executed from clean outputs.
+- Server passed `100/100` JVM executions across 22 suites and Phone passed `134/134` across 28 suites:
+  234 total, zero failures, errors, or skips. The separately rerun API v1
+  `RemoteApiServerTest` passed `12/12` after the final source change.
+- Phone lint reports no issues. Server lint has zero errors and only the two pre-existing update
+  warnings for pinned Gradle `8.14.3` and JVM-test-only `org.json`; no lint rule was disabled or
+  weakened.
+- Actual APK badging confirms unchanged Server `dev.r4remote.poweramp`, code 13/name 0.10.2, and
+  Phone `dev.r4remote.poweramp.phone`, code 15/name 0.6.0. Both retain min API 26 and target/compile
+  API 36. The debug APKs are 446,956 and 5,325,812 bytes; their SHA-256 values are respectively
+  `146fa020be92bfdf5896169968d884803003d4a2dc6fe1cc0c749ae2b9d82748` and
+  `e4e5fd65ecec18880d7e54369daf345a30ab93dc0fbbfddd9a03efb6d7908e20`.
+- Both APKs pass 16 KiB-aware ZIP alignment and APK Signature Scheme v2 verification with one
+  Android debug signer, certificate SHA-256
+  `4d2c7c0d0f8f2b81495d62884a96f361650573d8e99635a6f8cc754e36ec6265`. This task did not access
+  release-signing material or produce a release artifact.
+- Merged manifests retain exactly one non-exported Server
+  `RemotePlaybackService(connectedDevice)` and one exported Phone
+  `PhoneConnectionService(connectedDevice|mediaPlayback)`, both with `stopWithTask=false`. No new
+  service, provider, receiver, permission, dependency, Phone source/UI, Web UI, application ID, or
+  API version was added.
+- `git diff --check`, changed-file review, and generated-artifact review pass. Automated fakes prove
+  the bounded parsing, validation, serialization, auth, error, queue-ID/order, and request-isolation
+  policies; only the real-device matrix below can validate installed Poweramp provider behavior,
+  permission UI, live ordering/columns, search compatibility, artwork, and playback selection.
+
 ### Phone 0.6.0 release-candidate automation (2026-09-01)
 
 - A clean permanently signed release pipeline completed through the pinned Gradle Wrapper `8.14.3`
@@ -1035,6 +1233,18 @@ replace a separately managed release signing key.
 The mandatory first-public-release matrix passed on the devices recorded above. Future compatibility
 and hardening work should additionally exercise more vendors, Android versions, and adverse states:
 
+- On each supported Poweramp build, start with no data grant: query capability and a data route,
+  deny the explicit Server-Activity request, grant it on a later attempt, and verify access recovers
+  without restarting Server. Repeat with Poweramp stopped, newly started, missing, disabled, and
+  updated; no HTTP request may foreground Poweramp or crash Server.
+- Compare All tracks, Artists, Albums, plain Folders, hierarchy root/children/tracks, Playlists,
+  playlist entries, Search, and Queue with Poweramp UI. Confirm projections, nulls, millisecond
+  durations/counts, default ordering, bounded pages/tokens, expiry, `truncated` at the safety window,
+  rapid/overlapping search cancellation, and lazy artwork for current and non-current tracks.
+- Put the same track into a playlist and Queue multiple times. Confirm distinct
+  `playlist_entries._id`/`queue._id`, exact Queue order, only the exact playing queue entry marked
+  current, and `OPEN_TO_PLAY` selection for track, album, playlist, playlist duplicate, and queue
+  duplicate. Confirm Add/Remove/Reorder/Play Next remain unavailable and no database changes occur.
 - From a cold Phone launch and again immediately after **Pair new player**, scan and pair on shared
   LAN; confirm the Server process remains alive through secret exchange and API/WebSocket startup.
   Repeat with no shared LAN so exact-ID Wi-Fi Direct discovery, system approval, group-owner
@@ -1080,11 +1290,17 @@ and hardening work should additionally exercise more vendors, Android versions, 
   selection and mandatory approval; the applications do not bypass either.
 - Force-stop, explicit notification Stop, or reboot ends the corresponding runtime until launch.
 - Exact public semantics of Poweramp bitrate units and list index base remain unverified.
-- Library, Queue, and Lyrics remain intentionally out of scope.
+- Phone Library/Search/Queue UI is not implemented. The Server foundation deliberately stops at a
+  1000-row continuation window because Poweramp documents integer `lim` but no offset; device
+  verification may refine only a publicly confirmed continuation strategy.
+- Queue Add/Remove/Reorder/Play Next remain disabled. Add has an official sample for later audit;
+  the other mutations have no confirmed public contract. Lyrics remains out of scope.
 
 ## Next scope
 
-Phone `0.6.0` completes the planned UI series. The next product scope is the multi-player foundation
-and pairing hardening described in [`ROADMAP.md`](ROADMAP.md). Do not begin Player devices redesign,
-artwork-dependent control/chip colors, multi-player persistence, pairing/transport security,
-Library, Queue, or Lyrics without separate scope.
+Continue the Library/Queue series with the separately scoped Phone navigation and Library/Search
+integration; the basic Server/device path is now confirmed. Complete the remaining device matrix
+alongside integration, and verify Queue duplicates/current-entry selection before its Phone UI.
+Do not change the one-service connection architecture. Multi-player foundation and pairing hardening follow that
+series as ordered in [`ROADMAP.md`](ROADMAP.md). Queue mutations, Lyrics, multi-player persistence,
+and pairing/transport security still require separate scope and public-contract verification.

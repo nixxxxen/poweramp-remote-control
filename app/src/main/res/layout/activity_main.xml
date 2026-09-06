@@ -338,6 +338,30 @@
                 android:textSize="13sp" />
 
             <TextView
+                android:id="@+id/library_access_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:accessibilityLiveRegion="polite"
+                android:text="@string/library_access_checking"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/request_library_permission_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/sync_button_background"
+                android:minHeight="48dp"
+                android:text="@string/library_access_request_permission"
+                android:textAllCaps="false"
+                android:textColor="@color/accent"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"

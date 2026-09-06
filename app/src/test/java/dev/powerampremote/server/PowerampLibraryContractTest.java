@@ -1,0 +1,152 @@
+package dev.powerampremote.server;
+
+import org.junit.Test;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+public final class PowerampLibraryContractTest {
+    @Test
+    public void buildsOnlyDocumentedProviderAndOpenToPlayUris() {
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/files?lim=25",
+                PowerampLibraryContract.allTracks().providerUri(25)
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/artists/12/files?lim=7",
+                PowerampLibraryContract.artistTracks(12L).providerUri(7)
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/folders_hier/0/subfolders?lim=1",
+                PowerampLibraryContract.childFolders(0L).providerUri(1)
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/files?lim=10",
+                PowerampLibraryContract.search(" Björk live ").providerUri(10)
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/queue/91",
+                PowerampLibraryContract.playUri(LibraryItem.PlayTarget.queueEntry(91L))
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/playlists/8/files/22",
+                PowerampLibraryContract.playUri(
+                        LibraryItem.PlayTarget.playlistEntry(8L, 22L)
+                )
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.aa/files/44",
+                PowerampLibraryContract.albumArtUri(44L)
+        );
+    }
+
+    @Test
+    public void rejectsArbitraryMalformedAndUndocumentedUris() {
+        String[] rejectedProviderUris = {
+                "file:///music/a.flac",
+                "https://example.test/a.flac",
+                "content://other.provider/files?lim=10",
+                "content://com.maxmpz.audioplayer.data/../files?lim=10",
+                "content://com.maxmpz.audioplayer.data/files%2F1?lim=10",
+                "content://com.maxmpz.audioplayer.data/files",
+                "content://com.maxmpz.audioplayer.data/files?lim=0",
+                "content://com.maxmpz.audioplayer.data/files?lim=1002",
+                "content://com.maxmpz.audioplayer.data/files?lim=10&offset=2",
+                "content://com.maxmpz.audioplayer.data/files?lim=10&lim=11",
+                "content://com.maxmpz.audioplayer.data/files?flt=x&lim=10",
+                "content://com.maxmpz.audioplayer.data/search?flt=x&lim=10",
+                "content://com.maxmpz.audioplayer.data/search?lim=10",
+                "content://com.maxmpz.audioplayer.data/search?flt=%GG&lim=10",
+                "content://com.maxmpz.audioplayer.data/search?flt=%C3%28&lim=10",
+                "content://user@com.maxmpz.audioplayer.data/files?lim=10"
+        };
+        for (String uri : rejectedProviderUris) {
+            assertFalse(uri, PowerampLibraryContract.isAllowedProviderUri(uri));
+        }
+
+        String[] rejectedPlayUris = {
+                "file:///music/a.flac",
+                "https://example.test/a.flac",
+                "content://other.provider/files/1",
+                "content://com.maxmpz.audioplayer.data/files",
+                "content://com.maxmpz.audioplayer.data/files/0",
+                "content://com.maxmpz.audioplayer.data/queue/1?lim=1",
+                "content://com.maxmpz.audioplayer.data/search/1",
+                "content://com.maxmpz.audioplayer.data/folders_hier/1"
+        };
+        for (String uri : rejectedPlayUris) {
+            assertFalse(uri, PowerampLibraryContract.isAllowedPlayUri(uri));
+        }
+        assertFalse(PowerampLibraryContract.isAllowedArtworkUri(
+                "content://com.maxmpz.audioplayer.aa/albums/4"
+        ));
+    }
+
+    @Test
+    public void validatesIdsSearchAndProviderLimit() {
+        assertEquals(7L, PowerampLibraryContract.parsePositiveId("7"));
+        assertEquals(0L, PowerampLibraryContract.parseNonNegativeId("0"));
+        expectInvalid(() -> PowerampLibraryContract.parsePositiveId("0"));
+        expectInvalid(() -> PowerampLibraryContract.parsePositiveId("01"));
+        expectInvalid(() -> PowerampLibraryContract.parsePositiveId("-1"));
+        expectInvalid(() -> PowerampLibraryContract.parsePositiveId("1/2"));
+        expectInvalid(() -> PowerampLibraryContract.parsePositiveId("9223372036854775808"));
+        expectInvalid(() -> PowerampLibraryContract.validSearchQuery("   "));
+        expectInvalid(() -> PowerampLibraryContract.validSearchQuery("bad\nquery"));
+        expectInvalid(() -> PowerampLibraryContract.allTracks().providerUri(0));
+        assertTrue(PowerampLibraryContract.isAllowedProviderUri(
+                PowerampLibraryContract.queue().providerUri(100)
+        ));
+    }
+
+    @Test
+    public void searchUsesFilesProjectionAndBoundEscapedSelectionArguments() {
+        PowerampLibraryContract.Query search = PowerampLibraryContract.search(
+                "  rare%_! song  "
+        );
+
+        assertArrayEquals(
+                PowerampLibraryContract.allTracks().projection(),
+                search.projection()
+        );
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/files?lim=17",
+                search.providerUri(17)
+        );
+        assertEquals(
+                "(title_tag LIKE ? ESCAPE '!'"
+                        + " OR folder_files.name LIKE ? ESCAPE '!'"
+                        + " OR artist LIKE ? ESCAPE '!'"
+                        + " OR album LIKE ? ESCAPE '!')",
+                search.selection()
+        );
+        assertArrayEquals(
+                new String[]{
+                        "%rare!%!_!! song%",
+                        "%rare!%!_!! song%",
+                        "%rare!%!_!! song%",
+                        "%rare!%!_!! song%"
+                },
+                search.selectionArgs()
+        );
+        assertFalse(search.selection().contains("rare"));
+        assertNull(PowerampLibraryContract.allTracks().selection());
+        assertNull(PowerampLibraryContract.allTracks().selectionArgs());
+        assertFalse(PowerampLibraryContract.isAllowedProviderUri(
+                "content://com.maxmpz.audioplayer.data/search?flt=needle&lim=17"
+        ));
+    }
+
+    private static void expectInvalid(Runnable runnable) {
+        try {
+            runnable.run();
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {
+            // Expected.
+        }
+    }
+}

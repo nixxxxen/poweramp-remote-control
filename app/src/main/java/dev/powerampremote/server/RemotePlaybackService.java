@@ -20,6 +20,10 @@ import android.util.Log;
 
 import java.security.SecureRandom;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Process-local foreground owner of the Poweramp integration and remote network runtime.
@@ -47,6 +51,8 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         void onRemotePowerampError(String message);
 
         void onRemoteServerStatusChanged(RemoteApiServer.Status status);
+
+        void onLibraryAccessChanged(LibraryAccessState state);
     }
 
     final class LocalBinder extends Binder {
@@ -76,6 +82,14 @@ public final class RemotePlaybackService extends Service implements PowerampClie
             }
             powerampClient.refresh();
             return true;
+        }
+
+        void refreshLibraryAccess() {
+            scheduleLibraryProbe();
+        }
+
+        Intent createLibraryPermissionIntent() {
+            return powerampClient == null ? null : powerampClient.createDataPermissionIntent();
         }
 
         boolean previous() {
@@ -116,10 +130,16 @@ public final class RemotePlaybackService extends Service implements PowerampClie
     private final ServiceLifecycleState lifecycle = new ServiceLifecycleState();
     private final LocalBinder binder = new LocalBinder();
     private final PlaybackStateStore.Listener stateListener = this::onStoredStateChanged;
+    private final ExecutorService libraryExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "poweramp-library-probe");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private PlaybackStateStore stateStore;
     private RemoteArtworkCache artworkCache;
     private PowerampClient powerampClient;
+    private PowerampLibrarySource librarySource;
     private RemoteApiServer remoteApiServer;
     private RemoteNsdPublisher nsdPublisher;
     private RemoteWifiDirectPublisher wifiDirectPublisher;
@@ -130,6 +150,12 @@ public final class RemotePlaybackService extends Service implements PowerampClie
     private String playerDeviceName;
     private PairingSecretStore pairingSecrets;
     private RemoteApiServer.Status serverStatus;
+    private LibraryAccessState libraryAccessState = new LibraryAccessState(
+            LibraryAccessState.Status.UNKNOWN,
+            0L
+    );
+    private Future<?> libraryProbeTask;
+    private LibraryCancellation libraryProbeCancellation;
     private Bitmap currentArtwork;
     private long currentArtworkId;
     private boolean foreground;
@@ -216,6 +242,11 @@ public final class RemotePlaybackService extends Service implements PowerampClie
             playerDeviceName = null;
         }
         powerampClient = new PowerampClient(this, this);
+        librarySource = new PowerampLibrarySource(
+                new AndroidPowerampLibraryProvider(this),
+                this::onLibraryAccessFromAnyThread,
+                SystemClock::elapsedRealtime
+        );
         serverStatus = new RemoteApiServer.Status(
                 false,
                 RemoteApiServer.PORT,
@@ -242,7 +273,10 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                     SystemClock::elapsedRealtime,
                     pairingSecrets,
                     serverId,
-                    playerDeviceName
+                    playerDeviceName,
+                    librarySource,
+                    this::submitLibraryPlay,
+                    powerampClient::loadLibraryArtwork
             );
         }
         if (serverId != null) {
@@ -313,6 +347,11 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         if (remoteApiServer != null) {
             remoteApiServer.close();
         }
+        cancelLibraryProbe();
+        libraryExecutor.shutdownNow();
+        if (librarySource != null) {
+            librarySource.close();
+        }
         if (powerampClient != null) {
             powerampClient.close();
         }
@@ -334,6 +373,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         }
         // Both starts are idempotent. Calling them again also retries a previous bind/install error.
         powerampClient.start();
+        scheduleLibraryProbe();
         volumeController.start();
         if (remoteApiServer != null) {
             remoteApiServer.start();
@@ -343,6 +383,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
 
     private void stopRuntime() {
         lifecycle.stop();
+        cancelLibraryProbe();
         if (nsdPublisher != null) {
             nsdPublisher.stop();
         }
@@ -381,6 +422,18 @@ public final class RemotePlaybackService extends Service implements PowerampClie
         });
     }
 
+    private boolean submitLibraryPlay(LibraryItem.PlayTarget target) {
+        int generation = lifecycle.runningGeneration();
+        if (generation < 0 || !powerampClient.isActive()) {
+            return false;
+        }
+        return mainHandler.post(() -> {
+            if (lifecycle.isRunning(generation)) {
+                powerampClient.openToPlay(target);
+            }
+        });
+    }
+
     private boolean setRatingInternal(int rating) {
         if (!lifecycle.isRunning() || !powerampClient.setRating(rating)) {
             return false;
@@ -398,6 +451,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
             artworkCache.update(0L, null);
             dispatchArtwork(0L, null);
         }
+        scheduleLibraryProbe();
     }
 
     @Override
@@ -486,6 +540,7 @@ public final class RemotePlaybackService extends Service implements PowerampClie
             listener.onRemoteArtworkChanged(currentArtworkId, currentArtwork);
         }
         listener.onRemoteServerStatusChanged(serverStatus);
+        listener.onLibraryAccessChanged(libraryAccessState);
     }
 
     private void removeListener(Listener listener) {
@@ -516,6 +571,44 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                 listener.onRemoteServerStatusChanged(status);
             }
             updateNotification();
+        });
+    }
+
+    private void scheduleLibraryProbe() {
+        if (destroyed || librarySource == null) {
+            return;
+        }
+        cancelLibraryProbe();
+        LibraryCancellation cancellation = new LibraryCancellation();
+        libraryProbeCancellation = cancellation;
+        try {
+            libraryProbeTask = libraryExecutor.submit(() -> librarySource.probe(cancellation));
+        } catch (RejectedExecutionException ignored) {
+            libraryProbeCancellation = null;
+            // Service destruction intentionally rejects late refreshes.
+        }
+    }
+
+    private void cancelLibraryProbe() {
+        if (libraryProbeCancellation != null) {
+            libraryProbeCancellation.cancel();
+            libraryProbeCancellation = null;
+        }
+        if (libraryProbeTask != null) {
+            libraryProbeTask.cancel(true);
+            libraryProbeTask = null;
+        }
+    }
+
+    private void onLibraryAccessFromAnyThread(LibraryAccessState state) {
+        mainHandler.post(() -> {
+            if (destroyed || state.sequence < libraryAccessState.sequence) {
+                return;
+            }
+            libraryAccessState = state;
+            for (Listener listener : listeners) {
+                listener.onLibraryAccessChanged(state);
+            }
         });
     }
 

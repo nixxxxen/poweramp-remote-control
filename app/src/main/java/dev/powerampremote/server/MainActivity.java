@@ -8,6 +8,7 @@ import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -65,6 +66,8 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
     private TextView serverStatus;
     private TextView serverAddress;
     private TextView serverClients;
+    private TextView libraryAccessStatus;
+    private Button requestLibraryPermissionButton;
     private ImageView serverPairingQr;
     private TextView serverPairingStatus;
     private Button refreshPairingQrButton;
@@ -87,6 +90,7 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
     private int shuffleMode = -1;
     private long lastStateRevision = -1L;
     private long lastServerStatusSequence = -1L;
+    private long lastLibraryAccessSequence = -1L;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -99,6 +103,7 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
             webUiAccessToken = remoteService.webUiAccessToken();
             copyWebTokenButton.setEnabled(webUiAccessToken != null);
             remoteService.addListener(MainActivity.this);
+            remoteService.refreshLibraryAccess();
             refreshPairingQr();
         }
 
@@ -193,6 +198,10 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
         refreshPairingQrButton.setEnabled(false);
         copyWebTokenButton.setOnClickListener(view -> copyWebUiAccessToken());
         copyWebTokenButton.setEnabled(false);
+        requestLibraryPermissionButton.setOnClickListener(
+                view -> requestPowerampLibraryPermission()
+        );
+        renderLibraryAccess(new LibraryAccessState(LibraryAccessState.Status.UNKNOWN, 0L));
         renderRemoteServerStatus(
                 new RemoteApiServer.Status(
                         false,
@@ -220,6 +229,14 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
             showServiceUnavailable();
         }
         restartProgressTicker();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (remoteService != null) {
+            remoteService.refreshLibraryAccess();
+        }
     }
 
     @Override
@@ -308,6 +325,11 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
         errorMessage.setVisibility(View.VISIBLE);
     }
 
+    @Override
+    public void onLibraryAccessChanged(LibraryAccessState state) {
+        renderLibraryAccess(state);
+    }
+
     private void bindViews() {
         connectionStatus = findViewById(R.id.connection_status);
         findViewById(R.id.album_art_container).setClipToOutline(true);
@@ -331,6 +353,10 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
         serverStatus = findViewById(R.id.server_status);
         serverAddress = findViewById(R.id.server_address);
         serverClients = findViewById(R.id.server_clients);
+        libraryAccessStatus = findViewById(R.id.library_access_status);
+        requestLibraryPermissionButton = findViewById(
+                R.id.request_library_permission_button
+        );
         serverPairingQr = findViewById(R.id.server_pairing_qr);
         serverPairingStatus = findViewById(R.id.server_pairing_status);
         refreshPairingQrButton = findViewById(R.id.refresh_pairing_qr_button);
@@ -537,6 +563,7 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
     private void renderServiceDisconnected() {
         lastStateRevision = -1L;
         lastServerStatusSequence = -1L;
+        lastLibraryAccessSequence = -1L;
         powerampInstalled = false;
         hasTrack = false;
         playbackState = PowerampContract.STATE_UNKNOWN;
@@ -569,6 +596,7 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
         serverPairingStatus.setText(R.string.server_pairing_unavailable);
         refreshPairingQrButton.setEnabled(false);
         copyWebTokenButton.setEnabled(false);
+        renderLibraryAccess(new LibraryAccessState(LibraryAccessState.Status.UNKNOWN, 0L));
     }
 
     private void showServiceUnavailable() {
@@ -637,6 +665,63 @@ public final class MainActivity extends Activity implements RemotePlaybackServic
                 R.string.server_clients_value,
                 status.webSocketClients
         ));
+    }
+
+    private void renderLibraryAccess(LibraryAccessState state) {
+        if (state.sequence < lastLibraryAccessSequence) {
+            return;
+        }
+        lastLibraryAccessSequence = state.sequence;
+        int text;
+        int color;
+        switch (state.status) {
+            case AVAILABLE:
+                text = R.string.library_access_available;
+                color = R.color.accent;
+                break;
+            case POWERAMP_MISSING:
+                text = R.string.library_access_poweramp_missing;
+                color = R.color.error;
+                break;
+            case PERMISSION_REQUIRED:
+                text = R.string.library_access_permission_required;
+                color = R.color.warning;
+                break;
+            case PROVIDER_UNAVAILABLE:
+                text = R.string.library_access_provider_unavailable;
+                color = R.color.warning;
+                break;
+            case PROVIDER_ERROR:
+                text = R.string.library_access_provider_error;
+                color = R.color.error;
+                break;
+            case UNKNOWN:
+            default:
+                text = R.string.library_access_checking;
+                color = R.color.text_secondary;
+                break;
+        }
+        libraryAccessStatus.setText(text);
+        libraryAccessStatus.setTextColor(getColor(color));
+        boolean canRequest = state.permissionRequestAvailable() && remoteService != null;
+        requestLibraryPermissionButton.setVisibility(canRequest ? View.VISIBLE : View.GONE);
+        requestLibraryPermissionButton.setEnabled(canRequest);
+    }
+
+    private void requestPowerampLibraryPermission() {
+        Intent intent = remoteService == null
+                ? null
+                : remoteService.createLibraryPermissionIntent();
+        if (intent == null) {
+            showServiceUnavailable();
+            return;
+        }
+        try {
+            startActivity(intent);
+        } catch (RuntimeException exception) {
+            errorMessage.setText(R.string.library_access_permission_launch_error);
+            errorMessage.setVisibility(View.VISIBLE);
+        }
     }
 
     private void refreshPairingQr() {

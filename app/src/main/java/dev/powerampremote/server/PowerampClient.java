@@ -3,7 +3,6 @@ package dev.powerampremote.server;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -29,9 +28,8 @@ import java.util.concurrent.Future;
 /**
  * Lifecycle-aware adapter around Poweramp's public Intent API.
  *
- * <p>The client deliberately does not request library/database or storage access. It listens to
- * Poweramp's sticky track/status broadcasts, asks for one position sync, and reads album art from
- * Poweramp's exported album-art content provider.</p>
+ * <p>Library rows are read by the service-owned {@link PowerampLibrarySource}; this existing
+ * command path remains the sole owner of Poweramp Intent commands and album-art decoding.</p>
  */
 final class PowerampClient implements AutoCloseable {
     private static final String TAG = "PowerampClient";
@@ -71,7 +69,7 @@ final class PowerampClient implements AutoCloseable {
         return thread;
     });
 
-    private boolean started;
+    private volatile boolean started;
     private boolean trackReceiverRegistered;
     private boolean statusReceiverRegistered;
     private boolean positionReceiverRegistered;
@@ -195,6 +193,10 @@ final class PowerampClient implements AutoCloseable {
         unregisterReceivers();
     }
 
+    boolean isActive() {
+        return started;
+    }
+
     void refresh() {
         if (!started || !isPowerampInstalled()) {
             stop();
@@ -303,6 +305,57 @@ final class PowerampClient implements AutoCloseable {
         return sent;
     }
 
+    boolean openToPlay(LibraryItem.PlayTarget target) {
+        final String uriText;
+        try {
+            uriText = PowerampLibraryContract.playUri(target);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return false;
+        }
+        if (!PowerampLibraryContract.isAllowedPlayUri(uriText)) {
+            return false;
+        }
+        return sendApiCommand(
+                PowerampContract.COMMAND_OPEN_TO_PLAY,
+                R.string.error_command,
+                null,
+                0,
+                Uri.parse(uriText)
+        );
+    }
+
+    Intent createDataPermissionIntent() {
+        if (!isPowerampInstalled()) {
+            return null;
+        }
+        return new Intent(PowerampContract.ACTION_ASK_FOR_DATA_PERMISSION)
+                .setComponent(new ComponentName(
+                        PowerampContract.PACKAGE_NAME,
+                        PowerampContract.API_ACTIVITY_NAME
+                ))
+                .putExtra(PowerampContract.EXTRA_PACKAGE, context.getPackageName());
+    }
+
+    RemoteArtworkCache.Payload loadLibraryArtwork(long trackId) {
+        final String uriText;
+        try {
+            uriText = PowerampLibraryContract.albumArtUri(trackId);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return null;
+        }
+        if (!isPowerampInstalled()) {
+            return null;
+        }
+        Bitmap bitmap = decodeAlbumArt(Uri.parse(uriText));
+        try {
+            return RemoteArtworkCache.encodeOneShot(trackId, bitmap);
+        } finally {
+            if (bitmap != null && !bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+        }
+    }
+
     private void sendPlaybackCommand(int command) {
         long now = SystemClock.elapsedRealtime();
         long throttleMilliseconds = command == PowerampContract.COMMAND_TOGGLE_PLAY_PAUSE
@@ -319,7 +372,7 @@ final class PowerampClient implements AutoCloseable {
     }
 
     private boolean sendApiCommand(int command, int errorMessageResource) {
-        return sendApiCommand(command, errorMessageResource, null, 0);
+        return sendApiCommand(command, errorMessageResource, null, 0, null);
     }
 
     private boolean sendApiCommand(
@@ -327,6 +380,22 @@ final class PowerampClient implements AutoCloseable {
             int errorMessageResource,
             String intExtraKey,
             int intExtraValue
+    ) {
+        return sendApiCommand(
+                command,
+                errorMessageResource,
+                intExtraKey,
+                intExtraValue,
+                null
+        );
+    }
+
+    private boolean sendApiCommand(
+            int command,
+            int errorMessageResource,
+            String intExtraKey,
+            int intExtraValue,
+            Uri data
     ) {
         if (!started) {
             listener.onPowerampError(context.getString(errorMessageResource));
@@ -347,6 +416,9 @@ final class PowerampClient implements AutoCloseable {
                     .putExtra(PowerampContract.EXTRA_PACKAGE, context.getPackageName());
             if (intExtraKey != null) {
                 intent.putExtra(intExtraKey, intExtraValue);
+            }
+            if (data != null) {
+                intent.setData(data);
             }
             context.sendBroadcast(intent);
             return true;
@@ -678,13 +750,16 @@ final class PowerampClient implements AutoCloseable {
     }
 
     private Bitmap decodeAlbumArt(long albumArtId) {
-        Uri uri = new Uri.Builder()
-                .scheme(ContentResolver.SCHEME_CONTENT)
-                .authority(PowerampContract.ALBUM_ART_AUTHORITY)
-                .appendPath("files")
-                .appendPath(Long.toString(albumArtId))
-                .build();
+        final Uri uri;
+        try {
+            uri = Uri.parse(PowerampLibraryContract.albumArtUri(albumArtId));
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return null;
+        }
+        return decodeAlbumArt(uri);
+    }
 
+    private Bitmap decodeAlbumArt(Uri uri) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 ImageDecoder.Source source = ImageDecoder.createSource(context.getContentResolver(), uri);
@@ -705,7 +780,8 @@ final class PowerampClient implements AutoCloseable {
             }
             return decodeAlbumArtLegacy(uri);
         } catch (IOException | RuntimeException exception) {
-            Log.d(TAG, "No album art for " + albumArtId, exception);
+            Log.d(TAG, "Poweramp album art is unavailable: "
+                    + exception.getClass().getSimpleName());
             return null;
         } catch (OutOfMemoryError error) {
             Log.w(TAG, "Album art is too large to decode", error);

@@ -23,7 +23,9 @@ The repository contains two native Android application modules.
 
 The Server runs on the Poweramp device. One started-and-bound `RemotePlaybackService` owns:
 
-- `PowerampClient`, the adapter for Poweramp's public Intent API;
+- `PowerampClient`, the sole adapter for Poweramp's public Intent commands and album-art provider;
+- `PowerampLibrarySource` plus `AndroidPowerampLibraryProvider`, the lazy, bounded adapter for the
+  public Poweramp ContentProvider;
 - `SystemMediaVolumeController`, the event-driven `AudioManager.STREAM_MUSIC` adapter;
 - `PlaybackStateStore`, the thread-safe immutable state shared by UI and network API;
 - `RemoteApiServer`, the bounded HTTP/WebSocket API listener;
@@ -249,6 +251,8 @@ The public page at `/` exchanges the token only through `POST /api/v1/session`. 
 same-origin login creates a random 256-bit `HttpOnly; SameSite=Strict` cookie scoped to `/api/v1/`
 for 12 hours. Cookie-authenticated controls, logout, and WebSocket require exact same-origin
 `Origin`; Bearer clients remain compatible without it. Sessions are in-memory and bounded to 16.
+The additive Library/Search/Queue routes below deliberately accept only the persistent Bearer
+credential, not the browser-session cookie; the embedded Web UI has no Library integration yet.
 
 ### Routes
 
@@ -262,8 +266,203 @@ for 12 hours. Cookie-authenticated controls, logout, and WebSocket require exact
 | `POST` | `/api/v1/control` | Validate and enqueue one command; success is `202` |
 | WebSocket `GET` | `/api/v1/events` | Initial state, then complete event-driven snapshots |
 | `GET` | `/api/v1/artwork` | Current JPEG artwork when available |
+| `GET` | `/api/v1/library` | Access state, routes, limits, and queue capabilities |
+| `GET` | `/api/v1/library/tracks` | Paged All tracks rows |
+| `GET` | `/api/v1/library/artists` | Paged Artists rows |
+| `GET` | `/api/v1/library/artists/{id}/tracks` | Paged tracks for one artist |
+| `GET` | `/api/v1/library/albums` | Paged Albums rows |
+| `GET` | `/api/v1/library/albums/{id}/tracks` | Paged tracks for one album |
+| `GET` | `/api/v1/library/folders` | Paged plain-folder rows |
+| `GET` | `/api/v1/library/folders/{id}/tracks` | Paged direct tracks in one plain folder |
+| `GET` | `/api/v1/library/folder-tree/{id}/folders` | Paged hierarchy children; `id=0` is the root |
+| `GET` | `/api/v1/library/folder-tree/{id}/tracks` | Paged direct tracks in a hierarchy folder |
+| `GET` | `/api/v1/library/playlists` | Paged Playlists rows |
+| `GET` | `/api/v1/library/playlists/{id}/tracks` | Paged playlist entries |
+| `GET` | `/api/v1/search?q={query}` | Paged server-side Poweramp track search |
+| `GET` | `/api/v1/queue` | Paged current queue in provider order |
+| `POST` | `/api/v1/library/play` | Revalidate and enqueue one allowlisted `OPEN_TO_PLAY` target |
+| `GET` | `/api/v1/library/artwork/tracks/{id}` | Lazy authenticated JPEG for track artwork |
 
 There is no CORS API, polling endpoint, URL credential, or WebSocket command channel.
+
+### Library, Search, and Queue contract
+
+This is the Server foundation for the Library/Queue series. It adds no Phone or Web UI, second
+service/Poweramp connection, library WebSocket stream, or local copy of Poweramp data. Every request
+queries only its current category/page through the adapter owned by `RemotePlaybackService`. All
+returned cursors and artwork streams close on success, failure, or cancellation.
+
+The official upstream audit used `maxmpz/powerampapi` master commit
+[`60cac5a24348bde03e0619c0ab891bd752750b92`](https://github.com/maxmpz/powerampapi/commit/60cac5a24348bde03e0619c0ab891bd752750b92)
+(2026-09-01), including
+[`PowerampAPI.java`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java),
+[`TableDefs.kt`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/TableDefs.kt), the Intent API readme, and the official example. The public data authority is
+`com.maxmpz.audioplayer.data`. This foundation uses these public paths:
+
+- `files`, `artists`, `artists/{id}/files`, `albums`, and `albums/{id}/files`;
+- `folders`, `folders/{id}/files`, `folders_hier/{id}/subfolders`, and
+  `folders_hier/{id}/files`, with documented hierarchy root ID `0`;
+- `playlists`, `playlists/{id}/files`, and `queue`;
+- exact item forms `files/{id}`, `playlists/{playlistId}/files/{entryId}`, and
+  `queue/{entryId}` when validating play targets.
+
+Provider projections are an explicit subset of public `TableDefs` columns:
+
+| Rows | Requested Poweramp columns |
+|---|---|
+| tracks and search | `folder_files._id`, `folder_files.name`, `title_tag`, `artist`, `album`, `folder_files.duration` |
+| artists | `artists._id`, `artist`, `artists.num_files`, `artists.duration` |
+| albums | `albums._id`, `album`, `albums.num_files`, `albums.duration` |
+| plain folders | `folders._id`, `folders.name`, `folders.parent_id`, `folders.num_files`, `folders.duration` |
+| hierarchy folders | the same identity/name/parent plus `folders.hier_num_files`, `folders.hier_duration` |
+| playlists | `playlists._id`, `playlists.playlist`, `playlists.num_files`, `playlists.duration` |
+| playlist entries | track columns above plus `playlist_entries._id` |
+| queue entries | track columns above plus `queue._id` |
+
+Aliases used after the query are Server-local names, not assumed provider columns. Browsing sends
+no selection or selection arguments; search uses the fixed parameterized selection described below.
+Neither sends a sort expression. In particular, the adapter does not request private filesystem
+paths, queue `sort`, timestamps, or undocumented metadata. It acquires an unstable
+`ContentProviderClient` for one attempt and closes the Cursor before the client. Provider death
+therefore does not establish a stable dependency that lets Android kill Server with Poweramp;
+`DeadObjectException`/`RemoteException` become a controlled unavailable response without retry.
+
+The public list-query parameters are integer `lim` (SQL limit) and integer `shf` (shuffle mode);
+this foundation sends only `lim`, because it neither requests nor invents shuffled ordering.
+The ContentProvider contract does not document an offset parameter. API `limit` defaults to `25`
+and has a hard maximum of `100`.
+`pageToken` is a 24-character opaque Base64URL capability kept in memory for five minutes and bound
+to the exact category, container, and search. For continuation, Server requeries the same URI with
+a bounded increasing `lim`, skips only inside the returned Cursor, and never retains a Cursor
+between HTTP requests. The hard provider window is `1000` rows (`1001` only to detect more data).
+When more rows exist beyond that boundary, `nextPageToken` is `null` and `truncated` is `true`;
+otherwise `truncated` remains `false`. The last page is clipped to the remaining window even if
+`limit` does not divide 1000; the extra detection row is never returned. This explicit limitation
+avoids inventing undocumented SQL offset/keyset semantics. Since each page requeries current
+provider order, library edits between requests can cause repeats or omissions; tokens do not freeze
+a database snapshot. Tokens disappear on eviction or service/process
+shutdown. Invalid, expired, or cross-query tokens return `400 invalid_page_token`.
+Response `offset` is only the number of provider rows already skipped for that opaque token; clients
+cannot submit it, and it is not claimed to be a Poweramp/SQL offset.
+
+Page JSON is:
+
+```json
+{
+  "category": "queue",
+  "limit": 25,
+  "offset": 0,
+  "items": [],
+  "nextPageToken": null,
+  "truncated": false
+}
+```
+
+Each item has stable nullable fields `type`, `id`, `entryId`, `parentId`, `title`, `artist`, `album`,
+`durationMilliseconds`, `trackCount`, `artwork`, `play`, and `current`. `id` is the underlying
+Poweramp track/category ID. Playlist and queue rows additionally preserve their distinct public
+`playlist_entries._id` or `queue._id` as `entryId`; duplicate uses of one track therefore stay
+distinct. `parentId` identifies the requested containing category for track/playlist-entry rows and
+the documented parent folder for folder rows; a folder parent may be root `0`. Duration comes only
+from documented millisecond columns; counts only from `num_files`/`hier_num_files`. Missing, null,
+invalid, or unexpectedly
+absent optional columns become JSON `null`; a row without its required positive ID is omitted and
+unexpected columns are ignored. Text is bounded to 1000 UTF-16 code units. No filesystem path,
+source URL, raw provider URI, or database-only value is exposed.
+
+Track artwork uses only authenticated relative path
+`/api/v1/library/artwork/tracks/{trackId}`. Server constructs the confirmed provider URI
+`content://com.maxmpz.audioplayer.aa/files/{folder_files._id}`, decodes with bounded dimensions,
+closes each stream, limits encoded output to 5 MiB, and permits two concurrent lazy loads.
+The public album-art provider also documents `hd` and `dl` parameters; Server sends neither, so it
+retains provider defaults and never triggers an artwork download. Artists/albums/folders/playlists
+do not claim artwork until exact entity-art semantics are verified.
+
+Search accepts required `q`, trimmed to 1–160 non-control characters; `q`, `limit`, and `pageToken`
+are its only parameters. It queries `/files?lim=N` using the normal track projection and fixed
+`LIKE ? ESCAPE '!'` selection over `title_tag`, `folder_files.name`, `artist`, and `album`.
+The contains-pattern is supplied only through four bound `selectionArgs`; `%`, `_`, and `!` in
+user input are escaped as literals. Matching executes in Poweramp before the provider limit, not
+over a locally downloaded page or database copy. Results are tracks, not separate artist/album
+entities; ordering and case/diacritic matching remain provider-defined.
+
+On Poweramp `1025004-fa3ec08671d`, the maintainer confirmed a known query returns the matching track
+and a nonexistent query returns an empty page. Device logcat also confirmed why `folder_files.name`
+must be qualified: bare `name` is ambiguous in the `/files` join with `folders`.
+The obsolete `/search?flt` path is excluded from the allowlist and is never used as fallback:
+it crashed this Poweramp build's `RestProvider.query` even with the default projection, and upstream
+commit `8ca1dcbfbd573c221733bba34f4a20d9ebe2482f` marks `PARAM_FILTER` as no longer used.
+Every HTTP search owns an independent cancellation and response; there is no shared result cache
+for an old request to overwrite. Server shutdown cancels active provider requests. Search text is
+never logged.
+
+`POST /api/v1/library/play` accepts only these shapes:
+
+```json
+{"type":"track","id":41}
+{"type":"album","id":8}
+{"type":"playlist","id":7}
+{"type":"playlist_entry","playlistId":7,"entryId":99}
+{"type":"queue_entry","entryId":12}
+```
+
+Unknown/missing/extra fields, non-integer/non-positive IDs, and every supplied URI are rejected.
+Server first requeries the exact allowlisted target with `lim=1`, confirms it still exists, builds
+the documented URI itself, then sends command `20` (`OPEN_TO_PLAY`) through the existing
+`PowerampClient` receiver path. It never opens arbitrary `file://`, `http(s)://`, or third-party
+`content://` data. `202` means the target reached the active command path; playback confirmation
+still arrives through normal Poweramp events.
+
+Queue Cursor order is retained without an invented sort expression. When the playback snapshot
+reports category `QUEUE` and a positive public `track.id`, a row is `current=true` only for an exact
+match with that row's `queue._id`; `folder_files._id` is insufficient because duplicates are legal.
+Without such a Queue snapshot, every row has `current=null`, not a guessed `false`. The combination
+of the documented category/current-track ID and Queue entry-ID contracts supports this mapping, but
+its behavior with duplicate entries remains an explicit real-device check. Capabilities are:
+
+```json
+{
+  "read": true,
+  "playExisting": true,
+  "add": false,
+  "remove": false,
+  "reorder": false,
+  "playNext": false
+}
+```
+
+The official example demonstrates Add to Queue by inserting public `folder_file_id` and `sort`
+fields into `queue`, then sending `ACTION_RELOAD_DATA`. That is evidence for a separate mutation
+task, not authorization to expose it now. The audited public repository has no corresponding
+documented Remove, Reorder, or Play Next contract. Its MediaSession documentation also excludes
+`AddQueueItem` and `RemoveQueueItem`. No mutation is implemented here, and no internal database,
+hidden intent, Accessibility/UI automation, or unsupported MediaSession queue operation is used.
+
+### Poweramp data permission
+
+Android 8+ Poweramp data queries require approval through documented
+`ACTION_ASK_FOR_DATA_PERMISSION`, with this application's package in extra `pak`. The official
+contract accepts the explicit Poweramp API receiver via `sendBroadcast` or API Activity via
+`startActivity`; Server chooses the Activity only from a foreground user click so the confirmation
+is visible and attributable. An HTTP request never launches UI. `SecurityException` becomes status `permission_required`; protected data routes
+return `403 poweramp_data_permission_required`, while `GET /api/v1/library` remains a controlled
+`200` capability/status response. Missing Poweramp, a null provider, and other provider failures
+become sanitized `503` responses and never terminate Server.
+
+The capability object fields are `status`, `permissionRequired`, `permissionRequestAvailable`,
+`routes`, `pagination`, and `queueCapabilities`. Status is one of `unknown`, `available`,
+`poweramp_missing`, `permission_required`, `provider_unavailable`, or `provider_error`.
+Data-route failures expose only stable codes `poweramp_data_permission_required`,
+`poweramp_unavailable`, `poweramp_provider_unavailable`, or `poweramp_provider_error`.
+Malformed category/ID/query/limit input is `400 invalid_library_request`; a missing revalidated play
+target is `404 library_item_not_found`. An unexpected integration defect is contained as sanitized
+`500 library_internal_error`; its exception message and provider/search URI are never sent or logged.
+
+The existing Server Activity shows access state. Only an explicit user press on **Request Poweramp
+library access** starts the official explicit Poweramp API Activity. The upstream example notes this
+works only while the Poweramp process is alive. Returning to Server, binding, or explicit refresh
+probes again, so newly granted access is recognized without restarting the foreground service.
+Mandatory Poweramp/system confirmation is never bypassed.
 
 ### State contract
 
@@ -444,6 +643,17 @@ The exact Poweramp `bitRate` unit and `posInList` index base still require devic
 API v1 intentionally preserves both. Wi-Fi Direct behavior also varies by vendor: the Server must
 be selected as group owner for the current IPv4 client path, system approval may be required after
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
+
+The maintainer has confirmed basic tracks/Albums browsing, album counts/durations, track-ID play,
+and positive/empty search responses on Poweramp `1025004-fa3ec08671d`. The ContentProvider foundation
+still needs broader device coverage: first grant/deny/retry and process-not-running behavior;
+remaining category projections/order; search by artist/album, Unicode and literal wildcard input;
+hierarchy root/children; duplicate playlist/queue entry IDs; queue-current matching and
+`OPEN_TO_PLAY`; and album-art access for arbitrary tracks. Category artwork and extra category
+metadata are intentionally absent, not failed track metadata. Phone Library/Search integration can
+start from this baseline; Queue-specific behavior must be checked before exposing Queue UI.
+The 1000-row continuation boundary is an explicit public-contract safety limit, not a claim that
+Poweramp libraries are capped at that size.
 
 Exact completed automation, the earlier Server `0.10.2` / Phone `0.5.0` in-place release matrix,
 and the maintainer-confirmed Phone `0.6.0` UI validation are recorded in `STATUS.md`. Broader

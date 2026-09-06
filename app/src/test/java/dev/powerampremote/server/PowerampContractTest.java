@@ -17,8 +17,22 @@ public final class PowerampContractTest {
         assertEquals(16, PowerampContract.COMMAND_POSITION_SYNC);
         assertEquals(18, PowerampContract.COMMAND_LIKE);
         assertEquals(19, PowerampContract.COMMAND_UNLIKE);
+        assertEquals(20, PowerampContract.COMMAND_OPEN_TO_PLAY);
         assertEquals(24, PowerampContract.COMMAND_SET_RATING);
         assertEquals("pos", PowerampContract.Track.POSITION_SECONDS);
+    }
+
+    @Test
+    public void dataPermissionContractMatchesOfficialIntentApi() {
+        assertEquals(
+                "com.maxmpz.audioplayer.ACTION_ASK_FOR_DATA_PERMISSION",
+                PowerampContract.ACTION_ASK_FOR_DATA_PERMISSION
+        );
+        assertEquals(
+                "com.maxmpz.audioplayer.PowerampAPIActivity",
+                PowerampContract.API_ACTIVITY_NAME
+        );
+        assertEquals("pak", PowerampContract.EXTRA_PACKAGE);
     }
 
     @Test

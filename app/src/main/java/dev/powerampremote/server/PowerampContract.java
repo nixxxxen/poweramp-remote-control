@@ -6,7 +6,7 @@
 package dev.powerampremote.server;
 
 /**
- * The small subset of Poweramp's public Intent API used by this MVP.
+ * The small subset of Poweramp's public Intent and ContentProvider API used by the Server.
  *
  * <p>The canonical API definition lives at
  * https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java.
@@ -17,8 +17,11 @@ package dev.powerampremote.server;
 final class PowerampContract {
     static final String PACKAGE_NAME = "com.maxmpz.audioplayer";
     static final String API_RECEIVER_NAME = "com.maxmpz.audioplayer.player.PowerampAPIReceiver";
+    static final String API_ACTIVITY_NAME = "com.maxmpz.audioplayer.PowerampAPIActivity";
 
     static final String ACTION_API_COMMAND = "com.maxmpz.audioplayer.API_COMMAND";
+    static final String ACTION_ASK_FOR_DATA_PERMISSION =
+            "com.maxmpz.audioplayer.ACTION_ASK_FOR_DATA_PERMISSION";
     static final String ACTION_TRACK_CHANGED = "com.maxmpz.audioplayer.TRACK_CHANGED";
     static final String ACTION_STATUS_CHANGED = "com.maxmpz.audioplayer.STATUS_CHANGED";
     static final String ACTION_TRACK_POSITION_SYNC = "com.maxmpz.audioplayer.TPOS_SYNC";
@@ -42,6 +45,7 @@ final class PowerampContract {
     static final int COMMAND_POSITION_SYNC = 16;
     static final int COMMAND_LIKE = 18;
     static final int COMMAND_UNLIKE = 19;
+    static final int COMMAND_OPEN_TO_PLAY = 20;
     static final int COMMAND_SET_RATING = 24;
 
     static final int STATE_UNKNOWN = -1;

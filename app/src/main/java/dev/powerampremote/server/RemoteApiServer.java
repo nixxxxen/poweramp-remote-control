@@ -54,6 +54,17 @@ final class RemoteApiServer implements AutoCloseable {
     static final String ARTWORK_PATH = RemoteStateJson.ARTWORK_PATH;
     static final String SESSION_PATH = "/api/v1/session";
     static final String PAIRING_PATH = "/api/v1/pair";
+    static final String LIBRARY_PATH = "/api/v1/library";
+    static final String LIBRARY_TRACKS_PATH = LIBRARY_PATH + "/tracks";
+    static final String LIBRARY_ARTISTS_PATH = LIBRARY_PATH + "/artists";
+    static final String LIBRARY_ALBUMS_PATH = LIBRARY_PATH + "/albums";
+    static final String LIBRARY_FOLDERS_PATH = LIBRARY_PATH + "/folders";
+    static final String LIBRARY_FOLDER_TREE_PATH = LIBRARY_PATH + "/folder-tree";
+    static final String LIBRARY_PLAYLISTS_PATH = LIBRARY_PATH + "/playlists";
+    static final String LIBRARY_PLAY_PATH = LIBRARY_PATH + "/play";
+    static final String LIBRARY_ARTWORK_PATH = LIBRARY_PATH + "/artwork/tracks";
+    static final String SEARCH_PATH = "/api/v1/search";
+    static final String QUEUE_PATH = "/api/v1/queue";
 
     private static final String WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final int HTTP_TIMEOUT_MILLISECONDS = 10_000;
@@ -63,6 +74,7 @@ final class RemoteApiServer implements AutoCloseable {
     private static final int MAX_WEBSOCKET_PAYLOAD_BYTES = 64 * 1024;
     private static final int MAX_CONNECTION_THREADS = 16;
     private static final int MAX_WEBSOCKET_CLIENTS = 4;
+    private static final int MAX_LIBRARY_ARTWORK_LOADS = 2;
     private static final Pattern SESSION_REQUEST_PATTERN = Pattern.compile(
             "\\s*\\{\\s*\\\"token\\\"\\s*:\\s*\\\"([A-Za-z0-9_-]{1,256})\\\"\\s*\\}\\s*"
     );
@@ -73,6 +85,14 @@ final class RemoteApiServer implements AutoCloseable {
 
     interface CommandSubmitter {
         boolean submit(RemoteCommand command);
+    }
+
+    interface LibraryPlaySubmitter {
+        boolean submit(LibraryItem.PlayTarget target);
+    }
+
+    interface LibraryArtworkLoader {
+        RemoteArtworkCache.Payload load(long trackId);
     }
 
     interface Listener {
@@ -116,6 +136,7 @@ final class RemoteApiServer implements AutoCloseable {
     private static final class HttpRequest {
         final String method;
         final String path;
+        final String rawQuery;
         final String version;
         final Map<String, String> headers;
         final byte[] body;
@@ -123,12 +144,14 @@ final class RemoteApiServer implements AutoCloseable {
         HttpRequest(
                 String method,
                 String path,
+                String rawQuery,
                 String version,
                 Map<String, String> headers,
                 byte[] body
         ) {
             this.method = method;
             this.path = path;
+            this.rawQuery = rawQuery;
             this.version = version;
             this.headers = headers;
             this.body = body;
@@ -184,9 +207,14 @@ final class RemoteApiServer implements AutoCloseable {
     private final PairingSecretStore pairingSecrets;
     private final String serverId;
     private final String playerDeviceName;
+    private final PowerampLibrarySource librarySource;
+    private final LibraryPlaySubmitter libraryPlaySubmitter;
+    private final LibraryArtworkLoader libraryArtworkLoader;
     private final Set<Socket> connections = ConcurrentHashMap.newKeySet();
     private final Set<WebSocketConnection> webSockets = ConcurrentHashMap.newKeySet();
+    private final Set<LibraryCancellation> libraryRequests = ConcurrentHashMap.newKeySet();
     private final Semaphore webSocketSlots = new Semaphore(MAX_WEBSOCKET_CLIENTS);
+    private final Semaphore libraryArtworkSlots = new Semaphore(MAX_LIBRARY_ARTWORK_LOADS);
     private final ThreadPoolExecutor connectionExecutor = new ThreadPoolExecutor(
             0,
             MAX_CONNECTION_THREADS,
@@ -230,6 +258,9 @@ final class RemoteApiServer implements AutoCloseable {
                 monotonicClock,
                 null,
                 null,
+                null,
+                null,
+                null,
                 null
         );
     }
@@ -246,6 +277,38 @@ final class RemoteApiServer implements AutoCloseable {
             String serverId,
             String playerDeviceName
     ) {
+        this(
+                port,
+                token,
+                stateStore,
+                artworkCache,
+                commandSubmitter,
+                listener,
+                monotonicClock,
+                pairingSecrets,
+                serverId,
+                playerDeviceName,
+                null,
+                null,
+                null
+        );
+    }
+
+    RemoteApiServer(
+            int port,
+            String token,
+            PlaybackStateStore stateStore,
+            RemoteArtworkCache artworkCache,
+            CommandSubmitter commandSubmitter,
+            Listener listener,
+            LongSupplier monotonicClock,
+            PairingSecretStore pairingSecrets,
+            String serverId,
+            String playerDeviceName,
+            PowerampLibrarySource librarySource,
+            LibraryPlaySubmitter libraryPlaySubmitter,
+            LibraryArtworkLoader libraryArtworkLoader
+    ) {
         this.port = port;
         this.token = token;
         this.stateStore = stateStore;
@@ -257,6 +320,9 @@ final class RemoteApiServer implements AutoCloseable {
         this.pairingSecrets = pairingSecrets;
         this.serverId = serverId;
         this.playerDeviceName = playerDeviceName;
+        this.librarySource = librarySource;
+        this.libraryPlaySubmitter = libraryPlaySubmitter;
+        this.libraryArtworkLoader = libraryArtworkLoader;
     }
 
     void start() {
@@ -282,6 +348,7 @@ final class RemoteApiServer implements AutoCloseable {
             closeQuietly(socket);
             closeWebSockets();
             closeConnections();
+            cancelLibraryRequests();
             pendingEvent.set(null);
             notifyStatus(false, null);
         }
@@ -426,6 +493,14 @@ final class RemoteApiServer implements AutoCloseable {
                 return;
             }
 
+            // The Web UI intentionally remains unchanged. Its cookie can access only the
+            // pre-existing routes; all additive library/search/queue routes require Bearer.
+            if (isLibraryRoute(request.path)
+                    && authorization.type != AuthorizationType.BEARER) {
+                writeUnauthorized(output);
+                return;
+            }
+
             if (authorization.type == AuthorizationType.SESSION
                     && requiresSameOrigin(request)
                     && !hasSameOrigin(request)) {
@@ -461,6 +536,24 @@ final class RemoteApiServer implements AutoCloseable {
             throws IOException {
         if (!isCurrentGeneration(generation)) {
             writeJsonError(output, 503, "Service Unavailable", "server_stopping");
+            return;
+        }
+
+        if (isLibraryRoute(request.path)) {
+            try {
+                routeLibrary(request, output);
+            } catch (RuntimeException exception) {
+                // Do not let a provider/integration defect terminate the connection worker or
+                // reflect an exception message that could contain a search/provider URI.
+                LOGGER.severe("Unexpected Poweramp library request failure: "
+                        + exception.getClass().getSimpleName());
+                writeJsonError(
+                        output,
+                        500,
+                        "Internal Server Error",
+                        "library_internal_error"
+                );
+            }
             return;
         }
         if (STATE_PATH.equals(request.path)) {
@@ -571,6 +664,372 @@ final class RemoteApiServer implements AutoCloseable {
         }
 
         writeJsonError(output, 404, "Not Found", "not_found");
+    }
+
+    private void routeLibrary(HttpRequest request, OutputStream output) throws IOException {
+        if (librarySource == null) {
+            writeJsonError(
+                    output,
+                    503,
+                    "Service Unavailable",
+                    "library_unavailable"
+            );
+            return;
+        }
+        if (LIBRARY_PATH.equals(request.path)) {
+            if (!"GET".equals(request.method)) {
+                writeMethodNotAllowed(output, "GET");
+                return;
+            }
+            try {
+                LibraryApiQuery.requireEmpty(request.rawQuery);
+            } catch (IllegalArgumentException exception) {
+                writeJsonError(output, 400, "Bad Request", "invalid_library_request");
+                return;
+            }
+            LibraryCancellation cancellation = beginLibraryRequest();
+            try {
+                PowerampLibrarySource.Result result = librarySource.probe(cancellation);
+                LibraryAccessState state = result.status == LibraryAccessState.Status.PROVIDER_ERROR
+                        && cancellation.isCancelled()
+                        ? librarySource.accessState()
+                        : new LibraryAccessState(result.status, librarySource.accessState().sequence);
+                writeJson(
+                        output,
+                        200,
+                        "OK",
+                        LibraryJson.capabilities(state)
+                );
+            } finally {
+                endLibraryRequest(cancellation);
+            }
+            return;
+        }
+        if (LIBRARY_PLAY_PATH.equals(request.path)) {
+            playLibraryItem(request, output);
+            return;
+        }
+        if (request.path.startsWith(LIBRARY_ARTWORK_PATH + "/")) {
+            serveLibraryArtwork(request, output);
+            return;
+        }
+        if (!"GET".equals(request.method)) {
+            writeMethodNotAllowed(output, "GET");
+            return;
+        }
+
+        final PowerampLibraryContract.Query providerQuery;
+        final LibraryApiQuery apiQuery;
+        try {
+            providerQuery = libraryQueryForPath(request.path, request.rawQuery);
+            if (providerQuery == null) {
+                writeJsonError(output, 404, "Not Found", "not_found");
+                return;
+            }
+            apiQuery = SEARCH_PATH.equals(request.path)
+                    ? LibraryApiQuery.search(request.rawQuery)
+                    : LibraryApiQuery.page(request.rawQuery);
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_library_request");
+            return;
+        }
+
+        Long currentQueueEntryId = currentQueueEntryId();
+        LibraryCancellation cancellation = beginLibraryRequest();
+        try {
+            PowerampLibrarySource.Result result = librarySource.query(
+                    providerQuery,
+                    apiQuery.limit,
+                    apiQuery.pageToken,
+                    currentQueueEntryId,
+                    cancellation
+            );
+            if (!result.isSuccess()) {
+                writeLibraryFailure(output, providerQuery.category, result.status);
+                return;
+            }
+            writeJson(output, 200, "OK", LibraryJson.page(result.page));
+        } catch (PowerampLibrarySource.InvalidPageTokenException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_page_token");
+        } finally {
+            endLibraryRequest(cancellation);
+        }
+    }
+
+    private void playLibraryItem(HttpRequest request, OutputStream output) throws IOException {
+        if (!"POST".equals(request.method)) {
+            writeMethodNotAllowed(output, "POST");
+            return;
+        }
+        try {
+            LibraryApiQuery.requireEmpty(request.rawQuery);
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_library_request");
+            return;
+        }
+        if (!"application/json".equals(mediaType(request))) {
+            writeJsonError(output, 415, "Unsupported Media Type", "json_required");
+            return;
+        }
+        final LibraryItem.PlayTarget target;
+        try {
+            target = LibraryJson.parsePlayTarget(
+                    new String(request.body, StandardCharsets.UTF_8)
+            );
+            // Construct and independently validate the final URI before touching the provider.
+            String playUri = PowerampLibraryContract.playUri(target);
+            if (!PowerampLibraryContract.isAllowedPlayUri(playUri)) {
+                throw new IllegalArgumentException("Rejected play URI");
+            }
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_play_target");
+            return;
+        }
+
+        LibraryCancellation cancellation = beginLibraryRequest();
+        try {
+            PowerampLibrarySource.SelectionResult selection =
+                    librarySource.validateSelection(target, cancellation);
+            if (selection.status != LibraryAccessState.Status.AVAILABLE) {
+                writeLibraryFailure(output, "play", selection.status);
+                return;
+            }
+            if (!selection.exists) {
+                writeJsonError(output, 404, "Not Found", "library_item_not_found");
+                return;
+            }
+            if (libraryPlaySubmitter == null || !libraryPlaySubmitter.submit(target)) {
+                writeJsonError(output, 503, "Service Unavailable", "client_inactive");
+                return;
+            }
+            writeJson(output, 202, "Accepted", LibraryJson.accepted(target));
+        } finally {
+            endLibraryRequest(cancellation);
+        }
+    }
+
+    private void serveLibraryArtwork(HttpRequest request, OutputStream output) throws IOException {
+        if (!"GET".equals(request.method)) {
+            writeMethodNotAllowed(output, "GET");
+            return;
+        }
+        final long trackId;
+        try {
+            LibraryApiQuery.requireEmpty(request.rawQuery);
+            trackId = PowerampLibraryContract.parsePositiveId(
+                    request.path.substring((LIBRARY_ARTWORK_PATH + "/").length())
+            );
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_library_request");
+            return;
+        }
+        if (libraryArtworkLoader == null) {
+            writeJsonError(output, 404, "Not Found", "artwork_unavailable");
+            return;
+        }
+        if (!libraryArtworkSlots.tryAcquire()) {
+            writeJsonError(output, 503, "Service Unavailable", "library_busy");
+            return;
+        }
+        RemoteArtworkCache.Payload artwork;
+        try {
+            artwork = libraryArtworkLoader.load(trackId);
+        } catch (RuntimeException | OutOfMemoryError exception) {
+            LOGGER.warning("Poweramp library artwork load failed: "
+                    + exception.getClass().getSimpleName());
+            artwork = null;
+        } finally {
+            libraryArtworkSlots.release();
+        }
+        if (artwork == null || artwork.bytes == null || artwork.bytes.length == 0) {
+            writeJsonError(output, 404, "Not Found", "artwork_unavailable");
+            return;
+        }
+        writeResponse(
+                output,
+                200,
+                "OK",
+                artwork.contentType,
+                artwork.bytes,
+                Collections.emptyMap()
+        );
+    }
+
+    private static PowerampLibraryContract.Query libraryQueryForPath(
+            String path,
+            String rawQuery
+    ) {
+        if (LIBRARY_TRACKS_PATH.equals(path)) {
+            return PowerampLibraryContract.allTracks();
+        }
+        if (LIBRARY_ARTISTS_PATH.equals(path)) {
+            return PowerampLibraryContract.artists();
+        }
+        if (LIBRARY_ALBUMS_PATH.equals(path)) {
+            return PowerampLibraryContract.albums();
+        }
+        if (LIBRARY_FOLDERS_PATH.equals(path)) {
+            return PowerampLibraryContract.folders();
+        }
+        if (LIBRARY_PLAYLISTS_PATH.equals(path)) {
+            return PowerampLibraryContract.playlists();
+        }
+        if (QUEUE_PATH.equals(path)) {
+            return PowerampLibraryContract.queue();
+        }
+        if (SEARCH_PATH.equals(path)) {
+            LibraryApiQuery parsed = LibraryApiQuery.search(rawQuery);
+            return PowerampLibraryContract.search(parsed.searchQuery);
+        }
+        String artistId = nestedId(path, LIBRARY_ARTISTS_PATH, "/tracks");
+        if (artistId != null) {
+            return PowerampLibraryContract.artistTracks(
+                    PowerampLibraryContract.parsePositiveId(artistId)
+            );
+        }
+        String albumId = nestedId(path, LIBRARY_ALBUMS_PATH, "/tracks");
+        if (albumId != null) {
+            return PowerampLibraryContract.albumTracks(
+                    PowerampLibraryContract.parsePositiveId(albumId)
+            );
+        }
+        String folderId = nestedId(path, LIBRARY_FOLDERS_PATH, "/tracks");
+        if (folderId != null) {
+            return PowerampLibraryContract.folderTracks(
+                    PowerampLibraryContract.parsePositiveId(folderId)
+            );
+        }
+        String childFolderId = nestedId(path, LIBRARY_FOLDER_TREE_PATH, "/folders");
+        if (childFolderId != null) {
+            return PowerampLibraryContract.childFolders(
+                    PowerampLibraryContract.parseNonNegativeId(childFolderId)
+            );
+        }
+        String hierarchyTrackFolderId = nestedId(
+                path,
+                LIBRARY_FOLDER_TREE_PATH,
+                "/tracks"
+        );
+        if (hierarchyTrackFolderId != null) {
+            return PowerampLibraryContract.hierarchyFolderTracks(
+                    PowerampLibraryContract.parsePositiveId(hierarchyTrackFolderId)
+            );
+        }
+        String playlistId = nestedId(path, LIBRARY_PLAYLISTS_PATH, "/tracks");
+        if (playlistId != null) {
+            return PowerampLibraryContract.playlistTracks(
+                    PowerampLibraryContract.parsePositiveId(playlistId)
+            );
+        }
+        return null;
+    }
+
+    private static String nestedId(String path, String prefix, String suffix) {
+        String start = prefix + "/";
+        if (!path.startsWith(start) || !path.endsWith(suffix)) {
+            return null;
+        }
+        String value = path.substring(start.length(), path.length() - suffix.length());
+        if (value.isEmpty() || value.indexOf('/') >= 0) {
+            throw new IllegalArgumentException("Invalid library path");
+        }
+        return value;
+    }
+
+    private Long currentQueueEntryId() {
+        RemotePlaybackState state = stateStore.snapshot();
+        if (state.track == null
+                || state.track.id <= 0L
+                || state.track.source.category != PowerampContract.Categories.QUEUE) {
+            return null;
+        }
+        return state.track.id;
+    }
+
+    private LibraryCancellation beginLibraryRequest() {
+        LibraryCancellation cancellation = new LibraryCancellation();
+        libraryRequests.add(cancellation);
+        return cancellation;
+    }
+
+    private void endLibraryRequest(LibraryCancellation cancellation) {
+        libraryRequests.remove(cancellation);
+        cancellation.cancel();
+    }
+
+    private void cancelLibraryRequests() {
+        for (LibraryCancellation cancellation : libraryRequests) {
+            cancellation.cancel();
+        }
+        libraryRequests.clear();
+    }
+
+    private static void writeLibraryFailure(
+            OutputStream output,
+            String category,
+            LibraryAccessState.Status status
+    ) throws IOException {
+        LOGGER.warning("Poweramp library request unavailable: category="
+                + category + " status=" + status.wireName);
+        switch (status) {
+            case PERMISSION_REQUIRED:
+                writeJsonError(
+                        output,
+                        403,
+                        "Forbidden",
+                        "poweramp_data_permission_required"
+                );
+                break;
+            case POWERAMP_MISSING:
+                writeJsonError(
+                        output,
+                        503,
+                        "Service Unavailable",
+                        "poweramp_unavailable"
+                );
+                break;
+            case PROVIDER_UNAVAILABLE:
+                writeJsonError(
+                        output,
+                        503,
+                        "Service Unavailable",
+                        "poweramp_provider_unavailable"
+                );
+                break;
+            case UNKNOWN:
+            case PROVIDER_ERROR:
+            default:
+                writeJsonError(
+                        output,
+                        503,
+                        "Service Unavailable",
+                        "poweramp_provider_error"
+                );
+                break;
+        }
+    }
+
+    private static void writeJson(
+            OutputStream output,
+            int status,
+            String reason,
+            String json
+    ) throws IOException {
+        writeResponse(
+                output,
+                status,
+                reason,
+                "application/json; charset=utf-8",
+                json.getBytes(StandardCharsets.UTF_8),
+                Collections.emptyMap()
+        );
+    }
+
+    private static boolean isLibraryRoute(String path) {
+        return LIBRARY_PATH.equals(path)
+                || path.startsWith(LIBRARY_PATH + "/")
+                || SEARCH_PATH.equals(path)
+                || QUEUE_PATH.equals(path);
     }
 
     private RequestAuthorization authorize(HttpRequest request) {
@@ -942,11 +1401,15 @@ final class RemoteApiServer implements AutoCloseable {
         }
         String method = parts[0].toUpperCase(Locale.ROOT);
         String target = parts[1];
-        if (!target.startsWith("/")) {
+        if (!target.startsWith("/") || target.indexOf('#') >= 0) {
             throw new HttpException(400, "Bad Request", "invalid_target");
         }
         int query = target.indexOf('?');
         String path = query >= 0 ? target.substring(0, query) : target;
+        String rawQuery = query >= 0 ? target.substring(query + 1) : null;
+        if (path.isEmpty()) {
+            throw new HttpException(400, "Bad Request", "invalid_target");
+        }
 
         Map<String, String> headers = new HashMap<>();
         int headerBytes = requestLine.length() + 2;
@@ -998,7 +1461,7 @@ final class RemoteApiServer implements AutoCloseable {
             throw new HttpException(411, "Length Required", "content_length_required");
         }
         byte[] body = readExactly(input, contentLength);
-        return new HttpRequest(method, path, parts[2], headers, body);
+        return new HttpRequest(method, path, rawQuery, parts[2], headers, body);
     }
 
     private static String readLine(InputStream input, int maximumBytes) throws IOException {

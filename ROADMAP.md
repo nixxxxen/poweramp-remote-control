@@ -239,17 +239,7 @@ Remaining hardening:
 - improve diagnostics without exposing credentials or persisting transient addresses;
 - evaluate Local Only Hotspot only as a fallback if Wi-Fi Direct proves unreliable on specific devices.
 
-## Next — Multi-player foundation and pairing hardening
-
-- evolve the generic saved-device snapshot and one-slot preferences into an explicit collection;
-- add selection and deterministic connection policy for more than one paired Server;
-- retain stable identity as the key and never persist a resolved LAN/P2P address;
-- consider an explicit Server-side paired-client/revocation surface;
-- investigate application-layer authentication/encryption upgrades without breaking trusted-local
-  API v1 clients or the embedded Web UI;
-- continue respecting all mandatory Android/OEM Wi-Fi Direct confirmations.
-
-## Library browsing and search
+## Current — Library browsing and search
 
 Treat Server/Poweramp as the source of truth. Do **not** replicate the entire Poweramp database to Phone.
 
@@ -257,15 +247,34 @@ Expose a paged/lazy library API backed by the documented Poweramp ContentProvide
 
 Initial browsing structure:
 
+- All tracks;
 - Artists;
 - Albums;
-- Folders;
+- Folders and folder hierarchy;
 - Playlists;
 - Search.
 
+Server foundation is implemented at the unchanged Server `0.10.2` / API `v1`: bounded
+ContentProvider-backed routes, strict ID/category/query validation, lazy track artwork, explicit
+permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. Phone navigation,
+screens, caches, mini-player integration, and user-facing completion remain later tasks in this
+series; versions increase only after the whole series is complete. Basic tracks/Albums browsing,
+track-ID play, and positive/empty search are now confirmed on the maintainer's Poweramp build.
+The next task can add Phone navigation and Library/Search integration. Keep the remaining
+category/permission/large-library matrix visible in `STATUS.md`; this is not a claim that all
+Poweramp builds or Queue operations have been validated.
+
+The agreed Phone navigation is Player / Library / Search / Settings in a bottom bar. Move About
+into Settings, remove the top-left main menu, keep the existing connection pill, and later add a
+Queue entry on Player. Navigation must preserve playback and the existing service-owned runtime.
+
 Load only the currently requested category/page and cache recent results locally for responsive navigation.
 
-Search should execute on the Server through Poweramp's documented search facilities and return grouped results where practical:
+Search executes in Poweramp through `/files` with a fixed parameterized title/file-name/artist/album
+selection, verified with matching and nonmatching queries on Poweramp `1025004-fa3ec08671d`.
+The obsolete `/search?flt` crashes that build and is excluded without fallback. The foundation
+returns track rows only; it neither copies the database nor filters a downloaded first page.
+Separate result entity types remain future scope after their contracts are verified:
 
 - artists;
 - albums;
@@ -294,17 +303,37 @@ Implement Queue in stages.
 
 Preserve Poweramp queue entry IDs because the same track may appear more than once.
 
+Server Stage 1 is implemented with `read=true` and `playExisting=true`; exact provider ordering,
+duplicate IDs, current-entry matching, and selection still require the recorded real-device matrix
+before Phone Queue UI begins.
+
 ### Stage 2 — investigate mutations
 
 Before promising editing support, verify documented/public mechanisms for:
 
 - Add to Queue;
+- Play Next;
 - Remove from Queue;
 - Reorder Queue.
 
 Do not write directly to undocumented/internal Poweramp database structures and do not rely on unsupported MediaSession queue operations.
 
 Only add mutation endpoints after their behavior has been verified on real Poweramp installations.
+
+The current official sample demonstrates Add to Queue with public ContentProvider inserts plus
+`ACTION_RELOAD_DATA`, but it is deliberately not exposed in Stage 1. No documented public Remove,
+Reorder, or Play Next contract was found in the audited upstream source. All four mutation
+capabilities therefore remain `false` until a separately scoped audit/implementation task.
+
+## After Library/Queue — Multi-player foundation and pairing hardening
+
+- evolve the generic saved-device snapshot and one-slot preferences into an explicit collection;
+- add selection and deterministic connection policy for more than one paired Server;
+- retain stable identity as the key and never persist a resolved LAN/P2P address;
+- consider an explicit Server-side paired-client/revocation surface;
+- investigate application-layer authentication/encryption upgrades without breaking trusted-local
+  API v1 clients or the embedded Web UI;
+- continue respecting all mandatory Android/OEM Wi-Fi Direct confirmations.
 
 ## Lyrics
 

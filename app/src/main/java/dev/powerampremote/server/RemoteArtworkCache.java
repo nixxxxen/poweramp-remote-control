@@ -102,6 +102,16 @@ final class RemoteArtworkCache implements AutoCloseable {
         return payload != null && payload.artworkId == artworkId ? payload : null;
     }
 
+    static Payload encodeOneShot(long artworkId, Bitmap bitmap) {
+        if (artworkId <= 0L || bitmap == null) {
+            return null;
+        }
+        byte[] encoded = encode(bitmap);
+        return encoded == null
+                ? null
+                : new Payload(artworkId, 0L, "image/jpeg", encoded);
+    }
+
     private static byte[] encode(Bitmap bitmap) {
         try (ByteArrayOutputStream output = new ByteArrayOutputStream(128 * 1024)) {
             if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {

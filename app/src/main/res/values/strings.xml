@@ -54,6 +54,14 @@
     <string name="server_address_value">http://%1$s:%2$d</string>
     <string name="server_address_unavailable">No local-network IP address found · port %1$d</string>
     <string name="server_clients_value">WebSocket clients: %1$d</string>
+    <string name="library_access_checking">Library access: checking…</string>
+    <string name="library_access_available">Library access: available</string>
+    <string name="library_access_poweramp_missing">Library access: Poweramp not found</string>
+    <string name="library_access_permission_required">Library access requires approval in Poweramp</string>
+    <string name="library_access_provider_unavailable">Library access is temporarily unavailable · start Poweramp and try again</string>
+    <string name="library_access_provider_error">Library access failed temporarily</string>
+    <string name="library_access_request_permission">Request Poweramp library access</string>
+    <string name="library_access_permission_launch_error">Poweramp could not open the library-access confirmation</string>
     <string name="server_pairing_title">Pair a phone with QR</string>
     <string name="server_pairing_instruction">On the phone, open Player devices, choose Pair new player, and scan this code. The QR contains neither the permanent credential nor an IP address.</string>
     <string name="server_pairing_qr_description">One-time QR code for pairing a phone</string>

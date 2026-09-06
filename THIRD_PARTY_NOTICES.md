@@ -6,11 +6,14 @@ their respective licenses.
 
 Release distributors should provide this file and `licenses/Apache-2.0.txt` with both APKs.
 
-## Poweramp public Intent API
+## Poweramp public Intent and ContentProvider APIs
 
-Portions of `app/src/main/java/dev/powerampremote/server/PowerampContract.java` are derived and
-modified from
-[`PowerampAPI.java`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java).
+Portions of `app/src/main/java/dev/powerampremote/server/PowerampContract.java` and
+`app/src/main/java/dev/powerampremote/server/PowerampLibraryContract.java` are derived and modified
+from
+[`PowerampAPI.java`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java)
+and
+[`TableDefs.kt`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/TableDefs.kt).
 Those portions are covered by the following upstream terms, not by the repository's MIT License:
 
 > Copyright (C) 2011-2026 Maksim Petrov
