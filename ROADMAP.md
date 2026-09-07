@@ -256,17 +256,17 @@ Initial browsing structure:
 
 Server foundation is implemented at the unchanged Server `0.10.2` / API `v1`: bounded
 ContentProvider-backed routes, strict ID/category/query validation, lazy track artwork, explicit
-permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. Phone navigation,
-screens, caches, mini-player integration, and user-facing completion remain later tasks in this
-series; versions increase only after the whole series is complete. Basic tracks/Albums browsing,
-track-ID play, and positive/empty search are now confirmed on the maintainer's Poweramp build.
-The next task can add Phone navigation and Library/Search integration. Keep the remaining
-category/permission/large-library matrix visible in `STATUS.md`; this is not a claim that all
-Poweramp builds or Queue operations have been validated.
+permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. A first Phone
+Library/Search UI candidate now adds the agreed navigation, bounded paging, lazy thumbnail cache,
+container Back stack, and stale-search protection at unchanged Phone `0.6.0`. Versions increase only
+after the whole series is complete. Basic Server tracks/Albums browsing, track-ID play, and
+positive/empty search are confirmed on the maintainer's Poweramp build; the new Phone surface and
+remaining category/permission/large-library matrix still require device validation.
 
-The agreed Phone navigation is Player / Library / Search / Settings in a bottom bar. Move About
-into Settings, remove the top-left main menu, keep the existing connection pill, and later add a
-Queue entry on Player. Navigation must preserve playback and the existing service-owned runtime.
+Phone navigation is now Player / Library / Search / Settings in a bottom bar. About is in Settings,
+the top-left main menu is removed, and the existing connection pill is retained. A later Queue task
+can add its Player entry after the Queue device matrix. Navigation preserves playback and the
+existing service-owned runtime.
 
 Load only the currently requested category/page and cache recent results locally for responsive navigation.
 
@@ -289,6 +289,63 @@ Support playback actions for documented Poweramp content URIs:
 - start another supported category/list.
 
 Artwork should be loaded lazily rather than transferred for the whole library.
+
+### Planned Library/Search UI refinements (requested 2026-09-07)
+
+These are follow-up requirements, not completed features of the first Phone UI candidate.
+Implement incrementally while retaining the existing service-owned playback/connection runtime,
+safe insets, and the non-scrolling Player with visible volume. Versions advance when the series
+is ready for release, not for each individual refinement.
+
+1. **Icon-only bottom navigation.** Replace visible text tabs with recognizable Player, Library,
+   Search, and Settings icons. Retain clear selected/pressed states, adequate touch targets, and
+   localized accessibility labels even though the text is no longer displayed.
+2. **Reliable artwork caching.** Extend the current small in-memory thumbnail cache so every
+   encountered track thumbnail is eligible for reuse when scrolling back and forth or switching
+   tabs. Use bounded memory plus a bounded private disk cache; do not pre-download the entire
+   library. Rebinding a cached row should not flash a placeholder or repeat a network request.
+   Deduplicate in-flight loads and reject late images for recycled rows. Scope keys by stable
+   Server and artwork/track identity, not its transient IP, with explicit invalidation when artwork
+   changes. Evaluate caching full-size covers as tracks are played, reusing the existing Player
+   artwork path. Measure encoded disk size and decoded bitmap memory separately before choosing
+   byte budgets and eviction policy; full-size retention is an investigation, not an unbounded
+   cache commitment. Document the chosen limits and cleanup behavior.
+3. **Currently playing row indicator.** Mark the confirmed current track in Library and Search,
+   including after selecting a track there. Follow existing remote snapshots for external track
+   changes, pause/resume and reconnect; do not mark a row merely because its play command was sent.
+   Verify the mapping between playback and library IDs, preserving distinct playlist/Queue entry
+   identities where applicable rather than matching titles or guessing among duplicates.
+4. **Representative category covers.** Give Artists, Albums, Playlists and Folders a representative
+   cover, for example from the first contained track with usable artwork in a defined stable order.
+   This is a derived visual aid, not a claim of official artist/entity artwork. Load lazily, cache
+   the entity-to-artwork association and image, and bound lookups rather than scanning every
+   container or issuing requests on every row bind. Use a neutral fallback for empty containers,
+   absent artwork or failed lookups; refresh associations when their source is no longer valid.
+5. **Shared mini-player.** Show a compact mini-player above bottom navigation on Library, Search
+   and Settings: current artwork, title/artist, and Play/Pause; tapping its body opens Player.
+   Reuse the existing service snapshot and commands without another MediaSession, playback model,
+   polling loop or connection. Handle no-track/disconnected states and search keyboard/insets
+   without obscuring list content or navigation.
+6. **Search within the current scope.** Add a search action inside All tracks and individual
+   folders, albums, artists and playlists, with an explicit visible scope. Define direct-folder
+   versus recursive behavior before implementation. Search the whole selected container before
+   pagination, not just the rows currently loaded on Phone. Verify public provider support and
+   add only backward-compatible Server parameters where needed; bind continuation and stale-result
+   protection to both query and scope. Never reintroduce the obsolete `/search?flt` path.
+7. **Rounded thumbnails.** Apply consistent modest corner rounding to track and category artwork,
+   including placeholders and mini-player art. Preserve square proportions and appropriate crop
+   without stretching images or reprocessing bitmaps on each scroll/bind.
+8. **Per-list sorting.** Add sort selection for track lists, including within containers: title,
+   album, artist, duration, and, only if publicly available and verified, date added and play count.
+   Verify field semantics, units and provider ordering support before exposing each option; do not
+   infer date added from an ID or invent play counts. Sort the entire scoped result before paging,
+   use a stable tie-breaker, and bind page tokens to scope/query/sort/direction. Remember the chosen
+   sort per relevant view, reset paging when it changes, and retain a provider-default order option.
+   Sorting only an already downloaded page must not be presented as sorting the whole library.
+
+Scoped search and sorting require a focused public Poweramp API/device check: the current Server
+contract exposes global track search and provider-default ordering, not these additional options.
+Unsupported criteria should remain unavailable with honest UI rather than fabricated values.
 
 ## Queue
 

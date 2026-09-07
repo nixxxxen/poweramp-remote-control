@@ -68,6 +68,11 @@
             android:exported="false" />
 
         <activity
+            android:name="dev.powerampremote.phone.LibrarySearchActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name="dev.powerampremote.phone.AboutActivity"
             android:exported="false" />
 

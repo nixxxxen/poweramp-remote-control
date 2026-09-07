@@ -9,9 +9,9 @@ Current versions:
 ## Stage
 
 The repository builds two native Android applications. At unchanged Server `0.10.2`, the first
-Library/Queue-series stage now provides the additive Server Library/Search/current-Queue API
-foundation. Phone Client remains `0.6.0`; it has no Library/Search/Queue UI or network integration
-yet. API stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
+Library/Queue-series stage provides the additive Server Library/Search/current-Queue API foundation.
+At unchanged Phone `0.6.0`, a first Library/Search UI candidate now consumes the existing API; Queue
+UI remains absent. API stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
@@ -30,6 +30,32 @@ full multi-player persistence remain absent.
   be repeated on this host because no Java Runtime is installed; launcher-mask and final device-size
   inspection therefore remain device/build-host checks. Versions, API `v1`, services, transport,
   pairing, MediaSession, and playback behavior are unchanged.
+
+## Phone 0.6.0: first Library/Search UI candidate (2026-09-07)
+
+- Added bottom Player / Library / Search / Settings navigation, removed the Player's left menu,
+  retained the existing connection pill/action, and moved the About entry into Settings. The fixed
+  Player remains non-scrolling with flexible square artwork and visible volume space.
+- Library browses All tracks, Artists, Albums, folder hierarchy, and Playlists through the existing
+  bounded API v1 pages. Containers open their track/subfolder pages; Back pops the Library stack
+  first. Search uses the existing Server endpoint with a 300 ms debounce.
+- Phone parses nullable item metadata and structured Server-supplied play targets, posts only those
+  targets to `/api/v1/library/play`, follows opaque `nextPageToken`, honors `truncated`, and lazily
+  decodes track thumbnails into a 32-entry in-memory cache. It does not construct Poweramp URIs,
+  download the full library, or optimistically replace playback state.
+- Library pages and thumbnails use dedicated executors owned by the existing
+  `RemoteClientController`, so transport commands retain their existing executor. Search generation
+  gates reject replies for an older text or connection. UI states cover loading, empty, retryable
+  provider failures, disconnected, permission-required, and unsupported older Servers.
+- Selected Library/Search tab, query text, in-memory container stacks, and list offsets survive
+  ordinary tab navigation; configuration state preserves the selected tab, query, and Search list
+  position. No Server, Queue, pairing, discovery, transport, MediaSession, Web UI, or version change
+  is included.
+- Targeted parsing/pagination/request and stale-search tests pass (`9/9`), and the one requested
+  `:phone:assembleDebug` run succeeds with `phone/build/outputs/apk/debug/phone-debug.apk`. Device UI
+  validation is still required, especially compact Player sizing with the bottom bar,
+  keyboard/insets, every category/container, permission/old-Server errors, pagination, thumbnails,
+  and confirmed playback.
 
 The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
 real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from
@@ -1305,17 +1331,17 @@ and hardening work should additionally exercise more vendors, Android versions, 
   selection and mandatory approval; the applications do not bypass either.
 - Force-stop, explicit notification Stop, or reboot ends the corresponding runtime until launch.
 - Exact public semantics of Poweramp bitrate units and list index base remain unverified.
-- Phone Library/Search/Queue UI is not implemented. The Server foundation deliberately stops at a
-  1000-row continuation window because Poweramp documents integer `lim` but no offset; device
-  verification may refine only a publicly confirmed continuation strategy.
+- Phone Library/Search UI is implemented as a device-validation candidate; Queue UI is not. The
+  Server foundation deliberately stops at a 1000-row continuation window because Poweramp documents
+  integer `lim` but no offset; device verification may refine only a publicly confirmed strategy.
 - Queue Add/Remove/Reorder/Play Next remain disabled. Add has an official sample for later audit;
   the other mutations have no confirmed public contract. Lyrics remains out of scope.
 
 ## Next scope
 
-Continue the Library/Queue series with the separately scoped Phone navigation and Library/Search
-integration; the basic Server/device path is now confirmed. Complete the remaining device matrix
-alongside integration, and verify Queue duplicates/current-entry selection before its Phone UI.
+Validate the first Phone Library/Search candidate on device and complete the remaining category,
+permission, old-Server, artwork, pagination, and compact-layout matrix. Then verify Queue
+duplicates/current-entry selection before its Phone UI.
 Do not change the one-service connection architecture. Multi-player foundation and pairing hardening follow that
 series as ordered in [`ROADMAP.md`](ROADMAP.md). Queue mutations, Lyrics, multi-player persistence,
 and pairing/transport security still require separate scope and public-contract verification.

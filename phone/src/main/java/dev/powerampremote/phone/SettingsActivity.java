@@ -1,5 +1,6 @@
 package dev.powerampremote.phone;
 
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.HapticFeedbackConstants;
@@ -19,11 +20,16 @@ public final class SettingsActivity extends LocaleAwareActivity {
         SafeDrawingInsets.enableEdgeToEdge(getWindow());
         setContentView(R.layout.activity_settings);
         SafeDrawingInsets.apply(findViewById(R.id.settings_root));
+        BottomNavigation.bind(this, BottomNavigation.Tab.SETTINGS);
 
         View backButton = findViewById(R.id.back_button);
         backButton.setOnClickListener(view -> {
             haptic(view);
             finish();
+        });
+        findViewById(R.id.open_about_button).setOnClickListener(view -> {
+            haptic(view);
+            startActivity(new Intent(this, AboutActivity.class));
         });
 
         languageGroup = findViewById(R.id.language_group);

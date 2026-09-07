@@ -4,6 +4,43 @@
     <string name="settings">Настройки</string>
     <string name="about">О приложении</string>
     <string name="back">Назад</string>
+    <string name="nav_player">Плеер</string>
+    <string name="nav_library">Библиотека</string>
+    <string name="nav_search">Поиск</string>
+    <string name="nav_settings">Настройки</string>
+
+    <string name="library_all_tracks">Все треки</string>
+    <string name="library_artists">Исполнители</string>
+    <string name="library_albums">Альбомы</string>
+    <string name="library_folders">Папки</string>
+    <string name="library_playlists">Плейлисты</string>
+    <string name="library_folder_tracks">Треки в этой папке</string>
+    <string name="library_subfolders">Вложенные папки</string>
+    <string name="library_search_hint">Название, исполнитель, альбом или имя файла</string>
+    <string name="library_search_prompt">Введите поисковый запрос</string>
+    <string name="library_loading">Загрузка…</string>
+    <string name="library_empty">Здесь пока ничего нет</string>
+    <string name="library_search_empty">Подходящие треки не найдены</string>
+    <string name="library_disconnected">Подключитесь к Серверу, чтобы открыть библиотеку.</string>
+    <string name="library_permission_required">Доступ к библиотеке Poweramp не выдан. Запросите его на устройстве с Сервером.</string>
+    <string name="library_unsupported">Этот Сервер пока не поддерживает Библиотеку и Поиск.</string>
+    <string name="library_provider_unavailable">Библиотека Poweramp временно недоступна.</string>
+    <string name="library_error">Не удалось загрузить эту страницу.</string>
+    <string name="library_retry">Повторить</string>
+    <string name="library_more">Загрузить ещё</string>
+    <string name="library_truncated">Есть и другие элементы, но окно страниц Сервера ограничено.</string>
+    <string name="library_play_error">Не удалось запустить этот элемент.</string>
+    <string name="library_unknown_item">Без названия</string>
+    <string name="library_duration">%1$s</string>
+    <string name="settings_about_description">Версия, ссылки проекта, лицензии и уведомление о независимости</string>
+    <string name="settings_open_about">О Poweramp Remote</string>
+
+    <plurals name="library_track_count">
+        <item quantity="one">%d трек</item>
+        <item quantity="few">%d трека</item>
+        <item quantity="many">%d треков</item>
+        <item quantity="other">%d трека</item>
+    </plurals>
 
     <string name="app_language">Язык приложения</string>
     <string name="app_language_description">Выберите язык экранов клиента для телефона, подсказок сканера и уведомлений.</string>

@@ -68,6 +68,7 @@ dependencies {
     //noinspection GradleDependency
     implementation 'androidx.media3:media3-session:1.10.1'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }
 
 tasks.withType(JavaCompile).configureEach {

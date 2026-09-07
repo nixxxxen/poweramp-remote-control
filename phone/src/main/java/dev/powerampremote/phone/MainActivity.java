@@ -19,7 +19,6 @@ import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
-import android.widget.PopupMenu;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -194,13 +193,14 @@ public final class MainActivity extends LocaleAwareActivity
         openedDevicesForMissingPairing = savedInstanceState != null
                 && savedInstanceState.getBoolean(STATE_OPENED_DEVICES, false);
         setContentView(R.layout.activity_main);
-        SafeDrawingInsets.apply(findViewById(R.id.player_content));
+        SafeDrawingInsets.apply(findViewById(R.id.main_shell));
         metadataFormatter = RemoteMetadataFormatter.from(this);
         metadataChipDrawableFactory = new MetadataChipDrawableFactory(this);
         bindViews();
         renderConnectionIndicator(status);
         restoreArtworkTheme(savedInstanceState);
         configureControls();
+        BottomNavigation.bind(this, BottomNavigation.Tab.PLAYER);
         try {
             PhoneConnectionService.start(this);
         } catch (RuntimeException exception) {
@@ -349,10 +349,6 @@ public final class MainActivity extends LocaleAwareActivity
                     }
                 }
         );
-        findViewById(R.id.main_menu_button).setOnClickListener(view -> {
-            haptic(view);
-            showMainMenu(view);
-        });
         playerDevicesButton.setOnClickListener(view -> {
             haptic(view);
             openPlayerDevices();
@@ -1333,24 +1329,6 @@ public final class MainActivity extends LocaleAwareActivity
 
     private void openPlayerDevices() {
         startActivity(new Intent(this, PlayerDevicesActivity.class));
-    }
-
-    private void showMainMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.inflate(R.menu.main_navigation);
-        menu.setOnMenuItemClickListener(item -> {
-            haptic(anchor);
-            if (item.getItemId() == R.id.menu_settings) {
-                startActivity(new Intent(this, SettingsActivity.class));
-                return true;
-            }
-            if (item.getItemId() == R.id.menu_about) {
-                startActivity(new Intent(this, AboutActivity.class));
-                return true;
-            }
-            return false;
-        });
-        menu.show();
     }
 
     private void requestNotificationPermission() {

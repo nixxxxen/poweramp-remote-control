@@ -70,12 +70,14 @@ endpoint replaces a direct endpoint. Wi-Fi Direct connection requests must respe
 permissions, Location Mode requirements, platform group-owner selection, and any system approval
 shown on either device. Never try to bypass or automate those dialogs.
 
-Unreleased Library/Search/Queue work on the current branch adds a Server-only foundation at the
-same version numbers. `RemotePlaybackService` owns `PowerampLibrarySource` and its unstable
+Unreleased Library/Search/Queue work on the current branch adds the Server foundation and first
+Phone Library/Search UI candidate at the same version numbers. `RemotePlaybackService` owns `PowerampLibrarySource` and its unstable
 ContentProvider adapter; HTTP routes are additive and Bearer-only. Search uses `/files` with fixed
 bound selection arguments, not the obsolete `/search?flt` path that crashes the verified Poweramp
-build. Basic browsing, track play, and positive/empty search are device-confirmed; see `STATUS.md`
-for the remaining matrix. Do not reintroduce `/search?flt` or an automatic query retry.
+build. The Phone UI consumes these routes only through the existing `PhoneConnectionService` and
+`RemoteClientController`. Basic Server browsing, track play, and positive/empty search are
+device-confirmed; the Phone UI still needs its `STATUS.md` matrix. Do not reintroduce `/search?flt`
+or an automatic query retry.
 
 Version history:
 
@@ -189,7 +191,7 @@ The following functionality is implemented and working:
 
 ### Intentionally not implemented
 
-- Phone Library/Search/Queue navigation and integration (Server foundation is implemented);
+- Phone Queue navigation/integration (Library/Search candidate is implemented);
 - Queue mutations;
 - Lyrics;
 - full multi-player persistence/selection.

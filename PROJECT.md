@@ -53,7 +53,7 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - `NsdDiscoveryClient` for ordinary LAN discovery/resolution;
 - `WifiDirectConnectionClient` for known-server Wi-Fi Direct discovery and group negotiation;
 - `PairingStore` for a verified stable Server identity, device/service names, and Bearer token;
-- `RemoteApiClient` for REST state/control/artwork requests;
+- `RemoteApiClient` for REST state/control/artwork and paged Library/Search requests;
 - `RemoteWebSocket` for complete event-driven state snapshots;
 - `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
 - `PairingRequestState` for binder-independent QR/manual requests delivered to that controller;
@@ -62,10 +62,12 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - one Media3 `MediaSession` exposed to Android System UI, lock screen, and compatible Wear OS
   controllers.
 
-`MainActivity` binds only while visible and is a playback-only presentation/control surface with a
-small native menu for Settings/About. `PlayerDevicesActivity` owns saved-device diagnostics,
+`MainActivity` binds only while visible and remains a playback-only presentation/control surface.
+The shared bottom navigation opens Player / Library / Search / Settings without restarting the
+service runtime. `LibrarySearchActivity` owns paged browsing/search presentation and its container
+back stack; its requests go only through the bound service/controller. `PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
-`SettingsActivity` and `AboutActivity` are presentation-only and never own or replace the connection
+`SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
 runtime. No Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
@@ -555,13 +557,15 @@ rounded artwork receives the flexible space; Previous/Play-Pause/Next remain pri
 Like/Dislike, and Shuffle are compact secondary controls with selected states, pressed feedback, and
 haptics. Seek and volume use player-specific tracks/thumbs. Codec/file type, bit depth, sample rate,
 and bitrate use fixed, artwork-independent muted metadata families selected from their raw values
-without changing formatted text. A symmetric left menu button opens the small native Settings/About
-menu while the compact right connection pill remains the direct Player devices action. It exposes
+without changing formatted text. The compact right connection pill remains in its original top-right
+position as the direct Player devices action; the former left menu is replaced by the shared bottom
+navigation, and About is reached through Settings. The pill exposes
 only LAN, Wi-Fi Direct, Connecting, or Disconnected; endpoint, API, Server-ID, pairing, re-pair, and
 forget details remain on the separate **Player devices** screen. The current data model exposes a
 generic saved-device snapshot but intentionally persists only one slot in this release.
 All Phone presentation Activities use one edge-to-edge View path and add system-bar plus
-display-cutout insets to their root padding. The player keeps required controls in a fixed no-scroll
+display-cutout insets to their root padding. Library/Search additionally relies on resize handling
+for the software keyboard, without applying a second inset layer. The player keeps required controls in a fixed no-scroll
 budget and gives only
 the artwork the remaining height; volume remains represented by a disabled placeholder before its
 first remote snapshot. The artwork container measures to the smaller available dimension so its
@@ -650,8 +654,9 @@ still needs broader device coverage: first grant/deny/retry and process-not-runn
 remaining category projections/order; search by artist/album, Unicode and literal wildcard input;
 hierarchy root/children; duplicate playlist/queue entry IDs; queue-current matching and
 `OPEN_TO_PLAY`; and album-art access for arbitrary tracks. Category artwork and extra category
-metadata are intentionally absent, not failed track metadata. Phone Library/Search integration can
-start from this baseline; Queue-specific behavior must be checked before exposing Queue UI.
+metadata are intentionally absent, not failed track metadata. The first Phone Library/Search UI now
+consumes this baseline but still requires the device checks below; Queue-specific behavior must be
+checked before exposing Queue UI.
 The 1000-row continuation boundary is an explicit public-contract safety limit, not a claim that
 Poweramp libraries are capped at that size.
 

@@ -59,6 +59,27 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     enum PairingMode { NONE, QR, MANUAL_TOKEN }
 
+    enum LibraryFailure {
+        DISCONNECTED,
+        PERMISSION_REQUIRED,
+        UNSUPPORTED,
+        AUTHENTICATION,
+        PROVIDER_UNAVAILABLE,
+        SERVER_ERROR
+    }
+
+    interface LibraryPageCallback {
+        void onResult(int connectionGeneration, LibraryPage page, LibraryFailure failure);
+    }
+
+    interface LibraryActionCallback {
+        void onResult(int connectionGeneration, LibraryFailure failure);
+    }
+
+    interface LibraryArtworkCallback {
+        void onResult(int connectionGeneration, String artworkPath, Bitmap artwork);
+    }
+
     interface Listener {
         void onStatusChanged(Status status, long retryDelayMilliseconds);
         void onPairingFailed(PairingError error);
@@ -86,6 +107,19 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         thread.setDaemon(true);
         return thread;
     });
+    private final ExecutorService libraryExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "remote-library");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final ExecutorService libraryArtworkExecutor = Executors.newFixedThreadPool(
+            2,
+            runnable -> {
+                Thread thread = new Thread(runnable, "remote-library-artwork");
+                thread.setDaemon(true);
+                return thread;
+            }
+    );
     private final Map<String, DiscoveredServer> candidates = new LinkedHashMap<>();
     private final Set<Network> lanNetworks = new HashSet<>();
     private final Runnable reconnectRunnable = this::runReconnect;
@@ -286,6 +320,132 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     void setRating(int rating) { sendControl(RemoteCommandJson.rating(rating)); }
     void setShuffle(boolean enabled) { sendControl(RemoteCommandJson.shuffle(enabled)); }
     void setVolume(int volume) { sendControl(RemoteCommandJson.volume(volume)); }
+
+    int libraryConnectionGeneration() {
+        return connectionGeneration;
+    }
+
+    void requestLibraryPage(
+            LibraryRequest request,
+            String pageToken,
+            LibraryPageCallback callback
+    ) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
+            callback.onResult(generation, null, LibraryFailure.DISCONNECTED);
+            return;
+        }
+        try {
+            libraryExecutor.execute(() -> {
+                LibraryPage page = null;
+                LibraryFailure failure = null;
+                try {
+                    page = apiClient.getLibraryPage(
+                            currentEndpoint,
+                            currentCredentials.token,
+                            request,
+                            pageToken
+                    );
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    failure = libraryFailure(exception.statusCode);
+                } catch (IOException | RuntimeException exception) {
+                    failure = LibraryFailure.SERVER_ERROR;
+                }
+                LibraryPage resultPage = page;
+                LibraryFailure resultFailure = failure;
+                mainHandler.post(() -> callback.onResult(
+                        generation, resultPage, resultFailure
+                ));
+            });
+        } catch (RejectedExecutionException exception) {
+            callback.onResult(generation, null, LibraryFailure.SERVER_ERROR);
+        }
+    }
+
+    void playLibraryTarget(LibraryPlayTarget target, LibraryActionCallback callback) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
+            callback.onResult(generation, LibraryFailure.DISCONNECTED);
+            return;
+        }
+        try {
+            libraryExecutor.execute(() -> {
+                LibraryFailure failure = null;
+                try {
+                    apiClient.playLibraryTarget(
+                            currentEndpoint, currentCredentials.token, target
+                    );
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    failure = libraryFailure(exception.statusCode);
+                } catch (IOException | RuntimeException exception) {
+                    failure = LibraryFailure.SERVER_ERROR;
+                }
+                LibraryFailure resultFailure = failure;
+                mainHandler.post(() -> callback.onResult(generation, resultFailure));
+            });
+        } catch (RejectedExecutionException exception) {
+            callback.onResult(generation, LibraryFailure.SERVER_ERROR);
+        }
+    }
+
+    void requestLibraryArtwork(String artworkPath, LibraryArtworkCallback callback) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
+            callback.onResult(generation, artworkPath, null);
+            return;
+        }
+        try {
+            libraryArtworkExecutor.execute(() -> {
+                Bitmap bitmap = null;
+                try {
+                    byte[] bytes = apiClient.getLibraryArtwork(
+                            currentEndpoint, currentCredentials.token, artworkPath
+                    );
+                    bitmap = decodeLibraryArtwork(bytes);
+                } catch (IOException | RuntimeException ignored) {
+                    // A missing thumbnail is optional and does not change page or playback state.
+                }
+                Bitmap result = bitmap;
+                mainHandler.post(() -> callback.onResult(generation, artworkPath, result));
+            });
+        } catch (RejectedExecutionException exception) {
+            callback.onResult(generation, artworkPath, null);
+        }
+    }
+
+    private static LibraryFailure libraryFailure(int statusCode) {
+        if (statusCode == 401) return LibraryFailure.AUTHENTICATION;
+        if (statusCode == 403) return LibraryFailure.PERMISSION_REQUIRED;
+        if (statusCode == 404 || statusCode == 405) return LibraryFailure.UNSUPPORTED;
+        if (statusCode == 502 || statusCode == 503 || statusCode == 504) {
+            return LibraryFailure.PROVIDER_UNAVAILABLE;
+        }
+        return LibraryFailure.SERVER_ERROR;
+    }
+
+    private static Bitmap decodeLibraryArtwork(byte[] bytes) throws IOException {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw new IOException("Unable to inspect library artwork");
+        }
+        int sample = 1;
+        while (bounds.outWidth / sample > 192 || bounds.outHeight / sample > 192) {
+            sample *= 2;
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (bitmap == null) throw new IOException("Unable to decode library artwork");
+        return bitmap;
+    }
 
     void retryDirectConnection() {
         if (!active || targetServerId() == null) return;
@@ -978,6 +1138,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         directClient.close();
         controlExecutor.shutdownNow();
         artworkExecutor.shutdownNow();
+        libraryExecutor.shutdownNow();
+        libraryArtworkExecutor.shutdownNow();
         mainHandler.removeCallbacksAndMessages(null);
         Log.i(TAG, "Client runtime closed");
     }

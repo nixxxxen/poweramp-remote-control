@@ -14,6 +14,7 @@ final class RemoteApiClient {
     static final String CONTROL_PATH = "/api/v1/control";
     static final String ARTWORK_PATH = "/api/v1/artwork";
     static final String PAIRING_PATH = "/api/v1/pair";
+    static final String LIBRARY_PLAY_PATH = "/api/v1/library/play";
 
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 5_000;
     private static final int READ_TIMEOUT_MILLISECONDS = 10_000;
@@ -76,10 +77,71 @@ final class RemoteApiClient {
         }
     }
 
+    LibraryPage getLibraryPage(
+            DiscoveredServer server,
+            String token,
+            LibraryRequest request,
+            String pageToken
+    ) throws IOException {
+        Response response = request(
+                server,
+                token,
+                "GET",
+                request.path(pageToken),
+                null,
+                MAX_JSON_BYTES
+        );
+        if (response.statusCode != HttpURLConnection.HTTP_OK) {
+            throw new HttpStatusException(response.statusCode);
+        }
+        try {
+            return LibraryPageParser.parse(new String(response.body, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Invalid library response", exception);
+        }
+    }
+
+    void playLibraryTarget(
+            DiscoveredServer server,
+            String token,
+            LibraryPlayTarget target
+    ) throws IOException {
+        byte[] body = target.toJson().getBytes(StandardCharsets.UTF_8);
+        Response response = request(
+                server,
+                token,
+                "POST",
+                LIBRARY_PLAY_PATH,
+                body,
+                MAX_JSON_BYTES
+        );
+        if (response.statusCode != HttpURLConnection.HTTP_ACCEPTED) {
+            throw new HttpStatusException(response.statusCode);
+        }
+    }
+
     byte[] getArtwork(DiscoveredServer server, String token, String artworkPath)
             throws IOException {
         if (!ARTWORK_PATH.equals(artworkPath)) {
             throw new IOException("Unexpected artwork path");
+        }
+        Response response = request(server, token, "GET", artworkPath, null, MAX_ARTWORK_BYTES);
+        if (response.statusCode != HttpURLConnection.HTTP_OK) {
+            throw new HttpStatusException(response.statusCode);
+        }
+        if (response.contentType == null
+                || !response.contentType.toLowerCase(Locale.ROOT).startsWith("image/jpeg")) {
+            throw new IOException("Unexpected artwork content type");
+        }
+        return response.body;
+    }
+
+    byte[] getLibraryArtwork(DiscoveredServer server, String token, String artworkPath)
+            throws IOException {
+        if (artworkPath == null || !artworkPath.matches(
+                "/api/v1/library/artwork/tracks/[1-9][0-9]{0,18}"
+        )) {
+            throw new IOException("Unexpected library artwork path");
         }
         Response response = request(server, token, "GET", artworkPath, null, MAX_ARTWORK_BYTES);
         if (response.statusCode != HttpURLConnection.HTTP_OK) {

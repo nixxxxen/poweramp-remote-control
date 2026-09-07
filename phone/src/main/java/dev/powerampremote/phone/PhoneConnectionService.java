@@ -153,6 +153,44 @@ public final class PhoneConnectionService extends MediaSessionService
             if (controller != null) controller.setVolume(volume);
         }
 
+        int libraryConnectionGeneration() {
+            return controller == null ? -1 : controller.libraryConnectionGeneration();
+        }
+
+        void requestLibraryPage(
+                LibraryRequest request,
+                String pageToken,
+                RemoteClientController.LibraryPageCallback callback
+        ) {
+            if (controller == null) {
+                callback.onResult(-1, null, RemoteClientController.LibraryFailure.DISCONNECTED);
+                return;
+            }
+            controller.requestLibraryPage(request, pageToken, callback);
+        }
+
+        void playLibraryTarget(
+                LibraryPlayTarget target,
+                RemoteClientController.LibraryActionCallback callback
+        ) {
+            if (controller == null) {
+                callback.onResult(-1, RemoteClientController.LibraryFailure.DISCONNECTED);
+                return;
+            }
+            controller.playLibraryTarget(target, callback);
+        }
+
+        void requestLibraryArtwork(
+                String artworkPath,
+                RemoteClientController.LibraryArtworkCallback callback
+        ) {
+            if (controller == null) {
+                callback.onResult(-1, artworkPath, null);
+                return;
+            }
+            controller.requestLibraryArtwork(artworkPath, callback);
+        }
+
         void retryDirectConnection() {
             if (controller != null) controller.retryDirectConnection();
         }

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<merge xmlns:android="http://schemas.android.com/apk/res/android">
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
 
     <dev.powerampremote.phone.ArtworkThemeBackgroundView
         android:id="@+id/artwork_theme_background"
@@ -7,9 +9,16 @@
         android:layout_height="match_parent" />
 
     <LinearLayout
-        android:id="@+id/player_content"
+        android:id="@+id/main_shell"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/player_content"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:gravity="center_horizontal"
         android:orientation="vertical"
         android:paddingLeft="@dimen/screen_padding"
@@ -20,17 +29,6 @@
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="40dp">
-
-        <ImageButton
-            android:id="@+id/main_menu_button"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_gravity="start|center_vertical"
-            android:background="@drawable/control_button_background"
-            android:contentDescription="@string/open_main_menu"
-            android:foreground="?android:attr/selectableItemBackgroundBorderless"
-            android:padding="10dp"
-            android:src="@drawable/ic_menu" />
 
         <Button
             android:id="@+id/player_devices_button"
@@ -404,4 +402,7 @@
         android:textSize="11sp"
         android:visibility="gone" />
     </LinearLayout>
-</merge>
+
+    <include layout="@layout/bottom_navigation" />
+    </LinearLayout>
+</FrameLayout>
