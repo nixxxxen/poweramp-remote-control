@@ -185,10 +185,18 @@ public final class PhoneConnectionService extends MediaSessionService
                 RemoteClientController.LibraryArtworkCallback callback
         ) {
             if (controller == null) {
-                callback.onResult(-1, artworkPath, null);
+                callback.onResult(-1, null, null);
                 return;
             }
             controller.requestLibraryArtwork(artworkPath, callback);
+        }
+
+        LibraryArtworkKey libraryArtworkKey(String artworkPath) {
+            return controller == null ? null : controller.libraryArtworkKey(artworkPath);
+        }
+
+        Bitmap cachedLibraryArtwork(LibraryArtworkKey key) {
+            return controller == null ? null : controller.cachedLibraryArtwork(key);
         }
 
         void retryDirectConnection() {

@@ -28,11 +28,7 @@ import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
 
 /** First paged Phone Library/Search UI, backed only by PhoneConnectionService. */
 public final class LibrarySearchActivity extends LocaleAwareActivity
@@ -43,7 +39,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private static final String STATE_SEARCH_FIRST = "search_first";
     private static final String STATE_SEARCH_TOP = "search_top";
     private static final long SEARCH_DEBOUNCE_MILLISECONDS = 300L;
-    private static final int ARTWORK_CACHE_ENTRIES = 32;
 
     private enum LocalAction {
         ALL_TRACKS, ARTISTS, ALBUMS, FOLDERS, PLAYLISTS, FOLDER_TRACKS, SUBFOLDERS
@@ -107,15 +102,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private final ArrayList<Level> libraryStack = new ArrayList<>();
     private final LibraryPager searchPager = new LibraryPager();
     private final SearchRequestGate searchGate = new SearchRequestGate();
-    private final Set<String> pendingArtwork = new HashSet<>();
-    private final Set<String> failedArtwork = new HashSet<>();
-    private final LinkedHashMap<String, Bitmap> artworkCache =
-            new LinkedHashMap<String, Bitmap>(ARTWORK_CACHE_ENTRIES, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) {
-                    return size() > ARTWORK_CACHE_ENTRIES;
-                }
-            };
 
     private TextView titleView;
     private EditText searchInput;
@@ -138,6 +124,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private RemoteClientController.LibraryFailure searchFailure;
     private int searchFirstVisible;
     private int searchTopOffset;
+    private int thumbnailPlaceholderPadding;
     private Runnable debounceRunnable;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
@@ -180,6 +167,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         progress = findViewById(R.id.library_progress);
         statusMessage = findViewById(R.id.library_status_message);
         actionButton = findViewById(R.id.library_action_button);
+        thumbnailPlaceholderPadding = Math.round(
+                10f * getResources().getDisplayMetrics().density
+        );
         adapter = new BrowseAdapter();
         listView.setAdapter(adapter);
         libraryStack.add(libraryRoot());
@@ -286,7 +276,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         searchGate.invalidate();
         searchLoading = false;
         for (Level level : libraryStack) level.loading = false;
-        pendingArtwork.clear();
         if (controller != null) {
             controller.removeListener(this);
             controller = null;
@@ -745,9 +734,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         searchGate.invalidate();
         searchLoading = false;
         for (Level level : libraryStack) level.loading = false;
-        pendingArtwork.clear();
-        failedArtwork.clear();
-        artworkCache.clear();
         if (serverChanged) {
             libraryStack.clear();
             libraryStack.add(libraryRoot());
@@ -768,18 +754,24 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 ? getString(R.string.library_unknown_item) : item.title;
     }
 
-    private void requestArtwork(String path) {
-        if (path == null || controller == null || pendingArtwork.contains(path)
-                || failedArtwork.contains(path) || artworkCache.containsKey(path)) return;
-        pendingArtwork.add(path);
+    private void requestArtwork(
+            Holder holder,
+            String path,
+            LibraryArtworkKey key,
+            LibraryArtworkBindingGate.Request binding
+    ) {
+        if (path == null || key == null || controller == null) return;
         int generation = controller.libraryConnectionGeneration();
-        controller.requestLibraryArtwork(path, (resultGeneration, artworkPath, artwork) -> {
-            pendingArtwork.remove(artworkPath);
+        controller.requestLibraryArtwork(path, (resultGeneration, resultKey, artwork) -> {
             if (!started || controller == null || resultGeneration != generation
-                    || resultGeneration != controller.libraryConnectionGeneration()) return;
-            if (artwork == null) failedArtwork.add(artworkPath);
-            else artworkCache.put(artworkPath, artwork);
-            adapter.notifyDataSetChanged();
+                    || resultGeneration != controller.libraryConnectionGeneration()
+                    || !holder.artworkGate.accepts(binding, resultKey)) return;
+            holder.requestedArtworkKey = null;
+            holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+            if (artwork != null) {
+                holder.artwork.setPadding(0, 0, 0, 0);
+                holder.artwork.setImageBitmap(artwork);
+            }
         });
     }
 
@@ -868,6 +860,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             BrowseRow row = getItem(position);
             if (row == null) return convertView;
             if (row.item == null) {
+                holder.artworkGate.bind(null);
+                holder.requestedArtworkKey = null;
+                holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                 holder.title.setText(row.labelResource);
                 setOptional(holder.subtitle, null);
                 setOptional(holder.detail, null);
@@ -895,15 +890,38 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                     || "playlist_entry".equals(item.type)
                     || "queue_entry".equals(item.type);
             if (!track) {
+                holder.artworkGate.bind(null);
+                holder.requestedArtworkKey = null;
+                holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                 holder.artwork.setVisibility(View.INVISIBLE);
             } else {
                 holder.artwork.setVisibility(View.VISIBLE);
-                Bitmap bitmap = artworkCache.get(item.artworkPath);
+                LibraryArtworkKey artworkKey = controller == null
+                        ? null : controller.libraryArtworkKey(item.artworkPath);
+                LibraryArtworkBindingGate.Request binding =
+                        holder.artworkGate.bind(artworkKey);
+                Bitmap bitmap = controller == null
+                        ? null : controller.cachedLibraryArtwork(artworkKey);
                 if (bitmap == null) {
-                    holder.artwork.setPadding(10, 10, 10, 10);
+                    holder.artwork.setPadding(
+                            thumbnailPlaceholderPadding,
+                            thumbnailPlaceholderPadding,
+                            thumbnailPlaceholderPadding,
+                            thumbnailPlaceholderPadding
+                    );
                     holder.artwork.setImageResource(R.drawable.ic_album_placeholder);
-                    requestArtwork(item.artworkPath);
+                    int generation = controller == null
+                            ? Integer.MIN_VALUE : controller.libraryConnectionGeneration();
+                    if (artworkKey != null
+                            && (!artworkKey.equals(holder.requestedArtworkKey)
+                            || holder.requestedArtworkGeneration != generation)) {
+                        holder.requestedArtworkKey = artworkKey;
+                        holder.requestedArtworkGeneration = generation;
+                        requestArtwork(holder, item.artworkPath, artworkKey, binding);
+                    }
                 } else {
+                    holder.requestedArtworkKey = null;
+                    holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                     holder.artwork.setPadding(0, 0, 0, 0);
                     holder.artwork.setImageBitmap(bitmap);
                 }
@@ -917,6 +935,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         final TextView title;
         final TextView subtitle;
         final TextView detail;
+        final LibraryArtworkBindingGate artworkGate = new LibraryArtworkBindingGate();
+        LibraryArtworkKey requestedArtworkKey;
+        int requestedArtworkGeneration = Integer.MIN_VALUE;
 
         Holder(View view) {
             artwork = view.findViewById(R.id.library_item_artwork);

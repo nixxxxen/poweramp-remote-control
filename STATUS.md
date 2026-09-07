@@ -34,28 +34,38 @@ full multi-player persistence remain absent.
 ## Phone 0.6.0: first Library/Search UI candidate (2026-09-07)
 
 - Added bottom Player / Library / Search / Settings navigation, removed the Player's left menu,
-  retained the existing connection pill/action, and moved the About entry into Settings. The fixed
-  Player remains non-scrolling with flexible square artwork and visible volume space.
+  retained the existing connection pill/action, and moved the About entry into Settings. The tabs
+  now use icon-only vector controls with selected/pressed states, 48 dp minimum targets, and existing
+  English/Russian labels as accessibility descriptions. Launcher icons are unchanged by this step.
+  The fixed Player remains non-scrolling with flexible square artwork and visible volume space.
 - Library browses All tracks, Artists, Albums, folder hierarchy, and Playlists through the existing
   bounded API v1 pages. Containers open their track/subfolder pages; Back pops the Library stack
   first. Search uses the existing Server endpoint with a 300 ms debounce.
 - Phone parses nullable item metadata and structured Server-supplied play targets, posts only those
   targets to `/api/v1/library/play`, follows opaque `nextPageToken`, honors `truncated`, and lazily
-  decodes track thumbnails into a 32-entry in-memory cache. It does not construct Poweramp URIs,
-  download the full library, or optimistically replace playback state.
+  loads only encountered track thumbnails. Thumbnails use a byte-bounded `4 MiB` decoded-memory LRU
+  plus a `32 MiB` private encoded-disk LRU (`512 KiB` maximum per entry), keyed by stable Server ID
+  and allowlisted track-artwork path. Identical in-flight requests are coalesced; disk/decode/write
+  work is off the UI thread; corrupt/expired entries are removed; Forget clears both tiers while tab
+  changes and same-Server reconnects retain them. Six-hour freshness and bounded missing/transient
+  retry windows allow artwork updates without repeated scroll-time requests. It does not construct
+  Poweramp URIs, download the full library, or optimistically replace playback state.
 - Library pages and thumbnails use dedicated executors owned by the existing
   `RemoteClientController`, so transport commands retain their existing executor. Search generation
-  gates reject replies for an older text or connection. UI states cover loading, empty, retryable
-  provider failures, disconnected, permission-required, and unsupported older Servers.
+  gates reject replies for an older text or connection; thumbnail row-binding gates reject results
+  for recycled rows. Library/Search thumbnails and placeholders share an 8 dp View-outline clip,
+  square dimensions, and `centerCrop`, without per-row bitmap processing. UI states cover loading,
+  empty, retryable provider failures, disconnected, permission-required, and unsupported older Servers.
 - Selected Library/Search tab, query text, in-memory container stacks, and list offsets survive
   ordinary tab navigation; configuration state preserves the selected tab, query, and Search list
   position. No Server, Queue, pairing, discovery, transport, MediaSession, Web UI, or version change
   is included.
-- Targeted parsing/pagination/request and stale-search tests pass (`9/9`), and the one requested
-  `:phone:assembleDebug` run succeeds with `phone/build/outputs/apk/debug/phone-debug.apk`. Device UI
-  validation is still required, especially compact Player sizing with the bottom bar,
-  keyboard/insets, every category/container, permission/old-Server errors, pagination, thumbnails,
-  and confirmed playback.
+- The earlier targeted parsing/pagination/request and stale-search tests passed (`9/9`). The targeted
+  thumbnail key, byte-budget/LRU, corrupt-entry, and recycled-row result tests also pass (`9/9`);
+  the single requested `:phone:assembleDebug` run succeeds with
+  `phone/build/outputs/apk/debug/phone-debug.apk`. Device UI validation is still required,
+  especially compact Player sizing with the bottom bar, keyboard/insets, every category/container,
+  permission/old-Server errors, pagination, thumbnails, and confirmed playback.
 
 The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
 real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from

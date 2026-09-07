@@ -63,14 +63,28 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
   controllers.
 
 `MainActivity` binds only while visible and remains a playback-only presentation/control surface.
-The shared bottom navigation opens Player / Library / Search / Settings without restarting the
-service runtime. `LibrarySearchActivity` owns paged browsing/search presentation and its container
-back stack; its requests go only through the bound service/controller. `PlayerDevicesActivity` owns saved-device diagnostics,
+The shared icon-only bottom navigation opens Player / Library / Search / Settings without restarting
+the service runtime; its selected/pressed states and English/Russian accessibility labels do not
+depend on visible text. `LibrarySearchActivity` owns paged browsing/search presentation and its
+container back stack; its requests go only through the bound service/controller.
+`PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
 `SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
 runtime. No Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
+
+Library/Search track thumbnails use the same service-owned controller and its dedicated artwork
+executor. Only encountered rows are loaded. Decoded bitmaps use a `4 MiB` byte-measured memory LRU;
+downsampled JPEG thumbnails use a `32 MiB` private-cache LRU with a `512 KiB` per-entry ceiling.
+Keys contain only stable paired Server ID plus the allowlisted track-artwork path, never endpoint or
+credential data. One in-flight load is shared for identical keys, row binding and connection
+generations reject late display, corrupt/expired disk entries are discarded, and missing/transient
+failures have bounded retry delays. Entries refresh after six hours (or immediately when the Server
+artwork identity/path changes), survive tab changes and reconnect to the same Server, and are cleared
+by Forget device. Disk access, decoding, downsampling, and encoding stay off the UI thread. The
+52 dp square list views apply one 8 dp outline clip to both thumbnails and placeholders without
+per-bind bitmap processing.
 
 The main player also owns a presentation-only dynamic artwork theme. It samples the already decoded
 current artwork on a dedicated executor, deterministically selects two or three distinct color

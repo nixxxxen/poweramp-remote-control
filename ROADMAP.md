@@ -290,26 +290,23 @@ Support playback actions for documented Poweramp content URIs:
 
 Artwork should be loaded lazily rather than transferred for the whole library.
 
-### Planned Library/Search UI refinements (requested 2026-09-07)
+### Library/Search UI refinements (requested 2026-09-07)
 
-These are follow-up requirements, not completed features of the first Phone UI candidate.
-Implement incrementally while retaining the existing service-owned playback/connection runtime,
-safe insets, and the non-scrolling Player with visible volume. Versions advance when the series
-is ready for release, not for each individual refinement.
+These follow-up requirements are implemented incrementally while retaining the existing
+service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
+volume. Items 1, 2, and the currently applicable track-row portion of 7 are complete at unchanged
+versions. Versions advance when the series is ready for release, not for each refinement.
 
-1. **Icon-only bottom navigation.** Replace visible text tabs with recognizable Player, Library,
-   Search, and Settings icons. Retain clear selected/pressed states, adequate touch targets, and
-   localized accessibility labels even though the text is no longer displayed.
-2. **Reliable artwork caching.** Extend the current small in-memory thumbnail cache so every
-   encountered track thumbnail is eligible for reuse when scrolling back and forth or switching
-   tabs. Use bounded memory plus a bounded private disk cache; do not pre-download the entire
-   library. Rebinding a cached row should not flash a placeholder or repeat a network request.
-   Deduplicate in-flight loads and reject late images for recycled rows. Scope keys by stable
-   Server and artwork/track identity, not its transient IP, with explicit invalidation when artwork
-   changes. Evaluate caching full-size covers as tracks are played, reusing the existing Player
-   artwork path. Measure encoded disk size and decoded bitmap memory separately before choosing
-   byte budgets and eviction policy; full-size retention is an investigation, not an unbounded
-   cache commitment. Document the chosen limits and cleanup behavior.
+1. **Completed — icon-only bottom navigation.** Player, Library, Search, and Settings now use
+   recognizable vectors without visible labels, with selected/pressed states, 48 dp minimum touch
+   targets, and localized accessibility labels. Launcher icons are not part of this change.
+2. **Completed — reliable track-thumbnail caching.** Encountered rows use a `4 MiB` decoded-memory
+   LRU plus a `32 MiB` private encoded-disk LRU with `512 KiB` per-entry ceiling. Stable Server ID
+   and allowlisted track-artwork path form the key; endpoint and credentials do not. Loads are lazy
+   and coalesced, recycled-row results are rejected, corrupt/expired entries are removed, and Forget
+   clears both tiers while tab changes and same-Server reconnect retain useful entries. A six-hour
+   freshness bound covers same-path artwork replacement. Full-size Player covers remain a separate
+   future task and are not added to this cache.
 3. **Currently playing row indicator.** Mark the confirmed current track in Library and Search,
    including after selecting a track there. Follow existing remote snapshots for external track
    changes, pause/resume and reconnect; do not mark a row merely because its play command was sent.
@@ -332,9 +329,10 @@ is ready for release, not for each individual refinement.
    pagination, not just the rows currently loaded on Phone. Verify public provider support and
    add only backward-compatible Server parameters where needed; bind continuation and stale-result
    protection to both query and scope. Never reintroduce the obsolete `/search?flt` path.
-7. **Rounded thumbnails.** Apply consistent modest corner rounding to track and category artwork,
-   including placeholders and mini-player art. Preserve square proportions and appropriate crop
-   without stretching images or reprocessing bitmaps on each scroll/bind.
+7. **Completed for current Library/Search rows — rounded thumbnails.** Track thumbnails and their
+   placeholders share an 8 dp outline clip, square proportions, and `centerCrop`, without bitmap
+   reprocessing per bind. Category covers and mini-player artwork remain part of their separate
+   future tasks because neither surface is implemented here.
 8. **Per-list sorting.** Add sort selection for track lists, including within containers: title,
    album, artist, duration, and, only if publicly available and verified, date added and play count.
    Verify field semantics, units and provider ordering support before exposing each option; do not

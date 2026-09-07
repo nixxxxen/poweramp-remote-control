@@ -12,9 +12,13 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -77,7 +81,11 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     interface LibraryArtworkCallback {
-        void onResult(int connectionGeneration, String artworkPath, Bitmap artwork);
+        void onResult(
+                int connectionGeneration,
+                LibraryArtworkKey artworkKey,
+                Bitmap artwork
+        );
     }
 
     interface Listener {
@@ -93,6 +101,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final PairingStore pairingStore;
     private final RemoteApiClient apiClient = new RemoteApiClient();
+    private final LibraryArtworkRepository libraryArtworkRepository;
     private final NsdDiscoveryClient discoveryClient;
     private final WifiDirectConnectionClient directClient;
     private final ConnectivityManager connectivityManager;
@@ -121,6 +130,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             }
     );
     private final Map<String, DiscoveredServer> candidates = new LinkedHashMap<>();
+    private final Map<String, List<LibraryArtworkCallback>> libraryArtworkRequests =
+            new HashMap<>();
     private final Set<Network> lanNetworks = new HashSet<>();
     private final Runnable reconnectRunnable = this::runReconnect;
     private final Runnable discoveryRestartRunnable = this::restartDiscovery;
@@ -167,6 +178,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     RemoteClientController(Context context, Listener listener) {
         this.listener = listener;
         pairingStore = new PairingStore(context.getApplicationContext());
+        libraryArtworkRepository = new LibraryArtworkRepository(context.getApplicationContext());
         credentials = pairingStore.load();
         discoveryClient = new NsdDiscoveryClient(context.getApplicationContext(), this);
         directClient = new WifiDirectConnectionClient(context.getApplicationContext(), this);
@@ -295,6 +307,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             listener.onPairingFailed(PairingError.STORAGE);
             return false;
         }
+        libraryArtworkRepository.forgetAll();
+        libraryArtworkRequests.clear();
+        try {
+            libraryArtworkExecutor.execute(libraryArtworkRepository::clearDisk);
+        } catch (RejectedExecutionException ignored) {
+            // Service teardown can race an explicit Forget; memory is already cleared.
+        }
         credentials = null;
         operationGeneration++;
         pendingPairing = null;
@@ -392,30 +411,137 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
     }
 
+    LibraryArtworkKey libraryArtworkKey(String artworkPath) {
+        PairingCredentials currentCredentials = credentials;
+        if (currentCredentials == null) return null;
+        try {
+            return LibraryArtworkKey.create(currentCredentials.serverId, artworkPath);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    Bitmap cachedLibraryArtwork(LibraryArtworkKey key) {
+        PairingCredentials currentCredentials = credentials;
+        if (key == null || currentCredentials == null
+                || !currentCredentials.serverId.equals(key.serverId)) return null;
+        return libraryArtworkRepository.memory(key, System.currentTimeMillis());
+    }
+
     void requestLibraryArtwork(String artworkPath, LibraryArtworkCallback callback) {
         PairingCredentials currentCredentials = credentials;
         DiscoveredServer currentEndpoint = endpoint;
         int generation = connectionGeneration;
+        LibraryArtworkKey key = libraryArtworkKey(artworkPath);
         if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
-            callback.onResult(generation, artworkPath, null);
+            callback.onResult(generation, key, null);
             return;
         }
+        if (key == null) {
+            callback.onResult(generation, null, null);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Bitmap cached = libraryArtworkRepository.memory(key, now);
+        if (cached != null) {
+            callback.onResult(generation, key, cached);
+            return;
+        }
+        if (libraryArtworkRepository.suppressed(key, now)) {
+            callback.onResult(generation, key, null);
+            return;
+        }
+        String requestIdentity = generation + "\u0000" + key.stableValue();
+        List<LibraryArtworkCallback> callbacks = libraryArtworkRequests.get(requestIdentity);
+        if (callbacks != null) {
+            callbacks.add(callback);
+            return;
+        }
+        callbacks = new ArrayList<>();
+        callbacks.add(callback);
+        libraryArtworkRequests.put(requestIdentity, callbacks);
+        long requestEpoch = libraryArtworkRepository.epoch();
         try {
-            libraryArtworkExecutor.execute(() -> {
-                Bitmap bitmap = null;
-                try {
-                    byte[] bytes = apiClient.getLibraryArtwork(
-                            currentEndpoint, currentCredentials.token, artworkPath
-                    );
-                    bitmap = decodeLibraryArtwork(bytes);
-                } catch (IOException | RuntimeException ignored) {
-                    // A missing thumbnail is optional and does not change page or playback state.
-                }
-                Bitmap result = bitmap;
-                mainHandler.post(() -> callback.onResult(generation, artworkPath, result));
-            });
+            libraryArtworkExecutor.execute(() -> loadLibraryArtwork(
+                    requestIdentity,
+                    generation,
+                    key,
+                    currentEndpoint,
+                    currentCredentials,
+                    requestEpoch
+            ));
         } catch (RejectedExecutionException exception) {
-            callback.onResult(generation, artworkPath, null);
+            libraryArtworkRequests.remove(requestIdentity);
+            callback.onResult(generation, key, null);
+        }
+    }
+
+    private void loadLibraryArtwork(
+            String requestIdentity,
+            int generation,
+            LibraryArtworkKey key,
+            DiscoveredServer requestEndpoint,
+            PairingCredentials requestCredentials,
+            long requestEpoch
+    ) {
+        Bitmap bitmap = null;
+        long now = System.currentTimeMillis();
+        LibraryArtworkDiskCache.Entry diskEntry = libraryArtworkRepository.disk(key, now);
+        if (diskEntry != null) {
+            try {
+                bitmap = decodeLibraryArtwork(diskEntry.bytes);
+                libraryArtworkRepository.storeMemory(
+                        key, bitmap, diskEntry.createdAtMilliseconds, requestEpoch
+                );
+            } catch (IOException | RuntimeException exception) {
+                libraryArtworkRepository.removeDisk(key);
+                bitmap = null;
+            }
+        }
+        if (bitmap == null && !libraryArtworkRepository.suppressed(key, now)) {
+            try {
+                byte[] downloaded = apiClient.getLibraryArtwork(
+                        requestEndpoint, requestCredentials.token, key.artworkPath
+                );
+                bitmap = decodeLibraryArtwork(downloaded);
+                long createdAt = System.currentTimeMillis();
+                libraryArtworkRepository.storeMemory(key, bitmap, createdAt, requestEpoch);
+                try {
+                    byte[] encoded = encodeLibraryArtwork(bitmap);
+                    libraryArtworkRepository.storeDisk(
+                            key, encoded, createdAt, createdAt, requestEpoch
+                    );
+                } catch (IOException | RuntimeException ignored) {
+                    // Memory remains useful when this optional private-cache write fails.
+                }
+            } catch (RemoteApiClient.HttpStatusException exception) {
+                if (exception.statusCode == 404) {
+                    libraryArtworkRepository.suppressMissing(key, System.currentTimeMillis());
+                } else {
+                    libraryArtworkRepository.suppressTransient(key, System.currentTimeMillis());
+                }
+                bitmap = null;
+            } catch (IOException | RuntimeException exception) {
+                libraryArtworkRepository.suppressTransient(key, System.currentTimeMillis());
+                bitmap = null;
+            }
+        }
+        Bitmap result = bitmap;
+        mainHandler.post(() -> completeLibraryArtwork(
+                requestIdentity, generation, key, result
+        ));
+    }
+
+    private void completeLibraryArtwork(
+            String requestIdentity,
+            int generation,
+            LibraryArtworkKey key,
+            Bitmap bitmap
+    ) {
+        List<LibraryArtworkCallback> callbacks = libraryArtworkRequests.remove(requestIdentity);
+        if (callbacks == null) return;
+        for (LibraryArtworkCallback callback : callbacks) {
+            callback.onResult(generation, key, bitmap);
         }
     }
 
@@ -445,6 +571,20 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
         if (bitmap == null) throw new IOException("Unable to decode library artwork");
         return bitmap;
+    }
+
+    private static byte[] encodeLibraryArtwork(Bitmap bitmap) throws IOException {
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)) {
+                throw new IOException("Unable to encode library artwork");
+            }
+            byte[] bytes = output.toByteArray();
+            if (bytes.length == 0
+                    || bytes.length > LibraryArtworkRepository.MAXIMUM_DISK_ENTRY_BYTES) {
+                throw new IOException("Encoded library artwork is too large");
+            }
+            return bytes;
+        }
     }
 
     void retryDirectConnection() {
@@ -1140,6 +1280,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         artworkExecutor.shutdownNow();
         libraryExecutor.shutdownNow();
         libraryArtworkExecutor.shutdownNow();
+        libraryArtworkRequests.clear();
         mainHandler.removeCallbacksAndMessages(null);
         Log.i(TAG, "Client runtime closed");
     }
