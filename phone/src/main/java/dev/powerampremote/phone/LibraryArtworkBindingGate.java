@@ -6,18 +6,18 @@ import java.util.Objects;
 final class LibraryArtworkBindingGate {
     static final class Request {
         final long serial;
-        final LibraryArtworkKey key;
+        final Object key;
 
-        private Request(long serial, LibraryArtworkKey key) {
+        private Request(long serial, Object key) {
             this.serial = serial;
             this.key = key;
         }
     }
 
     private long serial;
-    private LibraryArtworkKey currentKey;
+    private Object currentKey;
 
-    Request bind(LibraryArtworkKey key) {
+    Request bind(Object key) {
         if (!Objects.equals(currentKey, key)) {
             currentKey = key;
             serial++;
@@ -25,7 +25,7 @@ final class LibraryArtworkBindingGate {
         return new Request(serial, key);
     }
 
-    boolean accepts(Request request, LibraryArtworkKey key) {
+    boolean accepts(Request request, Object key) {
         return request != null
                 && request.serial == serial
                 && Objects.equals(request.key, key)

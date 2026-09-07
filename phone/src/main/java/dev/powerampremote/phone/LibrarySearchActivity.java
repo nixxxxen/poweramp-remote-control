@@ -81,6 +81,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         final String title;
         final LibraryRequest request;
         final List<BrowseRow> localRows;
+        final String representativeType;
+        final long representativeId;
         final LibraryPager pager = new LibraryPager();
         int firstVisible;
         int topOffset;
@@ -88,9 +90,21 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         RemoteClientController.LibraryFailure failure;
 
         Level(String title, LibraryRequest request, List<BrowseRow> localRows) {
+            this(title, request, localRows, null, 0L);
+        }
+
+        Level(
+                String title,
+                LibraryRequest request,
+                List<BrowseRow> localRows,
+                String representativeType,
+                long representativeId
+        ) {
             this.title = title;
             this.request = request;
             this.localRows = localRows;
+            this.representativeType = representativeType;
+            this.representativeId = representativeId;
         }
 
         boolean local() {
@@ -358,13 +372,28 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (item == null) return;
         switch (item.type) {
             case "artist":
-                pushNetwork(displayTitle(item), LibraryRequest.artistTracks(item.id));
+                pushNetwork(
+                        displayTitle(item),
+                        LibraryRequest.artistTracks(item.id),
+                        item.type,
+                        item.id
+                );
                 break;
             case "album":
-                pushNetwork(displayTitle(item), LibraryRequest.albumTracks(item.id));
+                pushNetwork(
+                        displayTitle(item),
+                        LibraryRequest.albumTracks(item.id),
+                        item.type,
+                        item.id
+                );
                 break;
             case "playlist":
-                pushNetwork(displayTitle(item), LibraryRequest.playlistTracks(item.id));
+                pushNetwork(
+                        displayTitle(item),
+                        LibraryRequest.playlistTracks(item.id),
+                        item.type,
+                        item.id
+                );
                 break;
             case "folder":
                 push(folderMenu(item.id, displayTitle(item)));
@@ -395,7 +424,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             case FOLDER_TRACKS:
                 pushNetwork(
                         getString(R.string.library_folder_tracks),
-                        LibraryRequest.folderTracks(row.folderId)
+                        LibraryRequest.folderTracks(row.folderId),
+                        RepresentativeArtworkKey.TYPE_FOLDER,
+                        row.folderId
                 );
                 break;
             case SUBFOLDERS:
@@ -411,6 +442,17 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     private void pushNetwork(String title, LibraryRequest request) {
         push(new Level(title, request, null));
+    }
+
+    private void pushNetwork(
+            String title,
+            LibraryRequest request,
+            String representativeType,
+            long representativeId
+    ) {
+        push(new Level(
+                title, request, null, representativeType, representativeId
+        ));
     }
 
     private void push(Level level) {
@@ -497,6 +539,12 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             if (failure == null && page != null) {
                 try {
                     level.pager.accept(requestedToken, page);
+                    if (!append && page.offset == 0 && level.representativeType != null) {
+                        RepresentativeArtworkKey key = controller.representativeArtworkKey(
+                                level.representativeType, level.representativeId
+                        );
+                        controller.rememberRepresentativeCandidates(key, page.items);
+                    }
                 } catch (IllegalArgumentException exception) {
                     level.failure = RemoteClientController.LibraryFailure.SERVER_ERROR;
                 }
@@ -762,17 +810,40 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     ) {
         if (path == null || key == null || controller == null) return;
         int generation = controller.libraryConnectionGeneration();
-        controller.requestLibraryArtwork(path, (resultGeneration, resultKey, artwork) -> {
+        controller.requestLibraryArtwork(path, (resultGeneration, resultKey, artwork, failure) -> {
             if (!started || controller == null || resultGeneration != generation
                     || resultGeneration != controller.libraryConnectionGeneration()
                     || !holder.artworkGate.accepts(binding, resultKey)) return;
-            holder.requestedArtworkKey = null;
+            holder.requestedArtworkIdentity = null;
             holder.requestedArtworkGeneration = Integer.MIN_VALUE;
             if (artwork != null) {
                 holder.artwork.setPadding(0, 0, 0, 0);
                 holder.artwork.setImageBitmap(artwork);
             }
         });
+    }
+
+    private void requestRepresentativeArtwork(
+            Holder holder,
+            RepresentativeArtworkKey key,
+            LibraryArtworkBindingGate.Request binding
+    ) {
+        if (key == null || controller == null) return;
+        int generation = controller.libraryConnectionGeneration();
+        controller.requestRepresentativeArtwork(
+                key,
+                (resultGeneration, resultKey, artwork) -> {
+                    if (!started || controller == null || resultGeneration != generation
+                            || resultGeneration != controller.libraryConnectionGeneration()
+                            || !holder.artworkGate.accepts(binding, resultKey)) return;
+                    holder.requestedArtworkIdentity = null;
+                    holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+                    if (artwork != null) {
+                        holder.artwork.setPadding(0, 0, 0, 0);
+                        holder.artwork.setImageBitmap(artwork);
+                    }
+                }
+        );
     }
 
     @Override
@@ -861,7 +932,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             if (row == null) return convertView;
             if (row.item == null) {
                 holder.artworkGate.bind(null);
-                holder.requestedArtworkKey = null;
+                holder.requestedArtworkIdentity = null;
                 holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                 holder.title.setText(row.labelResource);
                 setOptional(holder.subtitle, null);
@@ -889,12 +960,13 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             boolean track = "track".equals(item.type)
                     || "playlist_entry".equals(item.type)
                     || "queue_entry".equals(item.type);
-            if (!track) {
+            boolean representative = RepresentativeArtworkKey.isSupportedType(item.type);
+            if (!track && !representative) {
                 holder.artworkGate.bind(null);
-                holder.requestedArtworkKey = null;
+                holder.requestedArtworkIdentity = null;
                 holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                 holder.artwork.setVisibility(View.INVISIBLE);
-            } else {
+            } else if (track) {
                 holder.artwork.setVisibility(View.VISIBLE);
                 LibraryArtworkKey artworkKey = controller == null
                         ? null : controller.libraryArtworkKey(item.artworkPath);
@@ -913,14 +985,45 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                     int generation = controller == null
                             ? Integer.MIN_VALUE : controller.libraryConnectionGeneration();
                     if (artworkKey != null
-                            && (!artworkKey.equals(holder.requestedArtworkKey)
+                            && (!artworkKey.equals(holder.requestedArtworkIdentity)
                             || holder.requestedArtworkGeneration != generation)) {
-                        holder.requestedArtworkKey = artworkKey;
+                        holder.requestedArtworkIdentity = artworkKey;
                         holder.requestedArtworkGeneration = generation;
                         requestArtwork(holder, item.artworkPath, artworkKey, binding);
                     }
                 } else {
-                    holder.requestedArtworkKey = null;
+                    holder.requestedArtworkIdentity = null;
+                    holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+                    holder.artwork.setPadding(0, 0, 0, 0);
+                    holder.artwork.setImageBitmap(bitmap);
+                }
+            } else {
+                holder.artwork.setVisibility(View.VISIBLE);
+                RepresentativeArtworkKey representativeKey = controller == null
+                        ? null : controller.representativeArtworkKey(item.type, item.id);
+                LibraryArtworkBindingGate.Request binding =
+                        holder.artworkGate.bind(representativeKey);
+                Bitmap bitmap = controller == null
+                        ? null : controller.cachedRepresentativeArtwork(representativeKey);
+                if (bitmap == null) {
+                    holder.artwork.setPadding(
+                            thumbnailPlaceholderPadding,
+                            thumbnailPlaceholderPadding,
+                            thumbnailPlaceholderPadding,
+                            thumbnailPlaceholderPadding
+                    );
+                    holder.artwork.setImageResource(R.drawable.ic_album_placeholder);
+                    int generation = controller == null
+                            ? Integer.MIN_VALUE : controller.libraryConnectionGeneration();
+                    if (representativeKey != null
+                            && (!representativeKey.equals(holder.requestedArtworkIdentity)
+                            || holder.requestedArtworkGeneration != generation)) {
+                        holder.requestedArtworkIdentity = representativeKey;
+                        holder.requestedArtworkGeneration = generation;
+                        requestRepresentativeArtwork(holder, representativeKey, binding);
+                    }
+                } else {
+                    holder.requestedArtworkIdentity = null;
                     holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                     holder.artwork.setPadding(0, 0, 0, 0);
                     holder.artwork.setImageBitmap(bitmap);
@@ -936,7 +1039,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         final TextView subtitle;
         final TextView detail;
         final LibraryArtworkBindingGate artworkGate = new LibraryArtworkBindingGate();
-        LibraryArtworkKey requestedArtworkKey;
+        Object requestedArtworkIdentity;
         int requestedArtworkGeneration = Integer.MIN_VALUE;
 
         Holder(View view) {

@@ -227,6 +227,10 @@ For every new capability:
 
 ## Verification
 
+Use the persistent local JDK 17 and Android SDK Platform 36 / Build Tools 36.0.0. Agent shells
+should obtain `JAVA_HOME` and `ANDROID_HOME` from shell startup, while the ignored
+`local.properties` supplies `sdk.dir`; verify these before downloading any temporary toolchain.
+
 For meaningful changes:
 
 - run both modules' unit tests;

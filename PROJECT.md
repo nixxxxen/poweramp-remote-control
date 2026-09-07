@@ -86,6 +86,18 @@ by Forget device. Disk access, decoding, downsampling, and encoding stay off the
 52 dp square list views apply one 8 dp outline clip to both thumbnails and placeholders without
 per-bind bitmap processing.
 
+Artist, album, playlist, and folder rows derive an optional representative cover from the first
+usable artwork among at most six tracks returned by that category's existing direct-track route.
+Only visible category rows start resolution; folder resolution never descends into child folders.
+The lookup reuses an already loaded first container page when available, otherwise requests one
+six-item page, and probes artwork sequentially on the same two-thread thumbnail executor. A
+service-owned 256-entry LRU maps stable Server ID + category type + category ID to the selected
+track-artwork identity; actual image bytes remain solely in the existing `4 MiB`/`32 MiB` cache.
+Selected mappings and candidate hints refresh after six hours, changed candidate hints invalidate a
+stale selection, missing artwork is retried after ten minutes, and transient failures after 15
+seconds. Concurrent resolution for the same category is coalesced, connection/row generations
+reject late display, and Forget device clears both the mapping and image caches.
+
 The main player also owns a presentation-only dynamic artwork theme. It samples the already decoded
 current artwork on a dedicated executor, deterministically selects two or three distinct color
 families, and normalizes them into a bounded dark-interface range. A process-local 12-entry LRU is
@@ -667,8 +679,9 @@ and positive/empty search responses on Poweramp `1025004-fa3ec08671d`. The Conte
 still needs broader device coverage: first grant/deny/retry and process-not-running behavior;
 remaining category projections/order; search by artist/album, Unicode and literal wildcard input;
 hierarchy root/children; duplicate playlist/queue entry IDs; queue-current matching and
-`OPEN_TO_PLAY`; and album-art access for arbitrary tracks. Category artwork and extra category
-metadata are intentionally absent, not failed track metadata. The first Phone Library/Search UI now
+`OPEN_TO_PLAY`; album-art access for arbitrary tracks; and derived representative covers across
+artists, albums, playlists, and direct folder tracks. Extra category metadata remains intentionally
+absent, not failed track metadata. The first Phone Library/Search UI now
 consumes this baseline but still requires the device checks below; Queue-specific behavior must be
 checked before exposing Queue UI.
 The 1000-row continuation boundary is an explicit public-contract safety limit, not a claim that

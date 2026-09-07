@@ -72,6 +72,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         SERVER_ERROR
     }
 
+    enum LibraryArtworkFailure { MISSING, TRANSIENT_FAILURE }
+
     interface LibraryPageCallback {
         void onResult(int connectionGeneration, LibraryPage page, LibraryFailure failure);
     }
@@ -84,8 +86,35 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         void onResult(
                 int connectionGeneration,
                 LibraryArtworkKey artworkKey,
+                Bitmap artwork,
+                LibraryArtworkFailure failure
+        );
+    }
+
+    interface RepresentativeArtworkCallback {
+        void onResult(
+                int connectionGeneration,
+                RepresentativeArtworkKey representativeKey,
                 Bitmap artwork
         );
+    }
+
+    private static final class RepresentativeArtworkRequest {
+        final String identity;
+        final int generation;
+        final RepresentativeArtworkKey key;
+        final List<RepresentativeArtworkCallback> callbacks = new ArrayList<>();
+        RepresentativeArtworkProbe probe;
+
+        RepresentativeArtworkRequest(
+                String identity,
+                int generation,
+                RepresentativeArtworkKey key
+        ) {
+            this.identity = identity;
+            this.generation = generation;
+            this.key = key;
+        }
     }
 
     interface Listener {
@@ -102,6 +131,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private final PairingStore pairingStore;
     private final RemoteApiClient apiClient = new RemoteApiClient();
     private final LibraryArtworkRepository libraryArtworkRepository;
+    private final RepresentativeArtworkCache representativeArtworkCache =
+            new RepresentativeArtworkCache();
     private final NsdDiscoveryClient discoveryClient;
     private final WifiDirectConnectionClient directClient;
     private final ConnectivityManager connectivityManager;
@@ -131,6 +162,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     );
     private final Map<String, DiscoveredServer> candidates = new LinkedHashMap<>();
     private final Map<String, List<LibraryArtworkCallback>> libraryArtworkRequests =
+            new HashMap<>();
+    private final Map<String, RepresentativeArtworkRequest> representativeArtworkRequests =
             new HashMap<>();
     private final Set<Network> lanNetworks = new HashSet<>();
     private final Runnable reconnectRunnable = this::runReconnect;
@@ -309,6 +342,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         libraryArtworkRepository.forgetAll();
         libraryArtworkRequests.clear();
+        representativeArtworkCache.clear();
+        representativeArtworkRequests.clear();
         try {
             libraryArtworkExecutor.execute(libraryArtworkRepository::clearDisk);
         } catch (RejectedExecutionException ignored) {
@@ -434,21 +469,23 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         int generation = connectionGeneration;
         LibraryArtworkKey key = libraryArtworkKey(artworkPath);
         if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
-            callback.onResult(generation, key, null);
+            callback.onResult(generation, key, null, LibraryArtworkFailure.TRANSIENT_FAILURE);
             return;
         }
         if (key == null) {
-            callback.onResult(generation, null, null);
+            callback.onResult(generation, null, null, LibraryArtworkFailure.MISSING);
             return;
         }
         long now = System.currentTimeMillis();
         Bitmap cached = libraryArtworkRepository.memory(key, now);
         if (cached != null) {
-            callback.onResult(generation, key, cached);
+            callback.onResult(generation, key, cached, null);
             return;
         }
-        if (libraryArtworkRepository.suppressed(key, now)) {
-            callback.onResult(generation, key, null);
+        LibraryArtworkRepository.Suppression suppression =
+                libraryArtworkRepository.suppression(key, now);
+        if (suppression != null) {
+            callback.onResult(generation, key, null, artworkFailure(suppression));
             return;
         }
         String requestIdentity = generation + "\u0000" + key.stableValue();
@@ -472,7 +509,9 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             ));
         } catch (RejectedExecutionException exception) {
             libraryArtworkRequests.remove(requestIdentity);
-            callback.onResult(generation, key, null);
+            callback.onResult(
+                    generation, key, null, LibraryArtworkFailure.TRANSIENT_FAILURE
+            );
         }
     }
 
@@ -485,6 +524,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             long requestEpoch
     ) {
         Bitmap bitmap = null;
+        LibraryArtworkFailure failure = null;
         long now = System.currentTimeMillis();
         LibraryArtworkDiskCache.Entry diskEntry = libraryArtworkRepository.disk(key, now);
         if (diskEntry != null) {
@@ -498,7 +538,12 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 bitmap = null;
             }
         }
-        if (bitmap == null && !libraryArtworkRepository.suppressed(key, now)) {
+        LibraryArtworkRepository.Suppression suppression =
+                libraryArtworkRepository.suppression(key, now);
+        if (bitmap == null && suppression != null) {
+            failure = artworkFailure(suppression);
+        }
+        if (bitmap == null && failure == null) {
             try {
                 byte[] downloaded = apiClient.getLibraryArtwork(
                         requestEndpoint, requestCredentials.token, key.artworkPath
@@ -517,18 +562,22 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             } catch (RemoteApiClient.HttpStatusException exception) {
                 if (exception.statusCode == 404) {
                     libraryArtworkRepository.suppressMissing(key, System.currentTimeMillis());
+                    failure = LibraryArtworkFailure.MISSING;
                 } else {
                     libraryArtworkRepository.suppressTransient(key, System.currentTimeMillis());
+                    failure = LibraryArtworkFailure.TRANSIENT_FAILURE;
                 }
                 bitmap = null;
             } catch (IOException | RuntimeException exception) {
                 libraryArtworkRepository.suppressTransient(key, System.currentTimeMillis());
+                failure = LibraryArtworkFailure.TRANSIENT_FAILURE;
                 bitmap = null;
             }
         }
         Bitmap result = bitmap;
+        LibraryArtworkFailure resultFailure = failure;
         mainHandler.post(() -> completeLibraryArtwork(
-                requestIdentity, generation, key, result
+                requestIdentity, generation, key, result, resultFailure
         ));
     }
 
@@ -536,13 +585,308 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             String requestIdentity,
             int generation,
             LibraryArtworkKey key,
-            Bitmap bitmap
+            Bitmap bitmap,
+            LibraryArtworkFailure failure
     ) {
         List<LibraryArtworkCallback> callbacks = libraryArtworkRequests.remove(requestIdentity);
         if (callbacks == null) return;
         for (LibraryArtworkCallback callback : callbacks) {
-            callback.onResult(generation, key, bitmap);
+            callback.onResult(generation, key, bitmap, failure);
         }
+    }
+
+    private static LibraryArtworkFailure artworkFailure(
+            LibraryArtworkRepository.Suppression suppression
+    ) {
+        return suppression == LibraryArtworkRepository.Suppression.MISSING
+                ? LibraryArtworkFailure.MISSING
+                : LibraryArtworkFailure.TRANSIENT_FAILURE;
+    }
+
+    RepresentativeArtworkKey representativeArtworkKey(String categoryType, long categoryId) {
+        PairingCredentials currentCredentials = credentials;
+        if (currentCredentials == null) return null;
+        try {
+            return RepresentativeArtworkKey.create(
+                    currentCredentials.serverId, categoryType, categoryId
+            );
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    Bitmap cachedRepresentativeArtwork(RepresentativeArtworkKey key) {
+        PairingCredentials currentCredentials = credentials;
+        if (!matchesCurrentServer(key, currentCredentials)) return null;
+        RepresentativeArtworkCache.Mapping mapping = representativeArtworkCache.get(
+                key, System.currentTimeMillis()
+        );
+        if (mapping == null || mapping.state != RepresentativeArtworkCache.State.SELECTED) {
+            return null;
+        }
+        return libraryArtworkRepository.memory(
+                mapping.artworkKey, System.currentTimeMillis()
+        );
+    }
+
+    void rememberRepresentativeCandidates(
+            RepresentativeArtworkKey key,
+            List<LibraryItem> items
+    ) {
+        PairingCredentials currentCredentials = credentials;
+        if (!matchesCurrentServer(key, currentCredentials) || items == null) return;
+        try {
+            representativeArtworkCache.rememberCandidates(
+                    key,
+                    RepresentativeArtworkProbe.candidates(key.serverId, items),
+                    System.currentTimeMillis()
+            );
+        } catch (IllegalArgumentException ignored) {
+            // Optional presentation hints never affect the containing Library page.
+        }
+    }
+
+    void requestRepresentativeArtwork(
+            RepresentativeArtworkKey key,
+            RepresentativeArtworkCallback callback
+    ) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || !matchesCurrentServer(key, currentCredentials)
+                || currentEndpoint == null) {
+            callback.onResult(generation, key, null);
+            return;
+        }
+        long now = System.currentTimeMillis();
+        RepresentativeArtworkCache.Mapping mapping = representativeArtworkCache.get(key, now);
+        if (mapping != null) {
+            if (mapping.state == RepresentativeArtworkCache.State.SELECTED) {
+                requestSelectedRepresentativeArtwork(key, mapping.artworkKey, callback);
+            } else {
+                callback.onResult(generation, key, null);
+            }
+            return;
+        }
+        beginRepresentativeArtworkResolution(
+                key, callback, currentCredentials, currentEndpoint, generation
+        );
+    }
+
+    private void requestSelectedRepresentativeArtwork(
+            RepresentativeArtworkKey representativeKey,
+            LibraryArtworkKey artworkKey,
+            RepresentativeArtworkCallback callback
+    ) {
+        requestLibraryArtwork(
+                artworkKey.artworkPath,
+                (generation, resultKey, bitmap, failure) -> {
+                    if (generation != connectionGeneration
+                            || !matchesCurrentServer(representativeKey, credentials)) {
+                        callback.onResult(generation, representativeKey, null);
+                        return;
+                    }
+                    if (bitmap != null) {
+                        callback.onResult(generation, representativeKey, bitmap);
+                        return;
+                    }
+                    if (failure == LibraryArtworkFailure.MISSING) {
+                        representativeArtworkCache.invalidate(representativeKey);
+                        requestRepresentativeArtwork(representativeKey, callback);
+                    } else {
+                        callback.onResult(generation, representativeKey, null);
+                    }
+                }
+        );
+    }
+
+    private void beginRepresentativeArtworkResolution(
+            RepresentativeArtworkKey key,
+            RepresentativeArtworkCallback callback,
+            PairingCredentials requestCredentials,
+            DiscoveredServer requestEndpoint,
+            int generation
+    ) {
+        String identity = generation + "\u0000" + key.stableValue();
+        RepresentativeArtworkRequest existing = representativeArtworkRequests.get(identity);
+        if (existing != null) {
+            existing.callbacks.add(callback);
+            return;
+        }
+        RepresentativeArtworkRequest request = new RepresentativeArtworkRequest(
+                identity, generation, key
+        );
+        request.callbacks.add(callback);
+        representativeArtworkRequests.put(identity, request);
+
+        List<LibraryArtworkKey> candidates = representativeArtworkCache.candidates(
+                key, System.currentTimeMillis()
+        );
+        if (candidates != null) {
+            startRepresentativeProbe(request, candidates);
+            return;
+        }
+        try {
+            libraryArtworkExecutor.execute(() -> loadRepresentativeCandidates(
+                    request,
+                    requestCredentials,
+                    requestEndpoint
+            ));
+        } catch (RejectedExecutionException exception) {
+            representativeArtworkCache.transientFailure(key, System.currentTimeMillis());
+            completeRepresentativeArtwork(request, null);
+        }
+    }
+
+    private void loadRepresentativeCandidates(
+            RepresentativeArtworkRequest request,
+            PairingCredentials requestCredentials,
+            DiscoveredServer requestEndpoint
+    ) {
+        LibraryPage page = null;
+        boolean failed = false;
+        try {
+            page = apiClient.getLibraryPage(
+                    requestEndpoint,
+                    requestCredentials.token,
+                    request.key.tracksRequest(RepresentativeArtworkProbe.MAXIMUM_TRACKS),
+                    null
+            );
+        } catch (IOException | RuntimeException exception) {
+            failed = true;
+        }
+        LibraryPage resultPage = page;
+        boolean resultFailed = failed;
+        mainHandler.post(() -> acceptRepresentativeCandidates(
+                request, resultPage, resultFailed
+        ));
+    }
+
+    private void acceptRepresentativeCandidates(
+            RepresentativeArtworkRequest request,
+            LibraryPage page,
+            boolean failed
+    ) {
+        if (representativeArtworkRequests.get(request.identity) != request) return;
+        if (request.generation != connectionGeneration
+                || !matchesCurrentServer(request.key, credentials)) {
+            completeRepresentativeArtwork(request, null);
+            return;
+        }
+        if (failed || page == null) {
+            representativeArtworkCache.transientFailure(
+                    request.key, System.currentTimeMillis()
+            );
+            completeRepresentativeArtwork(request, null);
+            return;
+        }
+        List<LibraryArtworkKey> candidates;
+        try {
+            candidates = RepresentativeArtworkProbe.candidates(
+                    request.key.serverId, page.items
+            );
+            representativeArtworkCache.rememberCandidates(
+                    request.key, candidates, System.currentTimeMillis()
+            );
+        } catch (IllegalArgumentException exception) {
+            representativeArtworkCache.transientFailure(
+                    request.key, System.currentTimeMillis()
+            );
+            completeRepresentativeArtwork(request, null);
+            return;
+        }
+        startRepresentativeProbe(request, candidates);
+    }
+
+    private void startRepresentativeProbe(
+            RepresentativeArtworkRequest request,
+            List<LibraryArtworkKey> candidates
+    ) {
+        if (representativeArtworkRequests.get(request.identity) != request) return;
+        request.probe = new RepresentativeArtworkProbe(candidates);
+        if (request.probe.current() == null) {
+            representativeArtworkCache.missing(request.key, System.currentTimeMillis());
+            completeRepresentativeArtwork(request, null);
+            return;
+        }
+        requestRepresentativeCandidate(request);
+    }
+
+    private void requestRepresentativeCandidate(RepresentativeArtworkRequest request) {
+        LibraryArtworkKey candidate = request.probe.current();
+        if (candidate == null) {
+            representativeArtworkCache.missing(request.key, System.currentTimeMillis());
+            completeRepresentativeArtwork(request, null);
+            return;
+        }
+        requestLibraryArtwork(
+                candidate.artworkPath,
+                (generation, resultKey, bitmap, failure) -> acceptRepresentativeCandidate(
+                        request, generation, resultKey, bitmap, failure
+                )
+        );
+    }
+
+    private void acceptRepresentativeCandidate(
+            RepresentativeArtworkRequest request,
+            int generation,
+            LibraryArtworkKey candidate,
+            Bitmap bitmap,
+            LibraryArtworkFailure failure
+    ) {
+        if (representativeArtworkRequests.get(request.identity) != request) return;
+        if (generation != request.generation || generation != connectionGeneration
+                || !matchesCurrentServer(request.key, credentials)) {
+            completeRepresentativeArtwork(request, null);
+            return;
+        }
+        RepresentativeArtworkProbe.Outcome outcome = bitmap != null
+                ? RepresentativeArtworkProbe.Outcome.AVAILABLE
+                : failure == LibraryArtworkFailure.MISSING
+                        ? RepresentativeArtworkProbe.Outcome.MISSING
+                        : RepresentativeArtworkProbe.Outcome.TRANSIENT_FAILURE;
+        RepresentativeArtworkProbe.Decision decision = request.probe.apply(candidate, outcome);
+        switch (decision) {
+            case SELECTED:
+                representativeArtworkCache.selected(
+                        request.key, candidate, System.currentTimeMillis()
+                );
+                completeRepresentativeArtwork(request, bitmap);
+                break;
+            case TRY_NEXT:
+                requestRepresentativeCandidate(request);
+                break;
+            case EXHAUSTED:
+                representativeArtworkCache.missing(request.key, System.currentTimeMillis());
+                completeRepresentativeArtwork(request, null);
+                break;
+            case STOPPED:
+            case STALE:
+            default:
+                representativeArtworkCache.transientFailure(
+                        request.key, System.currentTimeMillis()
+                );
+                completeRepresentativeArtwork(request, null);
+                break;
+        }
+    }
+
+    private void completeRepresentativeArtwork(
+            RepresentativeArtworkRequest request,
+            Bitmap bitmap
+    ) {
+        if (representativeArtworkRequests.remove(request.identity) != request) return;
+        for (RepresentativeArtworkCallback callback : request.callbacks) {
+            callback.onResult(request.generation, request.key, bitmap);
+        }
+    }
+
+    private static boolean matchesCurrentServer(
+            RepresentativeArtworkKey key,
+            PairingCredentials currentCredentials
+    ) {
+        return key != null && currentCredentials != null
+                && currentCredentials.serverId.equals(key.serverId);
     }
 
     private static LibraryFailure libraryFailure(int statusCode) {
@@ -1281,6 +1625,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         libraryExecutor.shutdownNow();
         libraryArtworkExecutor.shutdownNow();
         libraryArtworkRequests.clear();
+        representativeArtworkRequests.clear();
         mainHandler.removeCallbacksAndMessages(null);
         Log.i(TAG, "Client runtime closed");
     }

@@ -10,10 +10,15 @@ final class LibraryRequest {
 
     final String basePath;
     final String query;
+    final int pageSize;
 
-    private LibraryRequest(String basePath, String query) {
+    private LibraryRequest(String basePath, String query, int pageSize) {
+        if (pageSize < 1 || pageSize > 100) {
+            throw new IllegalArgumentException("Invalid page size");
+        }
         this.basePath = basePath;
         this.query = query;
+        this.pageSize = pageSize;
     }
 
     static LibraryRequest tracks() { return fixed("/api/v1/library/tracks"); }
@@ -39,7 +44,9 @@ final class LibraryRequest {
 
     static LibraryRequest subfolders(long id) {
         if (id < 0L) throw new IllegalArgumentException("Invalid folder ID");
-        return new LibraryRequest("/api/v1/library/folder-tree/" + id + "/folders", null);
+        return new LibraryRequest(
+                "/api/v1/library/folder-tree/" + id + "/folders", null, PAGE_SIZE
+        );
     }
 
     static LibraryRequest search(String query) {
@@ -47,7 +54,11 @@ final class LibraryRequest {
         if (value.isEmpty() || value.length() > 160) {
             throw new IllegalArgumentException("Invalid search query");
         }
-        return new LibraryRequest("/api/v1/search", value);
+        return new LibraryRequest("/api/v1/search", value, PAGE_SIZE);
+    }
+
+    LibraryRequest withPageSize(int pageSize) {
+        return new LibraryRequest(basePath, query, pageSize);
     }
 
     String path(String pageToken) {
@@ -55,7 +66,7 @@ final class LibraryRequest {
         if (query != null) {
             path.append("q=").append(encode(query)).append('&');
         }
-        path.append("limit=").append(PAGE_SIZE);
+        path.append("limit=").append(pageSize);
         if (pageToken != null) {
             if (!pageToken.matches("[A-Za-z0-9_-]{24}")) {
                 throw new IllegalArgumentException("Invalid page token");
@@ -66,12 +77,12 @@ final class LibraryRequest {
     }
 
     private static LibraryRequest fixed(String path) {
-        return new LibraryRequest(path, null);
+        return new LibraryRequest(path, null, PAGE_SIZE);
     }
 
     private static LibraryRequest container(String prefix, long id, String suffix) {
         if (id <= 0L) throw new IllegalArgumentException("Invalid container ID");
-        return new LibraryRequest(prefix + id + suffix, null);
+        return new LibraryRequest(prefix + id + suffix, null, PAGE_SIZE);
     }
 
     private static String encode(String value) {

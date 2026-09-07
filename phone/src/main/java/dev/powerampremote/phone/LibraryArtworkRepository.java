@@ -17,6 +17,18 @@ final class LibraryArtworkRepository {
     static final long MISSING_RETRY_MILLISECONDS = 10L * 60L * 1000L;
     static final long TRANSIENT_RETRY_MILLISECONDS = 15L * 1000L;
 
+    enum Suppression { MISSING, TRANSIENT_FAILURE }
+
+    private static final class SuppressionEntry {
+        final Suppression suppression;
+        final long untilMilliseconds;
+
+        SuppressionEntry(Suppression suppression, long untilMilliseconds) {
+            this.suppression = suppression;
+            this.untilMilliseconds = untilMilliseconds;
+        }
+    }
+
     private static final class MemoryEntry {
         final Bitmap bitmap;
         final long createdAtMilliseconds;
@@ -31,7 +43,7 @@ final class LibraryArtworkRepository {
             new ByteLruCache<>(MEMORY_BUDGET_BYTES, entry ->
                     Math.max(1L, entry.bitmap.getAllocationByteCount()));
     private final LibraryArtworkDiskCache disk;
-    private final Map<LibraryArtworkKey, Long> suppressedUntil = new HashMap<>();
+    private final Map<LibraryArtworkKey, SuppressionEntry> suppressedUntil = new HashMap<>();
     private final AtomicLong epoch = new AtomicLong();
 
     LibraryArtworkRepository(Context context) {
@@ -88,22 +100,28 @@ final class LibraryArtworkRepository {
         if (epoch.get() != requestEpoch) disk.remove(key);
     }
 
-    synchronized boolean suppressed(LibraryArtworkKey key, long nowMilliseconds) {
-        Long until = suppressedUntil.get(key);
-        if (until == null) return false;
-        if (until <= nowMilliseconds) {
+    synchronized Suppression suppression(LibraryArtworkKey key, long nowMilliseconds) {
+        SuppressionEntry entry = suppressedUntil.get(key);
+        if (entry == null) return null;
+        if (entry.untilMilliseconds <= nowMilliseconds) {
             suppressedUntil.remove(key);
-            return false;
+            return null;
         }
-        return true;
+        return entry.suppression;
     }
 
     synchronized void suppressMissing(LibraryArtworkKey key, long nowMilliseconds) {
-        suppressedUntil.put(key, nowMilliseconds + MISSING_RETRY_MILLISECONDS);
+        suppressedUntil.put(key, new SuppressionEntry(
+                Suppression.MISSING,
+                nowMilliseconds + MISSING_RETRY_MILLISECONDS
+        ));
     }
 
     synchronized void suppressTransient(LibraryArtworkKey key, long nowMilliseconds) {
-        suppressedUntil.put(key, nowMilliseconds + TRANSIENT_RETRY_MILLISECONDS);
+        suppressedUntil.put(key, new SuppressionEntry(
+                Suppression.TRANSIENT_FAILURE,
+                nowMilliseconds + TRANSIENT_RETRY_MILLISECONDS
+        ));
     }
 
     void forgetAll() {

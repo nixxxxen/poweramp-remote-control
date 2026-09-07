@@ -50,6 +50,14 @@ full multi-player persistence remain absent.
   changes and same-Server reconnects retain them. Six-hour freshness and bounded missing/transient
   retry windows allow artwork updates without repeated scroll-time requests. It does not construct
   Poweramp URIs, download the full library, or optimistically replace playback state.
+- Visible Artist, Album, Playlist, and Folder rows now derive a representative cover from the first
+  available artwork among at most six direct contained tracks. Loaded first pages are reused when
+  present; otherwise the Phone requests one bounded six-item page through the existing service and
+  API client. Folder lookup is direct-only and never recurses. Category-to-track mappings use a
+  separate service-memory 256-entry LRU (six-hour refresh; missing retry 10 minutes; transient retry
+  15 seconds), while image bytes continue to use the existing `4 MiB` RAM / `32 MiB` disk cache.
+  Identical lookups coalesce, probes are sequential on the existing two-thread artwork executor,
+  Forget clears the mapping, and row/connection gates reject late results.
 - Library pages and thumbnails use dedicated executors owned by the existing
   `RemoteClientController`, so transport commands retain their existing executor. Search generation
   gates reject replies for an older text or connection; thumbnail row-binding gates reject results
@@ -66,6 +74,10 @@ full multi-player persistence remain absent.
   `phone/build/outputs/apk/debug/phone-debug.apk`. Device UI validation is still required,
   especially compact Player sizing with the bottom bar, keyboard/insets, every category/container,
   permission/old-Server errors, pagination, thumbnails, and confirmed playback.
+- Representative-cover route/bound tests, ordered selection, mapping expiry/invalidation, retry
+  policy, and late category-row rejection pass (`8/8`). The one requested follow-up
+  `:phone:assembleDebug` also succeeds. Artist/Album/Playlist/Folder cover selection still requires
+  real-device validation, including containers whose first candidate has no artwork.
 
 The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
 real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from

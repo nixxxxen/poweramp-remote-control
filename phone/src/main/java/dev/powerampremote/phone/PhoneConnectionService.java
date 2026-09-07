@@ -182,10 +182,15 @@ public final class PhoneConnectionService extends MediaSessionService
 
         void requestLibraryArtwork(
                 String artworkPath,
-                RemoteClientController.LibraryArtworkCallback callback
+            RemoteClientController.LibraryArtworkCallback callback
         ) {
             if (controller == null) {
-                callback.onResult(-1, null, null);
+                callback.onResult(
+                        -1,
+                        null,
+                        null,
+                        RemoteClientController.LibraryArtworkFailure.TRANSIENT_FAILURE
+                );
                 return;
             }
             controller.requestLibraryArtwork(artworkPath, callback);
@@ -197,6 +202,37 @@ public final class PhoneConnectionService extends MediaSessionService
 
         Bitmap cachedLibraryArtwork(LibraryArtworkKey key) {
             return controller == null ? null : controller.cachedLibraryArtwork(key);
+        }
+
+        RepresentativeArtworkKey representativeArtworkKey(
+                String categoryType,
+                long categoryId
+        ) {
+            return controller == null
+                    ? null : controller.representativeArtworkKey(categoryType, categoryId);
+        }
+
+        Bitmap cachedRepresentativeArtwork(RepresentativeArtworkKey key) {
+            return controller == null
+                    ? null : controller.cachedRepresentativeArtwork(key);
+        }
+
+        void rememberRepresentativeCandidates(
+                RepresentativeArtworkKey key,
+                java.util.List<LibraryItem> items
+        ) {
+            if (controller != null) controller.rememberRepresentativeCandidates(key, items);
+        }
+
+        void requestRepresentativeArtwork(
+                RepresentativeArtworkKey key,
+                RemoteClientController.RepresentativeArtworkCallback callback
+        ) {
+            if (controller == null) {
+                callback.onResult(-1, key, null);
+                return;
+            }
+            controller.requestRepresentativeArtwork(key, callback);
         }
 
         void retryDirectConnection() {

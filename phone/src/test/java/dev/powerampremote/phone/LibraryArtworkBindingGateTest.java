@@ -33,6 +33,23 @@ public final class LibraryArtworkBindingGateTest {
         assertTrue(gate.accepts(rebound, key));
     }
 
+    @Test
+    public void rejectsLateRepresentativeArtworkAfterCategoryRowWasReused() {
+        LibraryArtworkBindingGate gate = new LibraryArtworkBindingGate();
+        RepresentativeArtworkKey artist = RepresentativeArtworkKey.create(
+                SERVER_ID, RepresentativeArtworkKey.TYPE_ARTIST, 3L
+        );
+        RepresentativeArtworkKey album = RepresentativeArtworkKey.create(
+                SERVER_ID, RepresentativeArtworkKey.TYPE_ALBUM, 4L
+        );
+        LibraryArtworkBindingGate.Request artistRequest = gate.bind(artist);
+
+        LibraryArtworkBindingGate.Request albumRequest = gate.bind(album);
+
+        assertFalse(gate.accepts(artistRequest, artist));
+        assertTrue(gate.accepts(albumRequest, album));
+    }
+
     private static LibraryArtworkKey key(long trackId) {
         return LibraryArtworkKey.create(
                 SERVER_ID, "/api/v1/library/artwork/tracks/" + trackId

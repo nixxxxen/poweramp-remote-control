@@ -294,7 +294,7 @@ Artwork should be loaded lazily rather than transferred for the whole library.
 
 These follow-up requirements are implemented incrementally while retaining the existing
 service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
-volume. Items 1, 2, and the currently applicable track-row portion of 7 are complete at unchanged
+volume. Items 1, 2, 4, and the currently applicable Library/Search portion of 7 are complete at unchanged
 versions. Versions advance when the series is ready for release, not for each refinement.
 
 1. **Completed — icon-only bottom navigation.** Player, Library, Search, and Settings now use
@@ -312,12 +312,13 @@ versions. Versions advance when the series is ready for release, not for each re
    changes, pause/resume and reconnect; do not mark a row merely because its play command was sent.
    Verify the mapping between playback and library IDs, preserving distinct playlist/Queue entry
    identities where applicable rather than matching titles or guessing among duplicates.
-4. **Representative category covers.** Give Artists, Albums, Playlists and Folders a representative
-   cover, for example from the first contained track with usable artwork in a defined stable order.
-   This is a derived visual aid, not a claim of official artist/entity artwork. Load lazily, cache
-   the entity-to-artwork association and image, and bound lookups rather than scanning every
-   container or issuing requests on every row bind. Use a neutral fallback for empty containers,
-   absent artwork or failed lookups; refresh associations when their source is no longer valid.
+4. **Completed — representative category covers.** Visible Artists, Albums, Playlists and Folders
+   derive a cover from the first usable artwork among at most six direct contained tracks. This is
+   a visual aid, not official artist/entity artwork. The Phone reuses loaded container data or one
+   bounded existing-API page, probes sequentially with coalescing, never recursively scans folders,
+   and keeps a bounded Server/category/ID mapping while image bytes stay in the shared thumbnail
+   cache. Expiring mappings, shorter missing/transient retry windows, Forget handling, and recycled-
+   row/connection gates cover stale data and late results; neutral placeholders remain the fallback.
 5. **Shared mini-player.** Show a compact mini-player above bottom navigation on Library, Search
    and Settings: current artwork, title/artist, and Play/Pause; tapping its body opens Player.
    Reuse the existing service snapshot and commands without another MediaSession, playback model,
@@ -329,10 +330,10 @@ versions. Versions advance when the series is ready for release, not for each re
    pagination, not just the rows currently loaded on Phone. Verify public provider support and
    add only backward-compatible Server parameters where needed; bind continuation and stale-result
    protection to both query and scope. Never reintroduce the obsolete `/search?flt` path.
-7. **Completed for current Library/Search rows — rounded thumbnails.** Track thumbnails and their
-   placeholders share an 8 dp outline clip, square proportions, and `centerCrop`, without bitmap
-   reprocessing per bind. Category covers and mini-player artwork remain part of their separate
-   future tasks because neither surface is implemented here.
+7. **Completed for current Library/Search rows — rounded thumbnails.** Track thumbnails,
+   representative category covers, and their placeholders share an 8 dp outline clip, square
+   proportions, and `centerCrop`, without bitmap reprocessing per bind. Mini-player artwork remains
+   part of its separate future task.
 8. **Per-list sorting.** Add sort selection for track lists, including within containers: title,
    album, artist, duration, and, only if publicly available and verified, date added and play count.
    Verify field semantics, units and provider ordering support before exposing each option; do not
