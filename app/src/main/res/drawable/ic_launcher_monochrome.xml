@@ -5,22 +5,22 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="@color/accent"
+        android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
         android:pathData="M46,34A22,22 0,1 0,46 78A22,22 0,1 0,46 34M46,47A9,9 0,1 1,46 65A9,9 0,1 1,46 47" />
     <path
-        android:fillColor="@color/launcher_accent"
+        android:fillColor="#FFFFFFFF"
         android:pathData="M46,52.5A3.5,3.5 0,1 1,46 59.5A3.5,3.5 0,1 1,46 52.5" />
     <path
         android:fillColor="@android:color/transparent"
         android:pathData="M69,44C75,47.5 78,51.5 78,56"
-        android:strokeColor="@color/launcher_accent"
+        android:strokeColor="#FFFFFFFF"
         android:strokeLineCap="round"
         android:strokeWidth="5.5" />
     <path
         android:fillColor="@android:color/transparent"
         android:pathData="M73,35C82,40.5 86,47.5 86,56"
-        android:strokeColor="@color/launcher_accent"
+        android:strokeColor="#FFFFFFFF"
         android:strokeLineCap="round"
         android:strokeWidth="5.5" />
 </vector>

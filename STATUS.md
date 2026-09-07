@@ -16,6 +16,21 @@ Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconne
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
+## Server and Phone launcher icons (2026-09-07)
+
+- Replaced the Server launcher mark with a minimal flat record/hub and two broadcast arcs. Replaced
+  the Phone launcher mark with a deliberately simpler flat remote outline and one Play symbol; the
+  discarded concept's hand, perspective, glow, and extra wireless cue are not present in app
+  resources.
+- Both launchers share the existing dark navy/mint palette plus one restrained violet accent. Both
+  now use adaptive normal/round resources and dedicated Android 13+ monochrome artwork; Phone no
+  longer uses a full-canvas legacy drawable as its manifest icon.
+- All changed XML parses successfully. Standalone AAPT2 compilation succeeds for both complete
+  resource trees, including every new launcher resource. A full Gradle test/lint/APK run could not
+  be repeated on this host because no Java Runtime is installed; launcher-mask and final device-size
+  inspection therefore remain device/build-host checks. Versions, API `v1`, services, transport,
+  pairing, MediaSession, and playback behavior are unchanged.
+
 The complete signed release pipeline, APK/certificate verification, and exact-APK in-place
 real-device matrix passed on 2026-08-23. The immutable checked APKs were built and tagged from
 commit `675d1affd8776bb6b05dfa1795df51a18de08fcc`; their public release remains the upgrade baseline
