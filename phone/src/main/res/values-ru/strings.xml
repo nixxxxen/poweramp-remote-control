@@ -28,7 +28,9 @@
     <string name="library_error">Не удалось загрузить эту страницу.</string>
     <string name="library_retry">Повторить</string>
     <string name="library_more">Загрузить ещё</string>
-    <string name="library_truncated">Есть и другие элементы, но окно страниц Сервера ограничено.</string>
+    <string name="library_truncated">Достигнут предел просмотра. Найти треки за пределами списка можно во вкладке «Поиск».</string>
+    <string name="library_page_expired">Ссылка на следующую страницу устарела. Загруженные элементы сохранены; обновите список, чтобы начать просмотр заново.</string>
+    <string name="library_reload">Обновить список</string>
     <string name="library_play_error">Не удалось запустить этот элемент.</string>
     <string name="library_unknown_item">Без названия</string>
     <string name="library_duration">%1$s</string>

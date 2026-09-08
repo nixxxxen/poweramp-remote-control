@@ -67,6 +67,11 @@ The shared icon-only bottom navigation opens Player / Library / Search / Setting
 the service runtime; its selected/pressed states and English/Russian accessibility labels do not
 depend on visible text. `LibrarySearchActivity` owns paged browsing/search presentation and its
 container back stack; its requests go only through the bound service/controller.
+Loaded Library/Search pages survive same-Server reconnect. Page append and status rendering leave
+the live ListView position alone; only navigation between lists restores a saved offset. Page
+failures keep loaded rows visible and stop automatic continuation. A rejected continuation token
+offers an explicit list restart instead of silently resetting to page one. The existing Server
+1000-row window remains in force; global track Search can find matches beyond the browse window.
 `PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
 `SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
@@ -85,6 +90,9 @@ artwork identity/path changes), survive tab changes and reconnect to the same Se
 by Forget device. Disk access, decoding, downsampling, and encoding stay off the UI thread. The
 52 dp square list views apply one 8 dp outline clip to both thumbnails and placeholders without
 per-bind bitmap processing.
+Visible rows retain their displayed bitmap if it is evicted from the shared memory LRU. Binding
+tokens include the Activity request lifecycle, so an ignored stop-time callback cannot permanently
+block the same row's next load after resume; stale recycled-row deliveries remain rejected.
 
 Artist, album, playlist, and folder rows derive an optional representative cover from the first
 usable artwork among at most six tracks returned by that category's existing direct-track route.

@@ -16,6 +16,37 @@ Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconne
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
+## Phone Library: long-list stability follow-up (2026-09-08)
+
+- Saved the completed representative-category artwork stage as commit `a7c3970` before this fix.
+- Code inspection found that each render posted an old `setSelectionFromTop`, including during
+  page append/status updates; same-Server reconnect also unconditionally reset paging. The Phone
+  now lets ListView retain its live position during append/status changes, restores offsets only
+  on list navigation, and retains loaded pages across same-Server reconnect. Unchanged row sets
+  no longer trigger rebinding. Leaving a container during an append clears its cancelled loading
+  flag so returning to it does not leave pagination stuck.
+- Continuation failures previously hid all loaded rows, and end-of-list callbacks could retry the
+  same failed continuation automatically. Rows now remain visible, retries require an explicit tap,
+  and rejected HTTP 400 continuation tokens offer a clearly labelled restart from the beginning.
+  Server tokens can expire after five minutes or be evicted from the bounded token store; no
+  silent first-page reset or automatic token recovery scan is introduced.
+- A same-row rebind previously replaced its displayed bitmap with a placeholder on a RAM-cache
+  miss; callbacks ignored during Activity stop could also leave a request marked pending after
+  resume. Visible rows now retain their images across LRU eviction, and lifecycle-aware binding
+  tokens allow a new request while rejecting the old delivery. Recycled rows still reject images
+  belonging to another identity; memory/disk budgets and the connection runtime are unchanged.
+- The Server's 1000-row browse window is **not removed**. No documented provider offset exists in
+  the audited contract; the Phone now explains the limit and directs users to existing global
+  Search. True large-library continuation remains separate verified Server work in ROADMAP.
+- Targeted `LibraryArtworkBindingGateTest`, `LibraryPageParserTest`, and
+  `RepresentativeArtworkTest`: **18/18 passed**; `:phone:assembleDebug` succeeded using the
+  persistent local JDK/SDK. No clean, lint, full regression suites, or Server build was run for
+  this Phone-only incremental fix. Versions and API remain unchanged.
+- Device confirmation still needed: rapidly scroll Tracks and Albums down/up through many pages,
+  reach the window limit, return from a child container during an append, background/resume and
+  briefly disconnect/reconnect while deep in a list. Check that position and covers remain usable;
+  after token expiry, existing rows should stay visible until an explicit **Reload list**.
+
 ## Server and Phone launcher icons (2026-09-07)
 
 - Replaced the Server launcher mark with a minimal flat record/hub and two broadcast arcs. Replaced

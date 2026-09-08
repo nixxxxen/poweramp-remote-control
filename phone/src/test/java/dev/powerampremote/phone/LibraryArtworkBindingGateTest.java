@@ -55,4 +55,61 @@ public final class LibraryArtworkBindingGateTest {
                 SERVER_ID, "/api/v1/library/artwork/tracks/" + trackId
         );
     }
+
+    @Test
+    public void keepsDisplayedImageOnSameRowRebindAfterMemoryCacheEviction() {
+        LibraryArtworkBindingGate gate = new LibraryArtworkBindingGate();
+        LibraryArtworkKey key = key(1);
+        LibraryArtworkBindingGate.Request request = gate.bind(key, 1);
+        assertTrue(gate.begin(request));
+        assertTrue(gate.complete(request, key, true));
+
+        gate.bind(key, 1);
+        assertTrue(gate.artworkDisplayed());
+        gate.bind(key, 2); // Same-Server reconnect does not erase a displayed image either.
+        assertTrue(gate.artworkDisplayed());
+        gate.bind(key(2), 2);
+        assertFalse(gate.artworkDisplayed());
+    }
+
+    @Test
+    public void resumeCanRestartRequestWhoseCallbackWasIgnoredWhileStopped() {
+        LibraryArtworkBindingGate gate = new LibraryArtworkBindingGate();
+        LibraryArtworkKey key = key(1);
+        LibraryArtworkBindingGate.Request stopped = gate.bind(key, 1);
+        assertTrue(gate.begin(stopped));
+        assertFalse(gate.begin(gate.bind(key, 1)));
+
+        LibraryArtworkBindingGate.Request resumed = gate.bind(key, 2);
+        assertTrue(gate.begin(resumed));
+        assertFalse(gate.complete(stopped, key, true));
+        assertFalse(gate.artworkDisplayed());
+        assertFalse(gate.begin(resumed)); // Old completion cannot clear the new pending request.
+        assertTrue(gate.complete(resumed, key, true));
+        assertTrue(gate.artworkDisplayed());
+    }
+
+    @Test
+    public void recycledRowCanRequestOriginalImageAgainWithoutAcceptingOldDelivery() {
+        LibraryArtworkBindingGate gate = new LibraryArtworkBindingGate();
+        LibraryArtworkKey first = key(1);
+        LibraryArtworkBindingGate.Request old = gate.bind(first);
+        assertTrue(gate.begin(old));
+        gate.bind(key(2));
+        LibraryArtworkBindingGate.Request current = gate.bind(first);
+        assertTrue(gate.begin(current));
+        assertFalse(gate.complete(old, first, true));
+        assertTrue(gate.complete(current, first, true));
+    }
+
+    @Test
+    public void failedImageCanBeRequestedOnLaterBind() {
+        LibraryArtworkBindingGate gate = new LibraryArtworkBindingGate();
+        LibraryArtworkKey key = key(1);
+        LibraryArtworkBindingGate.Request first = gate.bind(key);
+        assertTrue(gate.begin(first));
+        assertTrue(gate.complete(first, key, false));
+        assertFalse(gate.artworkDisplayed());
+        assertTrue(gate.begin(gate.bind(key)));
+    }
 }

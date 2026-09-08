@@ -140,6 +140,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private int searchTopOffset;
     private int thumbnailPlaceholderPadding;
     private Runnable debounceRunnable;
+    private Object renderedSource;
+    private int artworkBindingLifecycle;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -150,6 +152,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             }
             controller = (PhoneConnectionService.LocalBinder) service;
             controller.addListener(LibrarySearchActivity.this);
+            adapter.notifyDataSetChanged();
         }
 
         @Override
@@ -285,6 +288,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     protected void onStop() {
         saveScrollPosition();
         started = false;
+        artworkBindingLifecycle++;
         cancelDebounce();
         libraryRequestSerial++;
         searchGate.invalidate();
@@ -457,6 +461,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     private void push(Level level) {
         saveScrollPosition();
+        currentLevel().loading = false; // Its outstanding append will be invalidated below.
         libraryStack.add(level);
         libraryRequestSerial++;
         render();
@@ -478,6 +483,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         cancelDebounce();
         searchGate.invalidate();
         searchPager.reset();
+        searchFirstVisible = 0;
+        searchTopOffset = 0;
+        renderedSource = null;
         searchFailure = null;
         searchLoading = false;
         render();
@@ -504,11 +512,14 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (!connected()) return;
         saveScrollPosition();
         if (selectedTab == BottomNavigation.Tab.SEARCH) {
-            if (searchPager.canLoadMore() && !searchLoading) loadSearchPage(true);
+            if (searchPager.canLoadMore() && !searchLoading && searchFailure == null) {
+                loadSearchPage(true);
+            }
             return;
         }
         Level level = currentLevel();
-        if (!level.local() && level.pager.canLoadMore() && !level.loading) {
+        if (!level.local() && level.pager.canLoadMore() && !level.loading
+                && level.failure == null) {
             loadLibraryPage(level, true);
         }
     }
@@ -520,7 +531,12 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             return;
         }
         if (level.loading) return;
-        if (!append) level.pager.reset();
+        if (!append) {
+            level.pager.reset();
+            level.firstVisible = 0;
+            level.topOffset = 0;
+            renderedSource = null;
+        }
         String requestedToken = append ? level.pager.nextPageToken() : null;
         level.loading = true;
         level.failure = null;
@@ -562,7 +578,14 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (searchLoading) return;
         String query = normalizedQuery();
         if (query.isEmpty()) return;
-        if (!append) searchPager.reset();
+        if (!append) {
+            if (searchPager.initialized()) {
+                searchFirstVisible = 0;
+                searchTopOffset = 0;
+            }
+            searchPager.reset();
+            renderedSource = null;
+        }
         String requestedToken = append ? searchPager.nextPageToken() : null;
         int generation = controller.libraryConnectionGeneration();
         SearchRequestGate.Request request = searchGate.begin(query, generation);
@@ -613,6 +636,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void render() {
+        Object source = selectedTab == BottomNavigation.Tab.SEARCH ? searchPager : currentLevel();
+        boolean changedSource = renderedSource != source;
+        if (!changedSource) saveScrollPosition();
         BottomNavigation.bind(this, selectedTab);
         boolean connected = connected();
         findViewById(R.id.library_back_button).setVisibility(
@@ -629,14 +655,24 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         actionButton.setVisibility(View.GONE);
         actionButton.setOnClickListener(null);
 
-        if (!connected) {
-            adapter.setRows(new ArrayList<>());
-            listView.setVisibility(View.GONE);
-            showMessage(R.string.library_disconnected);
-            return;
-        }
         if (selectedTab == BottomNavigation.Tab.SEARCH) renderSearch();
         else renderLibrary();
+        if (!connected) {
+            progress.setVisibility(View.GONE);
+            actionButton.setVisibility(View.GONE);
+            showMessage(R.string.library_disconnected);
+        }
+        // Appending/status updates must let ListView retain its live fling/position.
+        // Restore only when navigating to a different list, never from a posted stale callback.
+        renderedSource = source;
+        if (changedSource) {
+            if (selectedTab == BottomNavigation.Tab.SEARCH) {
+                restoreListPosition(searchFirstVisible, searchTopOffset);
+            } else {
+                Level level = currentLevel();
+                restoreListPosition(level.firstVisible, level.topOffset);
+            }
+        }
     }
 
     private void renderLibrary() {
@@ -644,7 +680,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (level.local()) {
             adapter.setRows(level.localRows);
             listView.setVisibility(View.VISIBLE);
-            restoreListPosition(level.firstVisible, level.topOffset);
             return;
         }
         renderNetworkPage(
@@ -652,9 +687,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 level.loading,
                 level.failure,
                 false,
-                () -> loadLibraryPage(level, level.pager.initialized())
+                () -> loadLibraryPage(level, level.pager.initialized()
+                        && level.failure != RemoteClientController.LibraryFailure.PAGE_EXPIRED)
         );
-        if (level.pager.initialized()) restoreListPosition(level.firstVisible, level.topOffset);
     }
 
     private void renderSearch() {
@@ -670,11 +705,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 searchLoading,
                 searchFailure,
                 true,
-                () -> loadSearchPage(searchPager.initialized())
+                () -> loadSearchPage(searchPager.initialized()
+                        && searchFailure != RemoteClientController.LibraryFailure.PAGE_EXPIRED)
         );
-        if (searchPager.initialized()) {
-            restoreListPosition(searchFirstVisible, searchTopOffset);
-        }
     }
 
     private void renderNetworkPage(
@@ -684,19 +717,18 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             boolean search,
             Runnable retry
     ) {
-        if (failure != null) {
-            adapter.setRows(new ArrayList<>());
-            listView.setVisibility(View.GONE);
-            showMessage(failureMessage(failure));
-            if (failure != RemoteClientController.LibraryFailure.UNSUPPORTED) {
-                showAction(R.string.library_retry, retry);
-            }
-            return;
-        }
         List<BrowseRow> rows = new ArrayList<>();
         for (LibraryItem item : pager.items()) rows.add(BrowseRow.item(item));
         adapter.setRows(rows);
         listView.setVisibility(rows.isEmpty() ? View.GONE : View.VISIBLE);
+        if (failure != null) {
+            showMessage(failureMessage(failure));
+            if (failure != RemoteClientController.LibraryFailure.UNSUPPORTED) {
+                showAction(failure == RemoteClientController.LibraryFailure.PAGE_EXPIRED
+                        ? R.string.library_reload : R.string.library_retry, retry);
+            }
+            return;
+        }
         if (loading) {
             progress.setVisibility(View.VISIBLE);
             if (rows.isEmpty()) showMessage(R.string.library_loading);
@@ -734,6 +766,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 return R.string.library_unsupported;
             case PROVIDER_UNAVAILABLE:
                 return R.string.library_provider_unavailable;
+            case PAGE_EXPIRED:
+                return R.string.library_page_expired;
             case AUTHENTICATION:
             case SERVER_ERROR:
             default:
@@ -742,7 +776,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void saveScrollPosition() {
-        if (listView == null || listView.getChildCount() == 0) return;
+        Object source = selectedTab == BottomNavigation.Tab.SEARCH ? searchPager : currentLevel();
+        if (renderedSource != source || listView == null || listView.getChildCount() == 0
+                || listView.getVisibility() != View.VISIBLE) return;
         int first = listView.getFirstVisiblePosition();
         int top = listView.getChildAt(0).getTop();
         if (selectedTab == BottomNavigation.Tab.SEARCH) {
@@ -756,7 +792,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void restoreListPosition(int first, int top) {
-        listView.post(() -> listView.setSelectionFromTop(first, top));
+        listView.setSelectionFromTop(first, top);
     }
 
     private String normalizedQuery() {
@@ -778,6 +814,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void invalidateRequests(boolean serverChanged) {
+        artworkBindingLifecycle++;
         libraryRequestSerial++;
         searchGate.invalidate();
         searchLoading = false;
@@ -813,9 +850,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         controller.requestLibraryArtwork(path, (resultGeneration, resultKey, artwork, failure) -> {
             if (!started || controller == null || resultGeneration != generation
                     || resultGeneration != controller.libraryConnectionGeneration()
-                    || !holder.artworkGate.accepts(binding, resultKey)) return;
-            holder.requestedArtworkIdentity = null;
-            holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+                    || !holder.artworkGate.complete(binding, resultKey, artwork != null)) return;
             if (artwork != null) {
                 holder.artwork.setPadding(0, 0, 0, 0);
                 holder.artwork.setImageBitmap(artwork);
@@ -835,9 +870,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 (resultGeneration, resultKey, artwork) -> {
                     if (!started || controller == null || resultGeneration != generation
                             || resultGeneration != controller.libraryConnectionGeneration()
-                            || !holder.artworkGate.accepts(binding, resultKey)) return;
-                    holder.requestedArtworkIdentity = null;
-                    holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+                            || !holder.artworkGate.complete(binding, resultKey, artwork != null)) return;
                     if (artwork != null) {
                         holder.artwork.setPadding(0, 0, 0, 0);
                         holder.artwork.setImageBitmap(artwork);
@@ -863,26 +896,41 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (generationChanged) {
             knownConnectionGeneration = generation;
             invalidateRequests(serverChanged);
+            adapter.notifyDataSetChanged();
         }
         if (connected() && (!wasConnected || generationChanged)) {
+            // Same-Server reconnect is not a new browse session. Keep loaded pages and offsets.
+            if (searchFailure == RemoteClientController.LibraryFailure.DISCONNECTED) {
+                searchFailure = null;
+            }
+            for (Level level : libraryStack) {
+                if (level.failure == RemoteClientController.LibraryFailure.DISCONNECTED) {
+                    level.failure = null;
+                }
+            }
             if (selectedTab == BottomNavigation.Tab.SEARCH) {
-                if (!normalizedQuery().isEmpty()) runSearchNow();
+                if (!normalizedQuery().isEmpty() && !searchPager.initialized()
+                        && searchFailure == null) runSearchNow();
+                else render();
             } else {
                 Level level = currentLevel();
-                if (!level.local()) loadLibraryPage(level, false);
+                if (!level.local() && !level.pager.initialized() && level.failure == null) {
+                    loadLibraryPage(level, false);
+                }
                 else render();
             }
             return;
         }
         if (connected() && selectedTab == BottomNavigation.Tab.SEARCH
                 && !normalizedQuery().isEmpty()
-                && !searchPager.initialized() && !searchLoading) {
+                && !searchPager.initialized() && !searchLoading && searchFailure == null) {
             runSearchNow();
             return;
         }
         Level level = currentLevel();
         if (connected() && selectedTab == BottomNavigation.Tab.LIBRARY
-                && !level.local() && !level.pager.initialized() && !level.loading) {
+                && !level.local() && !level.pager.initialized() && !level.loading
+                && level.failure == null) {
             loadLibraryPage(level, false);
             return;
         }
@@ -904,7 +952,20 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         private List<BrowseRow> rows = new ArrayList<>();
 
         void setRows(List<BrowseRow> rows) {
-            this.rows = rows == null ? new ArrayList<>() : rows;
+            if (this.rows.size() == rows.size()) {
+                boolean same = true;
+                for (int i = 0; i < rows.size(); i++) {
+                    BrowseRow old = this.rows.get(i);
+                    BrowseRow next = rows.get(i);
+                    if (old.item != next.item || old.action != next.action
+                            || old.labelResource != next.labelResource || old.folderId != next.folderId) {
+                        same = false;
+                        break;
+                    }
+                }
+                if (same) return;
+            }
+            this.rows = rows;
             notifyDataSetChanged();
         }
 
@@ -932,8 +993,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             if (row == null) return convertView;
             if (row.item == null) {
                 holder.artworkGate.bind(null);
-                holder.requestedArtworkIdentity = null;
-                holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                 holder.title.setText(row.labelResource);
                 setOptional(holder.subtitle, null);
                 setOptional(holder.detail, null);
@@ -963,18 +1022,18 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             boolean representative = RepresentativeArtworkKey.isSupportedType(item.type);
             if (!track && !representative) {
                 holder.artworkGate.bind(null);
-                holder.requestedArtworkIdentity = null;
-                holder.requestedArtworkGeneration = Integer.MIN_VALUE;
                 holder.artwork.setVisibility(View.INVISIBLE);
             } else if (track) {
                 holder.artwork.setVisibility(View.VISIBLE);
                 LibraryArtworkKey artworkKey = controller == null
                         ? null : controller.libraryArtworkKey(item.artworkPath);
                 LibraryArtworkBindingGate.Request binding =
-                        holder.artworkGate.bind(artworkKey);
+                        holder.artworkGate.bind(artworkKey, artworkBindingLifecycle);
                 Bitmap bitmap = controller == null
                         ? null : controller.cachedLibraryArtwork(artworkKey);
                 if (bitmap == null) {
+                    // The visible row still owns its bitmap even after the small LRU evicts it.
+                    if (holder.artworkGate.artworkDisplayed()) return convertView;
                     holder.artwork.setPadding(
                             thumbnailPlaceholderPadding,
                             thumbnailPlaceholderPadding,
@@ -982,18 +1041,11 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                             thumbnailPlaceholderPadding
                     );
                     holder.artwork.setImageResource(R.drawable.ic_album_placeholder);
-                    int generation = controller == null
-                            ? Integer.MIN_VALUE : controller.libraryConnectionGeneration();
-                    if (artworkKey != null
-                            && (!artworkKey.equals(holder.requestedArtworkIdentity)
-                            || holder.requestedArtworkGeneration != generation)) {
-                        holder.requestedArtworkIdentity = artworkKey;
-                        holder.requestedArtworkGeneration = generation;
+                    if (controller != null && holder.artworkGate.begin(binding)) {
                         requestArtwork(holder, item.artworkPath, artworkKey, binding);
                     }
                 } else {
-                    holder.requestedArtworkIdentity = null;
-                    holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+                    holder.artworkGate.complete(binding, artworkKey, true);
                     holder.artwork.setPadding(0, 0, 0, 0);
                     holder.artwork.setImageBitmap(bitmap);
                 }
@@ -1002,10 +1054,11 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 RepresentativeArtworkKey representativeKey = controller == null
                         ? null : controller.representativeArtworkKey(item.type, item.id);
                 LibraryArtworkBindingGate.Request binding =
-                        holder.artworkGate.bind(representativeKey);
+                        holder.artworkGate.bind(representativeKey, artworkBindingLifecycle);
                 Bitmap bitmap = controller == null
                         ? null : controller.cachedRepresentativeArtwork(representativeKey);
                 if (bitmap == null) {
+                    if (holder.artworkGate.artworkDisplayed()) return convertView;
                     holder.artwork.setPadding(
                             thumbnailPlaceholderPadding,
                             thumbnailPlaceholderPadding,
@@ -1013,18 +1066,11 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                             thumbnailPlaceholderPadding
                     );
                     holder.artwork.setImageResource(R.drawable.ic_album_placeholder);
-                    int generation = controller == null
-                            ? Integer.MIN_VALUE : controller.libraryConnectionGeneration();
-                    if (representativeKey != null
-                            && (!representativeKey.equals(holder.requestedArtworkIdentity)
-                            || holder.requestedArtworkGeneration != generation)) {
-                        holder.requestedArtworkIdentity = representativeKey;
-                        holder.requestedArtworkGeneration = generation;
+                    if (controller != null && holder.artworkGate.begin(binding)) {
                         requestRepresentativeArtwork(holder, representativeKey, binding);
                     }
                 } else {
-                    holder.requestedArtworkIdentity = null;
-                    holder.requestedArtworkGeneration = Integer.MIN_VALUE;
+                    holder.artworkGate.complete(binding, representativeKey, true);
                     holder.artwork.setPadding(0, 0, 0, 0);
                     holder.artwork.setImageBitmap(bitmap);
                 }
@@ -1039,8 +1085,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         final TextView subtitle;
         final TextView detail;
         final LibraryArtworkBindingGate artworkGate = new LibraryArtworkBindingGate();
-        Object requestedArtworkIdentity;
-        int requestedArtworkGeneration = Integer.MIN_VALUE;
 
         Holder(View view) {
             artwork = view.findViewById(R.id.library_item_artwork);

@@ -96,6 +96,37 @@ public final class LibraryPageParserTest {
         } catch (IllegalArgumentException expected) {
             // Expected.
         }
+        assertEquals(1, pager.items().size());
+        assertEquals(TOKEN, pager.nextPageToken());
+        assertTrue(pager.canLoadMore());
+    }
+
+    @Test
+    public void longBrowsePreservesAllLoadedRowsAtServerWindowBoundary() {
+        LibraryPager pager = new LibraryPager();
+        for (int offset = 0; offset < 1000; offset += 25) {
+            String requested = pager.nextPageToken();
+            StringBuilder items = new StringBuilder();
+            for (int i = 0; i < 25; i++) {
+                if (i != 0) items.append(',');
+                items.append("{\"type\":\"track\",\"id\":").append(offset + i + 1)
+                        .append(",\"title\":\"Song\",\"entryId\":null,\"parentId\":null,")
+                        .append("\"artist\":null,\"album\":null,\"durationMilliseconds\":null,")
+                        .append("\"trackCount\":null,\"artwork\":null,\"play\":null,\"current\":null}");
+            }
+            boolean last = offset == 975;
+            String next = String.format(java.util.Locale.ROOT, "%024d", offset + 25);
+            pager.accept(requested, LibraryPageParser.parse("{\"category\":\"tracks\","
+                    + "\"limit\":25,\"offset\":" + offset + ",\"items\":[" + items + "],"
+                    + "\"nextPageToken\":" + (last ? "null" : "\"" + next + "\"")
+                    + ",\"truncated\":" + last + "}"));
+            assertEquals(offset + 25, pager.items().size());
+            assertEquals(1L, pager.items().get(0).id);
+        }
+        assertEquals(1000L, pager.items().get(999).id);
+        assertTrue(pager.initialized());
+        assertTrue(pager.truncated());
+        assertFalse(pager.canLoadMore());
     }
 
     private static String pageWith(String artwork, String token) {

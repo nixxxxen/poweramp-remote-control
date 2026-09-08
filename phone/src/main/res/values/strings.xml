@@ -33,7 +33,9 @@
     <string name="library_error">Could not load this page.</string>
     <string name="library_retry">Retry</string>
     <string name="library_more">Load more</string>
-    <string name="library_truncated">More items exist, but this Server page window is limited.</string>
+    <string name="library_truncated">Browse limit reached. Use Search to find tracks beyond this list.</string>
+    <string name="library_page_expired">This page link is no longer valid. Loaded items are kept; reload to browse from the start.</string>
+    <string name="library_reload">Reload list</string>
     <string name="library_play_error">Could not start this item.</string>
     <string name="library_unknown_item">Untitled item</string>
     <string name="library_duration">%1$s</string>

@@ -69,6 +69,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         UNSUPPORTED,
         AUTHENTICATION,
         PROVIDER_UNAVAILABLE,
+        PAGE_EXPIRED,
         SERVER_ERROR
     }
 
@@ -403,7 +404,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                             pageToken
                     );
                 } catch (RemoteApiClient.HttpStatusException exception) {
-                    failure = libraryFailure(exception.statusCode);
+                    failure = exception.statusCode == 400 && pageToken != null
+                            ? LibraryFailure.PAGE_EXPIRED : libraryFailure(exception.statusCode);
                 } catch (IOException | RuntimeException exception) {
                     failure = LibraryFailure.SERVER_ERROR;
                 }

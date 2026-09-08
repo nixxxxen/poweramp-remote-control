@@ -270,6 +270,15 @@ existing service-owned runtime.
 
 Load only the currently requested category/page and cache recent results locally for responsive navigation.
 
+Long-list Phone stability is implemented pending real-device confirmation: append/status updates
+do not restore stale offsets, same-Server reconnect keeps loaded pages, continuation failures keep
+the list visible without automatic retries, and visible artwork survives RAM eviction/rebind.
+The current Server browse window still stops at 1000 provider rows. Before removing this limit,
+verify a supported bounded continuation/ordering strategy against the public provider and a large
+real-device library, including live library changes. Do not merely raise the prefix-scan cap or
+invent an undocumented SQL offset. Scoped search and sorting below must operate before pagination,
+not only on this already loaded window; existing global Search remains the current workaround.
+
 Search executes in Poweramp through `/files` with a fixed parameterized title/file-name/artist/album
 selection, verified with matching and nonmatching queries on Poweramp `1025004-fa3ec08671d`.
 The obsolete `/search?flt` crashes that build and is excluded without fallback. The foundation
