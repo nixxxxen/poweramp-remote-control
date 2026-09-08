@@ -25,8 +25,16 @@ final class BottomNavigation {
         settings.setOnClickListener(view -> select(activity, view, Tab.SETTINGS));
     }
 
+    static void open(Activity activity, Tab tab) {
+        navigate(activity, tab);
+    }
+
     private static void select(Activity activity, View source, Tab tab) {
         source.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        navigate(activity, tab);
+    }
+
+    private static void navigate(Activity activity, Tab tab) {
         if (activity instanceof LibrarySearchActivity
                 && (tab == Tab.LIBRARY || tab == Tab.SEARCH)) {
             ((LibrarySearchActivity) activity).showTab(tab);

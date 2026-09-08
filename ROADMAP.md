@@ -303,8 +303,8 @@ Artwork should be loaded lazily rather than transferred for the whole library.
 
 These follow-up requirements are implemented incrementally while retaining the existing
 service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
-volume. Items 1, 2, 4, and the currently applicable Library/Search portion of 7 are complete at unchanged
-versions. Versions advance when the series is ready for release, not for each refinement.
+volume. Items 1–5 and the currently applicable Library/Search portion of 7 are complete at
+unchanged versions. Versions advance when the series is ready for release, not for each refinement.
 
 1. **Completed — icon-only bottom navigation.** Player, Library, Search, and Settings now use
    recognizable vectors without visible labels, with selected/pressed states, 48 dp minimum touch
@@ -316,11 +316,13 @@ versions. Versions advance when the series is ready for release, not for each re
    clears both tiers while tab changes and same-Server reconnect retain useful entries. A six-hour
    freshness bound covers same-path artwork replacement. Full-size Player covers remain a separate
    future task and are not added to this cache.
-3. **Currently playing row indicator.** Mark the confirmed current track in Library and Search,
-   including after selecting a track there. Follow existing remote snapshots for external track
-   changes, pause/resume and reconnect; do not mark a row merely because its play command was sent.
-   Verify the mapping between playback and library IDs, preserving distinct playlist/Queue entry
-   identities where applicable rather than matching titles or guessing among duplicates.
+3. **Completed — currently playing row indicator.** Library and Search mark only the row matched by
+   the latest complete remote snapshot. Additive nullable `trackId`/`trackRealId` API v1 fields
+   preserve raw entry identity and underlying `folder_files._id`; ordinary rows match only the
+   latter. Queue-ready matching additionally requires exact Queue category, entry ID, and
+   underlying ID. Playlist-entry rows remain deliberately unmarked until the playback contract has
+   a verified playlist-container identity, so duplicate metadata or entry IDs are never guessed.
+   Confirmed state changes update only visible indicator views and do not replace the loaded row set.
 4. **Completed — representative category covers.** Visible Artists, Albums, Playlists and Folders
    derive a cover from the first usable artwork among at most six direct contained tracks. This is
    a visual aid, not official artist/entity artwork. The Phone reuses loaded container data or one
@@ -328,11 +330,13 @@ versions. Versions advance when the series is ready for release, not for each re
    and keeps a bounded Server/category/ID mapping while image bytes stay in the shared thumbnail
    cache. Expiring mappings, shorter missing/transient retry windows, Forget handling, and recycled-
    row/connection gates cover stale data and late results; neutral placeholders remain the fallback.
-5. **Shared mini-player.** Show a compact mini-player above bottom navigation on Library, Search
-   and Settings: current artwork, title/artist, and Play/Pause; tapping its body opens Player.
-   Reuse the existing service snapshot and commands without another MediaSession, playback model,
-   polling loop or connection. Handle no-track/disconnected states and search keyboard/insets
-   without obscuring list content or navigation.
+5. **Completed — shared mini-player.** One reusable layout/listener-renderer now sits above bottom
+   navigation in Library, Search, and Settings. It consumes only the existing service replay of the
+   confirmed state and current artwork, forwards Play/Pause through the existing binder, and opens
+   Player through the shared navigation path. It is hidden without a confirmed track, retains the
+   last snapshot while disconnected with controls disabled, clears old artwork on identity change,
+   and adds only lifecycle-bound Settings binding—no second connection, MediaSession, polling loop,
+   palette analysis, or thumbnail-cache path.
 6. **Search within the current scope.** Add a search action inside All tracks and individual
    folders, albums, artists and playlists, with an explicit visible scope. Define direct-folder
    versus recursive behavior before implementation. Search the whole selected container before

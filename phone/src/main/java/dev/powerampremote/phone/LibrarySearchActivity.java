@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.graphics.Bitmap;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -124,6 +125,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private TextView statusMessage;
     private Button actionButton;
     private BrowseAdapter adapter;
+    private MiniPlayerController miniPlayer;
     private PhoneConnectionService.LocalBinder controller;
     private BottomNavigation.Tab selectedTab = BottomNavigation.Tab.LIBRARY;
     private RemoteClientController.Status connectionStatus =
@@ -151,13 +153,17 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 return;
             }
             controller = (PhoneConnectionService.LocalBinder) service;
+            // Discard any Activity-local identity first; the service replay below is authoritative.
+            adapter.setConfirmedState(null);
             controller.addListener(LibrarySearchActivity.this);
+            miniPlayer.attach(controller);
             adapter.notifyDataSetChanged();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
             controller = null;
+            miniPlayer.onServiceDisconnected();
             connectionStatus = RemoteClientController.Status.ERROR;
             invalidateRequests(false);
             render();
@@ -166,6 +172,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         @Override
         public void onNullBinding(ComponentName name) {
             controller = null;
+            miniPlayer.onServiceDisconnected();
             connectionStatus = RemoteClientController.Status.ERROR;
             invalidateRequests(false);
             render();
@@ -184,6 +191,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         progress = findViewById(R.id.library_progress);
         statusMessage = findViewById(R.id.library_status_message);
         actionButton = findViewById(R.id.library_action_button);
+        miniPlayer = new MiniPlayerController(this);
         thumbnailPlaceholderPadding = Math.round(
                 10f * getResources().getDisplayMetrics().density
         );
@@ -296,7 +304,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         for (Level level : libraryStack) level.loading = false;
         if (controller != null) {
             controller.removeListener(this);
+            miniPlayer.detach();
             controller = null;
+        } else {
+            miniPlayer.detach();
         }
         if (bindingRequested) {
             unbindService(serviceConnection);
@@ -939,7 +950,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     @Override public void onPairingFailed(RemoteClientController.PairingError error) { }
     @Override public void onPairingSucceeded(String serviceName) { }
-    @Override public void onStateChanged(RemoteState state, long receivedRealtimeMilliseconds) { }
+    @Override
+    public void onStateChanged(RemoteState state, long receivedRealtimeMilliseconds) {
+        adapter.setConfirmedState(state);
+    }
     @Override public void onArtworkChanged(Bitmap artwork) { }
     @Override public void onCommandError(boolean authenticationError) { }
     @Override public void onPlaybackSnapshot(PlaybackUiSnapshot snapshot) { }
@@ -950,6 +964,22 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     private final class BrowseAdapter extends BaseAdapter {
         private List<BrowseRow> rows = new ArrayList<>();
+        private final CurrentTrackMatcher.IndicatorState currentTrack =
+                new CurrentTrackMatcher.IndicatorState();
+
+        void setConfirmedState(RemoteState state) {
+            currentTrack.update(state);
+            int first = listView.getFirstVisiblePosition();
+            for (int childIndex = 0; childIndex < listView.getChildCount(); childIndex++) {
+                View child = listView.getChildAt(childIndex);
+                Object tag = child.getTag();
+                if (!(tag instanceof Holder)) continue;
+                renderCurrentIndicator(
+                        (Holder) tag,
+                        getItem(first + childIndex)
+                );
+            }
+        }
 
         void setRows(List<BrowseRow> rows) {
             if (this.rows.size() == rows.size()) {
@@ -991,6 +1021,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             }
             BrowseRow row = getItem(position);
             if (row == null) return convertView;
+            renderCurrentIndicator(holder, row);
             if (row.item == null) {
                 holder.artworkGate.bind(null);
                 holder.title.setText(row.labelResource);
@@ -1077,17 +1108,33 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             }
             return convertView;
         }
+
+        private void renderCurrentIndicator(Holder holder, BrowseRow row) {
+            boolean current = row != null && row.item != null
+                    && currentTrack.matches(row.item);
+            holder.current.setVisibility(current ? View.VISIBLE : View.INVISIBLE);
+            holder.current.setContentDescription(current
+                    ? getString(R.string.library_current_track) : null);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                holder.root.setStateDescription(current
+                        ? getString(R.string.library_current_track) : null);
+            }
+        }
     }
 
     private static final class Holder {
+        final View root;
         final ImageView artwork;
+        final ImageView current;
         final TextView title;
         final TextView subtitle;
         final TextView detail;
         final LibraryArtworkBindingGate artworkGate = new LibraryArtworkBindingGate();
 
         Holder(View view) {
+            root = view;
             artwork = view.findViewById(R.id.library_item_artwork);
+            current = view.findViewById(R.id.library_item_current);
             title = view.findViewById(R.id.library_item_title);
             subtitle = view.findViewById(R.id.library_item_subtitle);
             detail = view.findViewById(R.id.library_item_detail);

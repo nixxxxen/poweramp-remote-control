@@ -19,6 +19,12 @@ final class RemoteStateJson {
         appendNumber(json, "revision", state.revision);
         appendBoolean(json, "powerampAvailable", state.powerampAvailable);
         appendBoolean(json, "hasTrack", track != null);
+        appendNullablePositiveNumber(json, "trackId", track != null ? track.id : 0L);
+        appendNullablePositiveNumber(
+                json,
+                "trackRealId",
+                track != null ? track.realId : 0L
+        );
         appendString(json, "title", track != null ? track.title : null);
         appendString(json, "artist", track != null ? track.artist : null);
         appendString(json, "album", track != null ? track.album : null);
@@ -112,6 +118,15 @@ final class RemoteStateJson {
     private static void appendNullableNumber(StringBuilder json, String key, long value) {
         appendKey(json, key);
         if (value < 0L) {
+            json.append("null");
+        } else {
+            json.append(value);
+        }
+    }
+
+    private static void appendNullablePositiveNumber(StringBuilder json, String key, long value) {
+        appendKey(json, key);
+        if (value <= 0L) {
             json.append("null");
         } else {
             json.append(value);

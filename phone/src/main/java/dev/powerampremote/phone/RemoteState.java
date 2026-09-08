@@ -5,6 +5,8 @@ final class RemoteState {
     final long revision;
     final boolean powerampAvailable;
     final boolean hasTrack;
+    final Long trackId;
+    final Long trackRealId;
     final String title;
     final String artist;
     final String album;
@@ -45,7 +47,7 @@ final class RemoteState {
                 fileType, fileTypeName, codec, bitsPerSample, sampleRate, bitRate,
                 sourceCategory, sourceCategoryName, sourceCategoryUri,
                 positionInList, listSize, durationSeconds, positionSeconds, playbackState,
-                rating, liked, disliked, shuffle, shuffleMode, null, null, null
+                rating, liked, disliked, shuffle, shuffleMode, null, null, null, null, null
         );
     }
 
@@ -58,9 +60,31 @@ final class RemoteState {
             Integer positionSeconds, String playbackState, Integer rating,
             Boolean liked, Boolean disliked, Boolean shuffle, Integer shuffleMode,
             Integer volume, Integer volumeMax, Boolean volumeControlAvailable) {
+        this(
+                revision, powerampAvailable, hasTrack, title, artist, album, artwork,
+                fileType, fileTypeName, codec, bitsPerSample, sampleRate, bitRate,
+                sourceCategory, sourceCategoryName, sourceCategoryUri,
+                positionInList, listSize, durationSeconds, positionSeconds, playbackState,
+                rating, liked, disliked, shuffle, shuffleMode,
+                volume, volumeMax, volumeControlAvailable, null, null
+        );
+    }
+
+    RemoteState(long revision, boolean powerampAvailable, boolean hasTrack,
+            String title, String artist, String album, String artwork,
+            Integer fileType, String fileTypeName, String codec,
+            Integer bitsPerSample, Integer sampleRate, Integer bitRate,
+            Integer sourceCategory, String sourceCategoryName, String sourceCategoryUri,
+            Integer positionInList, Integer listSize, Integer durationSeconds,
+            Integer positionSeconds, String playbackState, Integer rating,
+            Boolean liked, Boolean disliked, Boolean shuffle, Integer shuffleMode,
+            Integer volume, Integer volumeMax, Boolean volumeControlAvailable,
+            Long trackId, Long trackRealId) {
         this.revision = revision;
         this.powerampAvailable = powerampAvailable;
         this.hasTrack = hasTrack;
+        this.trackId = trackId;
+        this.trackRealId = trackRealId;
         this.title = title;
         this.artist = artist;
         this.album = album;
@@ -94,6 +118,12 @@ final class RemoteState {
     }
 
     String trackIdentity() {
+        if (trackId != null || trackRealId != null) {
+            return "id\u0000" + String.valueOf(trackId) + '\u0000'
+                    + String.valueOf(trackRealId) + '\u0000'
+                    + String.valueOf(sourceCategory) + '\u0000'
+                    + safe(sourceCategoryUri);
+        }
         return safe(title) + '\u0000'
                 + safe(artist) + '\u0000'
                 + safe(album) + '\u0000'

@@ -1,8 +1,12 @@
 package dev.powerampremote.phone;
 
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.RadioGroup;
@@ -13,6 +17,29 @@ public final class SettingsActivity extends LocaleAwareActivity {
     private RadioGroup languageGroup;
     private AppLanguage selectedLanguage;
     private boolean updatingSelection;
+    private MiniPlayerController miniPlayer;
+    private boolean bindingRequested;
+
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            if (service instanceof PhoneConnectionService.LocalBinder) {
+                miniPlayer.attach((PhoneConnectionService.LocalBinder) service);
+            } else {
+                miniPlayer.onServiceDisconnected();
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            miniPlayer.onServiceDisconnected();
+        }
+
+        @Override
+        public void onNullBinding(ComponentName name) {
+            miniPlayer.onServiceDisconnected();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -20,6 +47,7 @@ public final class SettingsActivity extends LocaleAwareActivity {
         SafeDrawingInsets.enableEdgeToEdge(getWindow());
         setContentView(R.layout.activity_settings);
         SafeDrawingInsets.apply(findViewById(R.id.settings_root));
+        miniPlayer = new MiniPlayerController(this);
         BottomNavigation.bind(this, BottomNavigation.Tab.SETTINGS);
 
         View backButton = findViewById(R.id.back_button);
@@ -50,6 +78,32 @@ public final class SettingsActivity extends LocaleAwareActivity {
             PhoneConnectionService.refreshLanguage(this);
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) recreate();
         });
+        try {
+            PhoneConnectionService.start(this);
+        } catch (RuntimeException ignored) {
+            miniPlayer.onServiceDisconnected();
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        bindingRequested = bindService(
+                PhoneConnectionService.bindingIntent(this),
+                serviceConnection,
+                Context.BIND_AUTO_CREATE
+        );
+        if (!bindingRequested) miniPlayer.onServiceDisconnected();
+    }
+
+    @Override
+    protected void onStop() {
+        miniPlayer.detach();
+        if (bindingRequested) {
+            unbindService(serviceConnection);
+            bindingRequested = false;
+        }
+        super.onStop();
     }
 
     private void setCheckedLanguage(AppLanguage language) {

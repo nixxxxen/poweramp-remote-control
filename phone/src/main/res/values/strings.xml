@@ -39,6 +39,10 @@
     <string name="library_play_error">Could not start this item.</string>
     <string name="library_unknown_item">Untitled item</string>
     <string name="library_duration">%1$s</string>
+    <string name="library_current_track">Current track</string>
+    <string name="mini_player_open_description">%1$s by %2$s. Open Player</string>
+    <string name="mini_player_controls_unavailable">Playback controls unavailable while disconnected</string>
+    <string name="mini_player_action_unavailable">%1$s unavailable while disconnected</string>
     <string name="settings_about_description">Version, project links, licenses, and independence notice</string>
     <string name="settings_open_about">About Poweramp Remote</string>
 

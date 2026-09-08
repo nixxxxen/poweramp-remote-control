@@ -16,6 +16,39 @@ Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconne
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
+## Phone current-track indicator and shared mini-player (2026-09-08)
+
+- The existing flat playback state now has two backward-compatible nullable API v1 fields:
+  `trackId` carries positive raw Poweramp `TrackInfo.id`, while `trackRealId` carries positive
+  underlying `TrackInfo.realId`/Library `folder_files._id`; unavailable or non-positive values are
+  JSON `null`. Phone accepts both omitted fields from older Servers. Versions remain Server
+  `0.10.2`, Phone `0.6.0`, API `v1`.
+- Library and Search show one static accent current-track icon only from a complete confirmed
+  service/WebSocket snapshot. Ordinary rows match `trackRealId`, not metadata, list position, or
+  artwork; Queue-ready matching requires Queue category plus exact entry and underlying IDs.
+  Playlist entries remain unmarked until playback exposes a verified playlist-container identity,
+  avoiding a false match between duplicate entries. Pause does not clear the identity, play
+  commands do not mark optimistically, and state renders update only visible indicator views
+  without replacing the loaded rows or changing ListView position.
+- One shared mini-player layout/controller is fixed above bottom navigation in Library, Search, and
+  Settings only. It uses the existing `PhoneConnectionService` replayed state/artwork and binder
+  Play/Pause commands, opens Player through `BottomNavigation`, clears the old cover immediately on
+  confirmed identity change, hides with no service snapshot, and retains a disconnected snapshot
+  with its control disabled and localized accessibility state. Settings starts the same service and
+  binds/unbinds in `onStart()`/`onStop()` without owning or stopping the runtime. No artwork request,
+  Library thumbnail read, palette analysis, timer, polling, WebSocket, MediaSession, or service was
+  added.
+- Targeted JVM verification passed **30/30**: Server `RemoteStateJsonTest` **7/7**; Phone
+  `RemoteStateParserTest` **9/9**, `CurrentTrackMatcherTest` **5/5**,
+  `MiniPlayerPresentationTest` **5/5**, and `PhoneResourceParityTest` **4/4**. The requested
+  `:phone:assembleDebug` succeeded and produced `phone/build/outputs/apk/debug/phone-debug.apk`.
+  Full suites, lint, clean, release, and Server APK were not run.
+- Real-device validation remains: playlist and Queue duplicate-entry identity; Library/Search
+  selection followed by confirmed state; external track change; pause/resume; disconnect/reconnect
+  with retained mini-player and refreshed indicator/artwork; Settings stop/start and language-
+  recreation lifecycle; Search keyboard plus system/cutout/navigation insets; and Library, Search,
+  Settings layout/touch/accessibility behavior on compact screens.
+
 ## Phone active-transport recovery fix (2026-09-08)
 
 - Confirmed the reported cause in `RemoteClientController`: every callback network matching

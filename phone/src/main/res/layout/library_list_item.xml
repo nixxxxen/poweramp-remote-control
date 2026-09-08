@@ -60,4 +60,14 @@
             android:textColor="@color/text_secondary"
             android:textSize="11sp" />
     </LinearLayout>
+
+    <ImageView
+        android:id="@+id/library_item_current"
+        android:layout_width="40dp"
+        android:layout_height="52dp"
+        android:contentDescription="@string/library_current_track"
+        android:padding="10dp"
+        android:src="@drawable/ic_play"
+        android:tint="@color/accent"
+        android:visibility="invisible" />
 </LinearLayout>

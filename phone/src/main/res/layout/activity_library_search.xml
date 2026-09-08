@@ -110,5 +110,7 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <include layout="@layout/mini_player" />
+
     <include layout="@layout/bottom_navigation" />
 </LinearLayout>

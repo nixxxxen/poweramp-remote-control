@@ -46,6 +46,8 @@ public final class RemoteStateJsonTest {
         String json = RemoteStateJson.toJson(state, 9_000L);
 
         assertContains(json, "\"bitRate\":1411200");
+        assertContains(json, "\"trackId\":12");
+        assertContains(json, "\"trackRealId\":34");
         assertFalse(json.contains("\"bitRate\":1411,"));
         assertContains(json, "\"positionInList\":0");
         assertFalse(json.contains("\"positionInList\":1,"));
@@ -118,9 +120,40 @@ public final class RemoteStateJsonTest {
 
         assertContains(json, "\"powerampAvailable\":false");
         assertContains(json, "\"hasTrack\":false");
+        assertContains(json, "\"trackId\":null");
+        assertContains(json, "\"trackRealId\":null");
         assertContains(json, "\"durationSeconds\":null");
         assertContains(json, "\"positionSeconds\":null");
         assertContains(json, "\"rating\":null");
+    }
+
+    @Test
+    public void nonPositivePlaybackIdentityIsSerializedAsNull() {
+        TrackInfo track = new TrackInfo(
+                0L,
+                -2L,
+                "Raw track",
+                null,
+                null,
+                0,
+                0
+        );
+        RemotePlaybackState state = new RemotePlaybackState(
+                1L,
+                true,
+                track,
+                PowerampContract.STATE_PAUSED,
+                0,
+                0L,
+                PowerampContract.ShuffleModes.NONE,
+                0L,
+                false
+        );
+
+        String json = RemoteStateJson.toJson(state, 0L);
+
+        assertContains(json, "\"trackId\":null");
+        assertContains(json, "\"trackRealId\":null");
     }
 
     @Test

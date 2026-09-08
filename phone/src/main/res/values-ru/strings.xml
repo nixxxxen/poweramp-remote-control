@@ -34,6 +34,10 @@
     <string name="library_play_error">Не удалось запустить этот элемент.</string>
     <string name="library_unknown_item">Без названия</string>
     <string name="library_duration">%1$s</string>
+    <string name="library_current_track">Текущий трек</string>
+    <string name="mini_player_open_description">%1$s, исполнитель: %2$s. Открыть Плеер</string>
+    <string name="mini_player_controls_unavailable">Управление воспроизведением недоступно без соединения</string>
+    <string name="mini_player_action_unavailable">Действие «%1$s» недоступно без соединения</string>
     <string name="settings_about_description">Версия, ссылки проекта, лицензии и уведомление о независимости</string>
     <string name="settings_open_about">О Poweramp Remote</string>
 

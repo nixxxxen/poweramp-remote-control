@@ -12,6 +12,7 @@ public final class RemoteStateParserTest {
     private static final String COMPLETE_STATE = "{"
             + "\"apiVersion\":1,\"revision\":42,"
             + "\"powerampAvailable\":true,\"hasTrack\":true,"
+            + "\"trackId\":73,\"trackRealId\":41,"
             + "\"title\":\"Track\",\"artist\":\"Artist\",\"album\":\"Album\","
             + "\"artwork\":\"/api/v1/artwork\","
             + "\"fileType\":1,\"fileTypeName\":\"FLAC\",\"codec\":\"flac\","
@@ -30,6 +31,8 @@ public final class RemoteStateParserTest {
         assertEquals(42L, state.revision);
         assertTrue(state.powerampAvailable);
         assertTrue(state.hasTrack);
+        assertEquals(Long.valueOf(73L), state.trackId);
+        assertEquals(Long.valueOf(41L), state.trackRealId);
         assertEquals("Track", state.title);
         assertEquals(Integer.valueOf(1411200), state.bitRate);
         assertEquals(Integer.valueOf(0), state.positionInList);
@@ -91,17 +94,41 @@ public final class RemoteStateParserTest {
     }
 
     @Test
+    public void remainsCompatibleWithOlderApiV1SnapshotsWithoutTrackIdentityFields() {
+        String legacy = COMPLETE_STATE
+                .replace("\"trackId\":73,\"trackRealId\":41,", "");
+
+        RemoteState state = RemoteStateParser.parse(legacy);
+
+        assertNull(state.trackId);
+        assertNull(state.trackRealId);
+    }
+
+    @Test
+    public void parsesNullableTrackIdentityFields() {
+        RemoteState state = RemoteStateParser.parse(COMPLETE_STATE
+                .replace("\"trackId\":73", "\"trackId\":null")
+                .replace("\"trackRealId\":41", "\"trackRealId\":null"));
+
+        assertNull(state.trackId);
+        assertNull(state.trackRealId);
+    }
+
+    @Test
     public void artworkKeyIgnoresRevisionAndPlaybackPositionChanges() {
         RemoteState first = RemoteStateParser.parse(COMPLETE_STATE);
         RemoteState laterSnapshot = RemoteStateParser.parse(COMPLETE_STATE
                 .replace("\"revision\":42", "\"revision\":43")
                 .replace("\"positionSeconds\":37", "\"positionSeconds\":91"));
-        RemoteState nextTrack = RemoteStateParser.parse(COMPLETE_STATE.replace(
-                "\"title\":\"Track\"",
-                "\"title\":\"Next track\""
+        RemoteState metadataCorrection = RemoteStateParser.parse(COMPLETE_STATE.replace(
+                "\"title\":\"Track\"", "\"title\":\"Corrected title\""
         ));
+        RemoteState nextTrack = RemoteStateParser.parse(COMPLETE_STATE
+                .replace("\"trackId\":73", "\"trackId\":74")
+                .replace("\"trackRealId\":41", "\"trackRealId\":42"));
 
         assertEquals(first.artworkKey(), laterSnapshot.artworkKey());
+        assertEquals(first.artworkKey(), metadataCorrection.artworkKey());
         assertFalse(first.artworkKey().equals(nextTrack.artworkKey()));
     }
 

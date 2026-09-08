@@ -67,6 +67,14 @@ The shared icon-only bottom navigation opens Player / Library / Search / Setting
 the service runtime; its selected/pressed states and English/Russian accessibility labels do not
 depend on visible text. `LibrarySearchActivity` owns paged browsing/search presentation and its
 container back stack; its requests go only through the bound service/controller.
+Library and Search track rows also consume the service-replayed complete playback snapshot. A
+static accent indicator is shown only when the snapshot identity can be matched exactly: ordinary
+track/Search rows require `trackRealId == folder_files._id`; a Queue entry additionally requires
+Queue source category plus exact `trackId == queue._id` and the same underlying ID. Playlist-entry
+rows are not guessed because the current playback snapshot has no separately verified playlist
+container identity. Metadata, list position, artwork, and optimistic play requests are never used
+as substitutes. State-only changes update the visible indicator views without replacing the loaded
+row set or restoring its scroll position.
 Loaded Library/Search pages survive same-Server reconnect. Page append and status rendering leave
 the live ListView position alone; only navigation between lists restores a saved offset. Page
 failures keep loaded rows visible and stop automatic continuation. A rejected continuation token
@@ -78,6 +86,18 @@ QR/manual pairing, re-pair/forget actions, and recoverable permission/settings a
 runtime. No Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
+
+Library, Search, and Settings include one shared fixed mini-player layout directly above bottom
+navigation. Its common listener/renderer attaches to the existing `PhoneConnectionService` binder
+only for the host Activity lifecycle and consumes the same replayed `RemoteState`,
+`PlaybackUiSnapshot` callback stream, and current artwork as the main Player. It creates no network
+request, artwork cache, palette analysis, position timer, playback model, MediaSession, or service.
+Title, artist, Play/Pause icon, availability, and artwork follow confirmed service state; changing
+`trackIdentity()` clears the previous bitmap before the new artwork callback. A retained snapshot
+remains visible during temporary disconnect with Play/Pause disabled. No snapshot, Forget, or a
+Server change hides it on the next service replay. The body opens the existing Player through the
+same task-stack/navigation path, and Settings starts/binds/unbinds the same service without stopping
+its runtime.
 
 Library/Search track thumbnails use the same service-owned controller and its dedicated artwork
 executor. Only encountered rows are loaded. Decoded bitmaps use a `4 MiB` byte-measured memory LRU;
@@ -519,6 +539,12 @@ unchanged, so older API v1 clients can ignore the appended fields.
 Important semantic rules:
 
 - unavailable optional values are JSON `null`;
+- `trackId` is the positive raw Poweramp `TrackInfo.id`, including a playlist/Queue entry identity
+  when that is the active source; non-positive or unavailable values are `null`;
+- `trackRealId` is the positive underlying Poweramp `TrackInfo.realId` corresponding to the
+  Library `folder_files._id`; non-positive or unavailable values are `null`;
+- both identity fields are additive and nullable: an older API v1 Server may omit them, and Phone
+  then keeps playback presentation but shows no Library/Search current-row indicator;
 - `playbackState` is `playing`, `paused`, `stopped`, or `null`;
 - `rating` is `0…5` or `null`; `5` derives Like and `1` derives Dislike;
 - `shuffle` is the binary view; `shuffleMode` preserves Poweramp's mode;

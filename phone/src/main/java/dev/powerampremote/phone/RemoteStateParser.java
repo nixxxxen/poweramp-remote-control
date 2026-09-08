@@ -56,7 +56,9 @@ final class RemoteStateParser {
                 nullableNonNegativeInt(values, "shuffleMode"),
                 nullableNonNegativeInt(values, "volume"),
                 nullableNonNegativeInt(values, "volumeMax"),
-                nullableBoolean(values, "volumeControlAvailable")
+                nullableBoolean(values, "volumeControlAvailable"),
+                nullablePositiveLong(values, "trackId"),
+                nullablePositiveLong(values, "trackRealId")
         );
     }
 
@@ -95,5 +97,14 @@ final class RemoteStateParser {
             throw new IllegalArgumentException("integer out of range: " + key);
         }
         return (int) number;
+    }
+
+    private static Long nullablePositiveLong(Map<String, Object> values, String key) {
+        Object value = values.get(key);
+        if (value == null) return null;
+        if (!(value instanceof Long)) throw new IllegalArgumentException("expected integer: " + key);
+        long number = (Long) value;
+        if (number <= 0L) throw new IllegalArgumentException("non-positive integer: " + key);
+        return number;
     }
 }
