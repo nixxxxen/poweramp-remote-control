@@ -4,6 +4,8 @@ package dev.powerampremote.phone;
 final class LibraryItem {
     final String type;
     final long id;
+    /** API v1 row ID interpreted as folder_files._id only for track-capable wire types. */
+    final Long underlyingId;
     final Long entryId;
     final Long parentId;
     final String title;
@@ -31,6 +33,7 @@ final class LibraryItem {
     ) {
         this.type = type;
         this.id = id;
+        this.underlyingId = underlyingId(type, id);
         this.entryId = entryId;
         this.parentId = parentId;
         this.title = title;
@@ -41,5 +44,12 @@ final class LibraryItem {
         this.artworkPath = artworkPath;
         this.playTarget = playTarget;
         this.current = current;
+    }
+
+    private static Long underlyingId(String type, long id) {
+        return "track".equals(type)
+                || "playlist_entry".equals(type)
+                || "queue_entry".equals(type)
+                ? id : null;
     }
 }

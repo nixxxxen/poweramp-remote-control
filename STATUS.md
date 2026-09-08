@@ -8,22 +8,77 @@ Current versions:
 
 ## Stage
 
-The repository builds two native Android applications. At unchanged Server `0.10.2`, the first
-Library/Queue-series stage provides the additive Server Library/Search/current-Queue API foundation.
+The repository builds two native Android applications. At the unchanged Server release number
+`0.10.2`, the current source adds the Library/Search/current-Queue API foundation and the playback
+identity fields required by the Phone current-row indicator. An installed APK with the same version
+number can predate those source changes and must not be treated as an equivalent build.
 At unchanged Phone `0.6.0`, a first Library/Search UI candidate now consumes the existing API; Queue
 UI remains absent. API stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
-## Phone current-track indicator and shared mini-player (2026-09-08)
+## Phone current-row diagnosis and content-only tab transitions (2026-09-08)
+
+- The missing Library/Search icon was traced through the real chain rather than treated as a View
+  visibility issue. The connected R4 has a debuggable Server `0.10.2` / code 13 installed, but a
+  read-only inspection of that installed APK's DEX found neither `trackId` nor `trackRealId`. It is
+  therefore an artifact from before commit `e89350e`, even though versions intentionally stayed
+  unchanged. The Phone correctly parses the old payload as nullable identity and refuses to guess a
+  row, while its mini-player can still render the older metadata snapshot. The device needs a Server
+  artifact built from the same source revision as Phone before the indicator can be validated.
+- The repository's state path remains intact: `RemoteStateJson` supplies both fields to REST and the
+  same WebSocket serializer; `RemoteWebSocket` parses every full frame; `PhoneConnectionService`
+  retains and synchronously replays the latest confirmed `RemoteState`; and
+  `LibrarySearchActivity` updates both visible holders and future `getView()` bindings without
+  replacing rows. The public Poweramp contract defines `Track.realId` as the resolved
+  `folder_files._id`. Phone now makes the Library row side explicit as nullable `underlyingId`,
+  derived only for wire types `track`, `playlist_entry`, and `queue_entry`; artist, album, folder,
+  and playlist containers cannot match even if their numeric `id` is equal. Matching still ignores
+  metadata and `LibraryItem.current`; playlist duplicates remain deliberately unmarked without
+  verified container identity, and old Server payloads remain safely unmarked.
+- The retained Player, Library/Search, and Settings Activities now share one content-only tab
+  transition coordinator. Their main content Views are the only translated surfaces; bottom
+  navigation and the optional mini-player remain outside those containers. Standard Activity
+  window animation is disabled for tab requests. Explicit indices enforce Player → Library →
+  Search → Settings: a rightward destination sends old content left and brings new content from the
+  right, with the reverse behavior to the left. One generation/running gate ignores the active tab
+  and rapid overlapping requests; existing `REORDER_TO_FRONT`/`SINGLE_TOP`, Library/Search state,
+  Back stack, service runtime, and lifecycle ownership remain unchanged. Player still has no
+  mini-player.
+- Follow-up device testing exposed one discontinuity in the Activity handoff: after the outgoing
+  content reached the edge, the coordinator restored it to `translationX = 0` before the destination
+  Activity was visible. That produced a one-frame flash of the old active screen. The coordinator
+  now keeps the outgoing presentation offscreen while Library/Search swaps its model or the next
+  Activity is started; lifecycle cancellation restores a retained Activity only after the
+  destination is visible. There is no intermediate on-screen reset between exit and entry.
+- Targeted Phone JVM tests passed **27/27**: `CurrentTrackMatcherTest` **6/6** (including parsed
+  `RemoteState` against parsed track/container Library rows), `TabTransitionPolicyTest` **3/3**,
+  `MiniPlayerPresentationTest` **5/5**, `RemoteStateParserTest` **9/9**, and
+  `PhoneResourceParityTest` **4/4**. After the flash fix, the same targeted Phone set remained
+  **27/27**, Server `RemoteStateJsonTest` passed **7/7**, and both `:app:assembleDebug` and
+  `:phone:assembleDebug` succeeded from the same working tree. The matching artifacts are
+  `app/build/outputs/apk/debug/app-debug.apk` and
+  `phone/build/outputs/apk/debug/phone-debug.apk`; both must be installed together for device
+  validation. Full suites, lint, clean, and release tasks were not run. Versions remain Server
+  `0.10.2`, Phone `0.6.0`, API `v1`.
+- Real-device validation remains after installing matching-revision Server and Phone APKs: confirm
+  exact `trackId`/`trackRealId` against All Tracks, artist, album, folder, and Search row IDs; track
+  selection, pause/resume, external Poweramp track changes, reconnect, and Activity rebind; old-
+  Server safe absence; and ambiguous playlist duplicates. Exercise every left/right tab pair,
+  repeated active-tab taps, rapid sequences, Player mini-player absence and slot appearance,
+  Library/Search paging/query/container stack, Settings language recreation, Back, Search keyboard,
+  system/cutout/navigation insets, and compact screens. Confirm bottom navigation and mini-player
+  stay visually fixed throughout.
+
+## Phone current-track indicator and shared mini-player: initial implementation (2026-09-08)
 
 - The existing flat playback state now has two backward-compatible nullable API v1 fields:
   `trackId` carries positive raw Poweramp `TrackInfo.id`, while `trackRealId` carries positive
   underlying `TrackInfo.realId`/Library `folder_files._id`; unavailable or non-positive values are
   JSON `null`. Phone accepts both omitted fields from older Servers. Versions remain Server
   `0.10.2`, Phone `0.6.0`, API `v1`.
-- Library and Search show one static accent current-track icon only from a complete confirmed
+- Library and Search were implemented to show one static accent current-track icon only from a complete confirmed
   service/WebSocket snapshot. Ordinary rows match `trackRealId`, not metadata, list position, or
   artwork; Queue-ready matching requires Queue category plus exact entry and underlying IDs.
   Playlist entries remain unmarked until playback exposes a verified playlist-container identity,
@@ -43,7 +98,8 @@ full multi-player persistence remain absent.
   `MiniPlayerPresentationTest` **5/5**, and `PhoneResourceParityTest` **4/4**. The requested
   `:phone:assembleDebug` succeeded and produced `phone/build/outputs/apk/debug/phone-debug.apk`.
   Full suites, lint, clean, release, and Server APK were not run.
-- Real-device validation remains: playlist and Queue duplicate-entry identity; Library/Search
+- This initial indicator completion claim is superseded by the diagnosis above. Real-device
+  validation remains: playlist and Queue duplicate-entry identity; Library/Search
   selection followed by confirmed state; external track change; pause/resume; disconnect/reconnect
   with retained mini-player and refreshed indicator/artwork; Settings stop/start and language-
   recreation lifecycle; Search keyboard plus system/cutout/navigation insets; and Library, Search,

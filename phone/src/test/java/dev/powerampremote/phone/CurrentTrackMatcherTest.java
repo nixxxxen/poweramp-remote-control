@@ -1,6 +1,8 @@
 package dev.powerampremote.phone;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -10,6 +12,28 @@ import java.util.Arrays;
 import java.util.List;
 
 public final class CurrentTrackMatcherTest {
+    @Test
+    public void parsedStateMatchesParsedTrackRowsButNeverLibraryContainers() {
+        RemoteState state = state(41L, 41L, RemoteSourceCategory.FILES, "Remote metadata");
+        LibraryPage page = LibraryPageParser.parse("{"
+                + "\"category\":\"tracks\",\"limit\":5,\"offset\":0,\"items\":["
+                + itemJson("track", 41L, "Track") + ","
+                + itemJson("artist", 41L, "Artist") + ","
+                + itemJson("album", 41L, "Album") + ","
+                + itemJson("folder", 41L, "Folder") + ","
+                + itemJson("playlist", 41L, "Playlist")
+                + "],\"nextPageToken\":null,\"truncated\":false}");
+
+        assertEquals("track", page.items.get(0).type);
+        assertEquals(41L, page.items.get(0).id);
+        assertEquals(Long.valueOf(41L), page.items.get(0).underlyingId);
+        assertTrue(CurrentTrackMatcher.matches(state, page.items.get(0)));
+        for (int index = 1; index < page.items.size(); index++) {
+            assertNull(page.items.get(index).underlyingId);
+            assertFalse(CurrentTrackMatcher.matches(state, page.items.get(index)));
+        }
+    }
+
     @Test
     public void regularTrackMatchesOnlyUnderlyingRealId() {
         LibraryItem current = track("track", 41L, null, "Different metadata");
@@ -86,6 +110,14 @@ public final class CurrentTrackMatcherTest {
                 type, id, entryId, null, title, "Artist", "Album",
                 180_000L, null, null, null, null
         );
+    }
+
+    private static String itemJson(String type, long id, String title) {
+        return "{\"type\":\"" + type + "\",\"id\":" + id
+                + ",\"entryId\":null,\"parentId\":null,\"title\":\"" + title
+                + "\",\"artist\":null,\"album\":null,"
+                + "\"durationMilliseconds\":null,\"trackCount\":null,"
+                + "\"artwork\":null,\"play\":null,\"current\":null}";
     }
 
     private static RemoteState state(

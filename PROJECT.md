@@ -65,16 +65,24 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 `MainActivity` binds only while visible and remains a playback-only presentation/control surface.
 The shared icon-only bottom navigation opens Player / Library / Search / Settings without restarting
 the service runtime; its selected/pressed states and English/Russian accessibility labels do not
-depend on visible text. `LibrarySearchActivity` owns paged browsing/search presentation and its
-container back stack; its requests go only through the bound service/controller.
-Library and Search track rows also consume the service-replayed complete playback snapshot. A
-static accent indicator is shown only when the snapshot identity can be matched exactly: ordinary
-track/Search rows require `trackRealId == folder_files._id`; a Queue entry additionally requires
+depend on visible text. The retained entry Activities share one content-transition coordinator:
+their fixed bottom navigation and optional mini-player stay outside the translated content view,
+Activity window animation is disabled for tab requests, and only the outgoing/incoming content
+slides according to the fixed Player / Library / Search / Settings order. A generation gate ignores
+repeat and rapid overlapping requests. `LibrarySearchActivity` owns paged browsing/search
+presentation and its container back stack; its requests go only through the bound service/controller.
+Library and Search track rows also consume the service-replayed complete playback snapshot. The
+Phone model exposes `underlyingId` only for the API's `track`, `playlist_entry`, and `queue_entry`
+wire types; under the current Library contract that value is the row's documented underlying
+`folder_files._id`, while container IDs never enter track matching. A static accent indicator is
+shown only when the snapshot identity can be matched exactly: ordinary track/Search rows require
+`trackRealId == underlyingId`; a Queue entry additionally requires
 Queue source category plus exact `trackId == queue._id` and the same underlying ID. Playlist-entry
 rows are not guessed because the current playback snapshot has no separately verified playlist
 container identity. Metadata, list position, artwork, and optimistic play requests are never used
 as substitutes. State-only changes update the visible indicator views without replacing the loaded
-row set or restoring its scroll position.
+row set or restoring its scroll position. An older installed Server that omits the additive identity
+fields remains compatible and deliberately produces no current-row indicator.
 Loaded Library/Search pages survive same-Server reconnect. Page append and status rendering leave
 the live ListView position alone; only navigation between lists restores a saved offset. Page
 failures keep loaded rows visible and stop automatic continuation. A rejected continuation token

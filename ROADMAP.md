@@ -303,8 +303,9 @@ Artwork should be loaded lazily rather than transferred for the whole library.
 
 These follow-up requirements are implemented incrementally while retaining the existing
 service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
-volume. Items 1–5 and the currently applicable Library/Search portion of 7 are complete at
-unchanged versions. Versions advance when the series is ready for release, not for each refinement.
+volume. Items 1, 2, 4, 5 and the currently applicable Library/Search portion of 7 are complete at
+unchanged versions. Item 3 is implemented but remains pending matching-Server device revalidation.
+Versions advance when the series is ready for release, not for each refinement.
 
 1. **Completed — icon-only bottom navigation.** Player, Library, Search, and Settings now use
    recognizable vectors without visible labels, with selected/pressed states, 48 dp minimum touch
@@ -316,13 +317,18 @@ unchanged versions. Versions advance when the series is ready for release, not f
    clears both tiers while tab changes and same-Server reconnect retain useful entries. A six-hour
    freshness bound covers same-path artwork replacement. Full-size Player covers remain a separate
    future task and are not added to this cache.
-3. **Completed — currently playing row indicator.** Library and Search mark only the row matched by
+3. **Implemented; device revalidation pending — currently playing row indicator.** Library and
+   Search mark only the row matched by
    the latest complete remote snapshot. Additive nullable `trackId`/`trackRealId` API v1 fields
-   preserve raw entry identity and underlying `folder_files._id`; ordinary rows match only the
-   latter. Queue-ready matching additionally requires exact Queue category, entry ID, and
+   preserve raw entry identity and underlying `folder_files._id`; Phone exposes that row semantic
+   as `underlyingId` only for track-capable wire types, so containers cannot match. Ordinary rows
+   match only the underlying ID. Queue-ready matching additionally requires exact Queue category, entry ID, and
    underlying ID. Playlist-entry rows remain deliberately unmarked until the playback contract has
    a verified playlist-container identity, so duplicate metadata or entry IDs are never guessed.
    Confirmed state changes update only visible indicator views and do not replace the loaded row set.
+   The first device report used a debug Server APK that predated these additive fields despite the
+   unchanged version number; repeat the matrix after installing Server and Phone artifacts built
+   from the same source revision before marking this item complete.
 4. **Completed — representative category covers.** Visible Artists, Albums, Playlists and Folders
    derive a cover from the first usable artwork among at most six direct contained tracks. This is
    a visual aid, not official artist/entity artwork. The Phone reuses loaded container data or one

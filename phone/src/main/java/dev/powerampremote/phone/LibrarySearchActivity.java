@@ -295,6 +295,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     @Override
     protected void onStop() {
         saveScrollPosition();
+        BottomNavigation.cancel(this);
         started = false;
         artworkBindingLifecycle++;
         cancelDebounce();
@@ -318,6 +319,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     @Override
     protected void onDestroy() {
+        BottomNavigation.release(this);
         searchGate.invalidate();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
@@ -337,7 +339,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (tab != BottomNavigation.Tab.LIBRARY && tab != BottomNavigation.Tab.SEARCH) return;
         saveScrollPosition();
         selectedTab = tab;
-        BottomNavigation.bind(this, selectedTab);
+        BottomNavigation.bind(this, selectedTab, findViewById(R.id.tab_content));
         searchInput.setVisibility(tab == BottomNavigation.Tab.SEARCH ? View.VISIBLE : View.GONE);
         if (tab == BottomNavigation.Tab.LIBRARY) {
             InputMethodManager keyboard = getSystemService(InputMethodManager.class);
@@ -650,7 +652,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         Object source = selectedTab == BottomNavigation.Tab.SEARCH ? searchPager : currentLevel();
         boolean changedSource = renderedSource != source;
         if (!changedSource) saveScrollPosition();
-        BottomNavigation.bind(this, selectedTab);
+        BottomNavigation.bind(this, selectedTab, findViewById(R.id.tab_content));
         boolean connected = connected();
         findViewById(R.id.library_back_button).setVisibility(
                 selectedTab == BottomNavigation.Tab.LIBRARY && libraryStack.size() > 1

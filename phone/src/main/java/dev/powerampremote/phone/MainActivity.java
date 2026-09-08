@@ -200,7 +200,11 @@ public final class MainActivity extends LocaleAwareActivity
         renderConnectionIndicator(status);
         restoreArtworkTheme(savedInstanceState);
         configureControls();
-        BottomNavigation.bind(this, BottomNavigation.Tab.PLAYER);
+        BottomNavigation.bind(
+                this,
+                BottomNavigation.Tab.PLAYER,
+                findViewById(R.id.player_content)
+        );
         try {
             PhoneConnectionService.start(this);
         } catch (RuntimeException exception) {
@@ -227,7 +231,19 @@ public final class MainActivity extends LocaleAwareActivity
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        BottomNavigation.bind(
+                this,
+                BottomNavigation.Tab.PLAYER,
+                findViewById(R.id.player_content)
+        );
+    }
+
+    @Override
     protected void onStop() {
+        BottomNavigation.cancel(this);
         activityStarted = false;
         stopProgressTicker();
         rollbackPendingPlayPause(false);
@@ -256,6 +272,7 @@ public final class MainActivity extends LocaleAwareActivity
 
     @Override
     protected void onDestroy() {
+        BottomNavigation.release(this);
         artworkThemeRequestGate.invalidate();
         artworkNavigationCoordinator.reset();
         stopProgressTicker();

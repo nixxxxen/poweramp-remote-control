@@ -5,19 +5,20 @@ final class CurrentTrackMatcher {
     private CurrentTrackMatcher() { }
 
     static boolean matches(RemoteState state, LibraryItem item) {
-        if (state == null || item == null || !state.hasTrack || state.trackRealId == null) {
+        if (state == null || item == null || !state.hasTrack || state.trackRealId == null
+                || item.underlyingId == null) {
             return false;
         }
         switch (item.type) {
             case "track":
-                return item.id == state.trackRealId;
+                return item.underlyingId.equals(state.trackRealId);
             case "queue_entry":
                 return state.sourceCategory != null
                         && state.sourceCategory == RemoteSourceCategory.QUEUE
                         && state.trackId != null
                         && item.entryId != null
                         && item.entryId.equals(state.trackId)
-                        && item.id == state.trackRealId;
+                        && item.underlyingId.equals(state.trackRealId);
             case "playlist_entry":
                 // A playlist entry ID is meaningful only together with its playlist container.
                 // The current playback snapshot does not expose that verified container identity.

@@ -48,7 +48,11 @@ public final class SettingsActivity extends LocaleAwareActivity {
         setContentView(R.layout.activity_settings);
         SafeDrawingInsets.apply(findViewById(R.id.settings_root));
         miniPlayer = new MiniPlayerController(this);
-        BottomNavigation.bind(this, BottomNavigation.Tab.SETTINGS);
+        BottomNavigation.bind(
+                this,
+                BottomNavigation.Tab.SETTINGS,
+                findViewById(R.id.tab_content)
+        );
 
         View backButton = findViewById(R.id.back_button);
         backButton.setOnClickListener(view -> {
@@ -97,13 +101,31 @@ public final class SettingsActivity extends LocaleAwareActivity {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        BottomNavigation.bind(
+                this,
+                BottomNavigation.Tab.SETTINGS,
+                findViewById(R.id.tab_content)
+        );
+    }
+
+    @Override
     protected void onStop() {
+        BottomNavigation.cancel(this);
         miniPlayer.detach();
         if (bindingRequested) {
             unbindService(serviceConnection);
             bindingRequested = false;
         }
         super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        BottomNavigation.release(this);
+        super.onDestroy();
     }
 
     private void setCheckedLanguage(AppLanguage language) {
