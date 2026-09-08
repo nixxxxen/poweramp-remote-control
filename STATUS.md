@@ -52,6 +52,11 @@ full multi-player persistence remain absent.
   now keeps the outgoing presentation offscreen while Library/Search swaps its model or the next
   Activity is started; lifecycle cancellation restores a retained Activity only after the
   destination is visible. There is no intermediate on-screen reset between exit and entry.
+- Matching Server and Phone debug artifacts from commit `2ba2e56` were installed on the existing
+  device pair. The current Library/Search row indicator now appears, and the content-only tab
+  transitions run in the correct direction without the stale-screen flash or the earlier jerky
+  handoff. This closes the reported indicator and transition defects; the broader edge-case matrix
+  below remains release validation rather than a known failure.
 - Targeted Phone JVM tests passed **27/27**: `CurrentTrackMatcherTest` **6/6** (including parsed
   `RemoteState` against parsed track/container Library rows), `TabTransitionPolicyTest` **3/3**,
   `MiniPlayerPresentationTest` **5/5**, `RemoteStateParserTest` **9/9**, and
@@ -62,14 +67,11 @@ full multi-player persistence remain absent.
   `phone/build/outputs/apk/debug/phone-debug.apk`; both must be installed together for device
   validation. Full suites, lint, clean, and release tasks were not run. Versions remain Server
   `0.10.2`, Phone `0.6.0`, API `v1`.
-- Real-device validation remains after installing matching-revision Server and Phone APKs: confirm
-  exact `trackId`/`trackRealId` against All Tracks, artist, album, folder, and Search row IDs; track
-  selection, pause/resume, external Poweramp track changes, reconnect, and Activity rebind; old-
-  Server safe absence; and ambiguous playlist duplicates. Exercise every left/right tab pair,
-  repeated active-tab taps, rapid sequences, Player mini-player absence and slot appearance,
-  Library/Search paging/query/container stack, Settings language recreation, Back, Search keyboard,
-  system/cutout/navigation insets, and compact screens. Confirm bottom navigation and mini-player
-  stay visually fixed throughout.
+- Remaining release validation covers the wider matrix not explicitly confirmed by this report:
+  every track container and Search, pause/resume, external changes, reconnect/rebind, old-Server
+  compatibility, ambiguous playlist duplicates, rapid/repeated tab input, Back, Settings language
+  recreation, Search keyboard, insets, compact screens, and retained Library/Search paging/query/
+  container state.
 
 ## Phone current-track indicator and shared mini-player: initial implementation (2026-09-08)
 
