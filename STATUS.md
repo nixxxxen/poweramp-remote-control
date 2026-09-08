@@ -16,6 +16,36 @@ Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconne
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
+## Phone active-transport recovery fix (2026-09-08)
+
+- Confirmed the reported cause in `RemoteClientController`: every callback network matching
+  `TRANSPORT_WIFI`/`TRANSPORT_ETHERNET` was inserted into `lanNetworks` from `onAvailable()` without
+  checking capabilities. A Wi-Fi Direct network could therefore keep the set nonempty after the
+  infrastructure Wi-Fi disappeared, preserving the stale LAN endpoint and its LAN presentation.
+- The existing controller now uses a pure LAN tracker. Wi-Fi and Ethernet count as infrastructure
+  LAN only without `NET_CAPABILITY_WIFI_P2P`; `onCapabilitiesChanged()` can add or remove an already
+  known network. Losing the final infrastructure LAN immediately invalidates a selected LAN
+  endpoint, closes the old WebSocket, restarts ordinary NSD, and schedules the existing direct
+  fallback with zero LAN grace delay. An active Direct endpoint is not invalidated by absent LAN,
+  and a restored infrastructure LAN retains priority through the existing NSD selection path.
+- `WifiDirectConnectionClient` now checks for an untracked group before fresh DNS-SD discovery. It
+  never turns that group into an endpoint: it makes one bounded removal attempt, releases the stale
+  channel, and restarts identity-checked discovery/negotiation. If the group remains, the existing
+  user-retry state is exposed instead of trusting its group-owner address or looping Android
+  approvals. `CONNECTED_DIRECT` remains reachable only after a verified `WIFI_DIRECT` endpoint
+  successfully delivers the first API v1 WebSocket snapshot.
+- Targeted Phone JVM tests passed **7/7**: `TransportRecoveryPolicyTest` (**5/5**) covers ordinary
+  Wi-Fi, Ethernet, Wi-Fi Direct exclusion, simultaneous Wi-Fi/P2P followed by Wi-Fi loss,
+  capabilities reclassification, LAN endpoint invalidation/zero-delay fallback, and Direct endpoint
+  retention; existing `WifiDirectRecoveryPolicyTest` passed **2/2**. The requested single
+  `:phone:assembleDebug` run succeeded and produced
+  `phone/build/outputs/apk/debug/phone-debug.apk`. No lint, clean build, Server test/build, full Phone
+  suite, release build, version/API/pairing/credentials, or Library/Search change was made.
+- Real-device validation remains required with an infrastructure LAN connection and a simultaneous
+  P2P group: disconnect only the shared Wi-Fi, confirm the LAN WebSocket/status is dropped promptly,
+  any stale group is safely recreated through normal Android confirmation, and `Wi-Fi Direct`
+  appears only after API/WebSocket reconnection. Then restore LAN and confirm it replaces Direct.
+
 ## Phone Library: long-list stability follow-up (2026-09-08)
 
 - Saved the completed representative-category artwork stage as commit `a7c3970` before this fix.

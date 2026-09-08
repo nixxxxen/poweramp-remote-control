@@ -30,6 +30,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         WifiDirectConnectionClient.Listener, PairingRequest.Target, AutoCloseable {
     private static final String TAG = "RemoteClientController";
     private static final long DIRECT_FALLBACK_DELAY_MILLISECONDS = 8_000L;
+    private static final long NETWORK_RECOVERY_DEBOUNCE_MILLISECONDS = 500L;
     private static final long MANUAL_PAIRING_TIMEOUT_MILLISECONDS = 15_000L;
 
     enum Status {
@@ -166,7 +167,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             new HashMap<>();
     private final Map<String, RepresentativeArtworkRequest> representativeArtworkRequests =
             new HashMap<>();
-    private final Set<Network> lanNetworks = new HashSet<>();
+    private final LanNetworkTracker<Network> lanNetworkTracker = new LanNetworkTracker<>();
     private final Runnable reconnectRunnable = this::runReconnect;
     private final Runnable discoveryRestartRunnable = this::restartDiscovery;
     private final Runnable directFallbackRunnable = this::startDirectFallback;
@@ -176,14 +177,38 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
-                    lanNetworks.add(network);
-                    scheduleNetworkRecovery("LAN-capable network available");
+                    updateTrackedNetwork(
+                            network,
+                            getNetworkCapabilities(network),
+                            "network available"
+                    );
+                }
+
+                @Override
+                public void onCapabilitiesChanged(
+                        Network network,
+                        NetworkCapabilities networkCapabilities
+                ) {
+                    updateTrackedNetwork(
+                            network,
+                            networkCapabilities,
+                            "network capabilities changed"
+                    );
                 }
 
                 @Override
                 public void onLost(Network network) {
-                    lanNetworks.remove(network);
-                    scheduleNetworkRecovery("LAN-capable network lost");
+                    boolean hadLanNetwork = lanNetworkTracker.hasLanNetwork();
+                    if (lanNetworkTracker.remove(network)) {
+                        scheduleNetworkRecovery(
+                                "infrastructure LAN network lost",
+                                TransportRecoveryPolicy.networkRecoveryDelayMilliseconds(
+                                        hadLanNetwork,
+                                        lanNetworkTracker.hasLanNetwork(),
+                                        NETWORK_RECOVERY_DEBOUNCE_MILLISECONDS
+                                )
+                        );
+                    }
                 }
 
             };
@@ -1491,6 +1516,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private void startNetworkMonitor() {
         if (networkMonitorRegistered || connectivityManager == null) return;
         try {
+            // Wi-Fi Direct can also report TRANSPORT_WIFI, so callback capabilities are
+            // classified separately instead of treating every matching network as LAN.
             NetworkRequest request = new NetworkRequest.Builder()
                     .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                     .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
@@ -1505,7 +1532,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private void stopNetworkMonitor() {
         if (!networkMonitorRegistered || connectivityManager == null) return;
         networkMonitorRegistered = false;
-        lanNetworks.clear();
+        lanNetworkTracker.clear();
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback);
         } catch (RuntimeException ignored) {
@@ -1513,10 +1540,15 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
     }
 
-    private void scheduleNetworkRecovery(String reason) {
+    private void scheduleNetworkRecovery(String reason, long delayMilliseconds) {
         Log.d(TAG, "Scheduling transport recovery: " + reason);
         mainHandler.removeCallbacks(networkRecoveryRunnable);
-        if (active) mainHandler.postDelayed(networkRecoveryRunnable, 500L);
+        if (active) {
+            mainHandler.postDelayed(
+                    networkRecoveryRunnable,
+                    Math.max(0L, delayMilliseconds)
+            );
+        }
     }
 
     private void handleNetworkRecovery() {
@@ -1551,18 +1583,61 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private boolean hasLanCapableNetwork() {
         if (connectivityManager == null) return false;
-        if (!lanNetworks.isEmpty()) return true;
+        if (networkMonitorRegistered) return lanNetworkTracker.hasLanNetwork();
         try {
             Network activeNetwork = connectivityManager.getActiveNetwork();
             NetworkCapabilities capabilities = activeNetwork == null
                     ? null : connectivityManager.getNetworkCapabilities(activeNetwork);
-            return capabilities != null
-                    && (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                    || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
+            return isInfrastructureLan(capabilities);
         } catch (RuntimeException exception) {
             Log.w(TAG, "Unable to evaluate LAN transport", exception);
             return false;
         }
+    }
+
+    private NetworkCapabilities getNetworkCapabilities(Network network) {
+        if (connectivityManager == null) return null;
+        try {
+            return connectivityManager.getNetworkCapabilities(network);
+        } catch (RuntimeException exception) {
+            Log.w(TAG, "Unable to read network capabilities", exception);
+            return null;
+        }
+    }
+
+    private void updateTrackedNetwork(
+            Network network,
+            NetworkCapabilities capabilities,
+            String reason
+    ) {
+        boolean hadLanNetwork = lanNetworkTracker.hasLanNetwork();
+        boolean membershipChanged = lanNetworkTracker.update(
+                network,
+                capabilities != null
+                        && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                capabilities != null
+                        && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                capabilities != null
+                        && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_WIFI_P2P)
+        );
+        if (!membershipChanged) return;
+        boolean hasLanNetwork = lanNetworkTracker.hasLanNetwork();
+        scheduleNetworkRecovery(
+                reason + "; infrastructureLan=" + hasLanNetwork,
+                TransportRecoveryPolicy.networkRecoveryDelayMilliseconds(
+                        hadLanNetwork,
+                        hasLanNetwork,
+                        NETWORK_RECOVERY_DEBOUNCE_MILLISECONDS
+                )
+        );
+    }
+
+    private static boolean isInfrastructureLan(NetworkCapabilities capabilities) {
+        return capabilities != null && TransportRecoveryPolicy.isInfrastructureLan(
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_WIFI_P2P)
+        );
     }
 
     private void runReconnect() {

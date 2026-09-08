@@ -29,6 +29,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private static final long DISCOVERY_REFRESH_MILLISECONDS = 15_000L;
     private static final long DISCOVERY_ACTION_TIMEOUT_MILLISECONDS = 30_000L;
     private static final long CONNECTION_TIMEOUT_MILLISECONDS = 30_000L;
+    private static final long EXISTING_GROUP_CHECK_TIMEOUT_MILLISECONDS = 5_000L;
     private static final long GROUP_REMOVAL_RELEASE_TIMEOUT_MILLISECONDS = 2_000L;
     private static final int LEGACY_GROUP_OWNER_INTENT_MIN = 0;
 
@@ -64,6 +65,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private final Runnable discoveryRetry = this::beginDiscovery;
     private final Runnable discoveryActionTimeout = this::handleDiscoveryActionTimeout;
     private final Runnable connectionTimeout = this::handleConnectionTimeout;
+    private final Runnable existingGroupCheckTimeout = this::handleExistingGroupCheckTimeout;
 
     private WifiP2pManager.Channel channel;
     private WifiP2pDnsSdServiceRequest serviceRequest;
@@ -71,6 +73,9 @@ final class WifiDirectConnectionClient implements AutoCloseable {
     private boolean active;
     private boolean closed;
     private boolean configuringDiscovery;
+    private boolean checkingExistingGroup;
+    private boolean existingGroupCheckRequired;
+    private boolean untrackedGroupRemovalAttempted;
     private boolean peerDiscoveryRunning;
     private boolean connectionRequested;
     private boolean groupConnected;
@@ -126,6 +131,8 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         lastReason = Integer.MIN_VALUE;
         active = true;
         manualRetryRequired = false;
+        existingGroupCheckRequired = true;
+        untrackedGroupRemovalAttempted = false;
         generation++;
         Log.i(TAG, "Direct fallback started for verified Server identity");
         registerReceiver();
@@ -144,6 +151,9 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         generation++;
         manualRetryRequired = false;
         configuringDiscovery = false;
+        checkingExistingGroup = false;
+        existingGroupCheckRequired = true;
+        untrackedGroupRemovalAttempted = false;
         peerDiscoveryRunning = false;
         boolean hadManagedGroup = managedGroup;
         cancelOperationCallbacks();
@@ -155,7 +165,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         int reinitializeGeneration = generation;
         if (hadManagedGroup) {
             managedGroup = false;
-            removeManagedGroupOnChannel(staleChannel, () -> {
+            removeGroupOnChannel(staleChannel, () -> {
                 closeChannel(staleChannel);
                 if (active && !closed && generation == reinitializeGeneration) beginDiscovery();
             });
@@ -171,6 +181,9 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         generation++;
         manualRetryRequired = false;
         configuringDiscovery = false;
+        checkingExistingGroup = false;
+        existingGroupCheckRequired = true;
+        untrackedGroupRemovalAttempted = false;
         peerDiscoveryRunning = false;
         cancelOperationCallbacks();
         clearServiceRequest();
@@ -216,12 +229,15 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         WifiP2pManager.Channel staleChannel = detachChannel();
         managedGroup = false;
         if (hadManagedGroup) {
-            removeManagedGroupOnChannel(staleChannel, () -> closeChannel(staleChannel));
+            removeGroupOnChannel(staleChannel, () -> closeChannel(staleChannel));
         } else {
             closeChannel(staleChannel);
         }
         connectionRequested = false;
         groupConnected = false;
+        checkingExistingGroup = false;
+        existingGroupCheckRequired = false;
+        untrackedGroupRemovalAttempted = false;
         expectedServerId = null;
         expectedServiceName = null;
         unregisterReceiver();
@@ -285,9 +301,25 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             scheduleDiscoveryRecovery("channel unavailable");
             return;
         }
-        if (configuringDiscovery) return;
+        if (configuringDiscovery || checkingExistingGroup) return;
         notifyState(State.DISCOVERING, 0);
-        prepareDiscovery(++generation);
+        int operationGeneration = ++generation;
+        if (existingGroupCheckRequired) {
+            inspectExistingGroup(operationGeneration);
+        } else {
+            prepareDiscovery(operationGeneration);
+        }
+    }
+
+    private void inspectExistingGroup(int operationGeneration) {
+        if (!isCurrent(operationGeneration) || manager == null || channel == null) return;
+        checkingExistingGroup = true;
+        mainHandler.removeCallbacks(existingGroupCheckTimeout);
+        mainHandler.postDelayed(
+                existingGroupCheckTimeout,
+                EXISTING_GROUP_CHECK_TIMEOUT_MILLISECONDS
+        );
+        requestConnectionInfo();
     }
 
     private void initializeChannel() {
@@ -318,6 +350,9 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         channel = null;
         serviceRequest = null;
         configuringDiscovery = false;
+        checkingExistingGroup = false;
+        existingGroupCheckRequired = true;
+        untrackedGroupRemovalAttempted = false;
         peerDiscoveryRunning = false;
         connectionRequested = false;
         groupConnected = false;
@@ -547,20 +582,44 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             return;
         }
         try {
-            manager.requestConnectionInfo(channel, this::handleConnectionInfo);
+            int requestGeneration = generation;
+            manager.requestConnectionInfo(
+                    channel,
+                    info -> handleConnectionInfo(requestGeneration, info)
+            );
         } catch (SecurityException exception) {
+            checkingExistingGroup = false;
+            mainHandler.removeCallbacks(existingGroupCheckTimeout);
             connectionRequested = false;
             mainHandler.removeCallbacks(connectionTimeout);
             cancelPendingConnection();
             notifyState(State.PERMISSION_REQUIRED, 0);
         } catch (RuntimeException exception) {
             Log.w(TAG, "Unable to request P2P connection info", exception);
-            if (connectionRequested) handleConnectFailure(WifiP2pManager.ERROR, "info failure");
+            if (checkingExistingGroup) {
+                checkingExistingGroup = false;
+                mainHandler.removeCallbacks(existingGroupCheckTimeout);
+                scheduleDiscoveryRecovery("existing group check failed");
+            } else if (connectionRequested) {
+                handleConnectFailure(WifiP2pManager.ERROR, "info failure");
+            }
         }
     }
 
-    private void handleConnectionInfo(WifiP2pInfo info) {
-        if (!active || closed) return;
+    private void handleConnectionInfo(int requestGeneration, WifiP2pInfo info) {
+        if (!active || closed || requestGeneration != generation) return;
+        if (checkingExistingGroup) {
+            checkingExistingGroup = false;
+            mainHandler.removeCallbacks(existingGroupCheckTimeout);
+            if (info != null && info.groupFormed) {
+                resetUntrackedGroup();
+            } else {
+                existingGroupCheckRequired = false;
+                untrackedGroupRemovalAttempted = false;
+                prepareDiscovery(generation);
+            }
+            return;
+        }
         if (groupConnected && info != null && info.groupFormed) return;
         if (info == null || !info.groupFormed) {
             if (groupConnected) {
@@ -574,7 +633,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             return;
         }
         if (!connectionRequested) {
-            Log.d(TAG, "Ignoring an untracked pre-existing P2P group");
+            resetUntrackedGroup();
             return;
         }
         managedGroup = true;
@@ -609,6 +668,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
 
     private void handleConnectFailure(int reason, String detail) {
         connectionRequested = false;
+        existingGroupCheckRequired = true;
         mainHandler.removeCallbacks(connectionTimeout);
         cancelPendingConnection();
         Log.w(TAG, detail + ": " + reasonName(reason));
@@ -633,6 +693,44 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         peerDiscoveryRunning = false;
         Log.w(TAG, "P2P discovery action timed out; retrying automatically");
         scheduleDiscoveryRecovery("discovery action timeout");
+    }
+
+    private void handleExistingGroupCheckTimeout() {
+        if (!active || !checkingExistingGroup || connectionRequested || groupConnected) return;
+        checkingExistingGroup = false;
+        Log.w(TAG, "Existing P2P group check timed out; rebuilding the discovery channel");
+        reinitializeDiscovery("existing group check timeout");
+    }
+
+    private void resetUntrackedGroup() {
+        if (!active || closed || groupConnected) return;
+        if (untrackedGroupRemovalAttempted) {
+            checkingExistingGroup = false;
+            existingGroupCheckRequired = true;
+            manualRetryRequired = true;
+            Log.w(TAG, "Untracked P2P group remains after cleanup; waiting for user retry");
+            notifyState(State.FAILED, WifiP2pManager.BUSY);
+            return;
+        }
+        Log.w(TAG, "Removing untracked P2P group before identity-checked discovery");
+        untrackedGroupRemovalAttempted = true;
+        generation++;
+        checkingExistingGroup = true;
+        existingGroupCheckRequired = true;
+        configuringDiscovery = false;
+        peerDiscoveryRunning = false;
+        connectionRequested = false;
+        managedGroup = false;
+        cancelOperationCallbacks();
+        clearServiceRequest();
+        stopPeerDiscovery();
+        WifiP2pManager.Channel staleChannel = detachChannel();
+        int restartGeneration = generation;
+        removeGroupOnChannel(staleChannel, () -> {
+            checkingExistingGroup = false;
+            closeChannel(staleChannel);
+            if (active && !closed && generation == restartGeneration) beginDiscovery();
+        });
     }
 
     private void refreshDiscovery() {
@@ -675,6 +773,9 @@ final class WifiDirectConnectionClient implements AutoCloseable {
             boolean wasConnected = groupConnected;
             generation++;
             configuringDiscovery = false;
+            checkingExistingGroup = false;
+            existingGroupCheckRequired = true;
+            untrackedGroupRemovalAttempted = false;
             peerDiscoveryRunning = false;
             connectionRequested = false;
             groupConnected = false;
@@ -698,7 +799,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         );
         peerDiscoveryRunning = state == WifiP2pManager.WIFI_P2P_DISCOVERY_STARTED;
         Log.i(TAG, "P2P discovery state=" + (peerDiscoveryRunning ? "started" : "stopped"));
-        if (!peerDiscoveryRunning && active && !configuringDiscovery
+        if (!peerDiscoveryRunning && active && !configuringDiscovery && !checkingExistingGroup
                 && !connectionRequested && !groupConnected && !manualRetryRequired) {
             scheduleDiscoveryRecovery("framework stopped discovery");
         }
@@ -721,6 +822,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         mainHandler.removeCallbacks(discoveryRetry);
         mainHandler.removeCallbacks(discoveryActionTimeout);
         mainHandler.removeCallbacks(connectionTimeout);
+        mainHandler.removeCallbacks(existingGroupCheckTimeout);
     }
 
     private void cancelPendingConnection() {
@@ -780,7 +882,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
         }
     }
 
-    private void removeManagedGroupOnChannel(
+    private void removeGroupOnChannel(
             WifiP2pManager.Channel targetChannel,
             Runnable completion
     ) {
@@ -800,7 +902,7 @@ final class WifiDirectConnectionClient implements AutoCloseable {
                     targetChannel,
                     action(
                             () -> {
-                                Log.i(TAG, "Managed P2P group removed before channel release");
+                                Log.i(TAG, "P2P group removed before channel release");
                                 finish.run();
                             },
                             reason -> {

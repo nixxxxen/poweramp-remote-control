@@ -390,6 +390,48 @@ The current official sample demonstrates Add to Queue with public ContentProvide
 Reorder, or Play Next contract was found in the audited upstream source. All four mutation
 capabilities therefore remain `false` until a separately scoped audit/implementation task.
 
+## After the Library/Queue release — User-controlled connection policy
+
+After the current Phone UI and Queue series is complete, publish and verify that release before
+changing transport selection. Then add the following Phone settings together with the next focused
+network-stack hardening work, before multi-player persistence and pairing hardening:
+
+1. **Allow Wi-Fi Direct connections.** LAN remains the primary transport when this switch is on,
+   with automatic Wi-Fi Direct fallback after the last infrastructure LAN path becomes unavailable.
+   When it is off, stop Wi-Fi Direct discovery/negotiation and managed groups; loss of LAN leaves the
+   Phone disconnected until LAN returns. Pairing flows that explicitly require pre-association
+   Wi-Fi Direct need a clearly explained, deliberate temporary allowance rather than silently
+   overriding this preference.
+2. **Prefer Wi-Fi Direct.** Expose this switch only while Wi-Fi Direct is allowed. When enabled,
+   establish and retain a verified direct endpoint even while a matching LAN endpoint is available;
+   keep LAN discovery active as a bounded fallback, but do not automatically promote a healthy
+   direct connection to LAN. When disabled, retain LAN-first behavior with Direct as fallback.
+
+Persist the two switches as one validated internal policy with only three states: `LAN_ONLY`,
+`LAN_PREFERRED`, and `DIRECT_PREFERRED`. This avoids an impossible configuration that prefers a
+disabled transport and leaves room for one deterministic controller policy instead of independent
+UI conditionals. Changing the policy must run through the existing `PhoneConnectionService` and
+`RemoteClientController`, cancel obsolete retries, close only the superseded API/WebSocket
+connection, and never create a second connection runtime or persist a transient address.
+
+Add contextual actions to Player devices/connection controls:
+
+- **Switch to Wi-Fi Direct** is disabled while already connected through Direct and unavailable
+  while Wi-Fi Direct is globally disabled;
+- **Switch to LAN** is disabled while already connected through LAN;
+- when `DIRECT_PREFERRED` is active, switching manually to LAN asks for confirmation that the
+  saved preference still favors Wi-Fi Direct;
+- a confirmed manual switch is a temporary override for the current viable connection, not an
+  implicit settings change. Clear it when that transport becomes unavailable, the service/device
+  association is reset, or the user selects the other transport, then resume the saved policy.
+
+The buttons must report the transport of the endpoint that actually completed the authenticated
+API/WebSocket connection. An Android P2P group, discovered service, or pending socket by itself is
+not a connected Direct endpoint. Direct preference must continue to respect permissions, Location
+Mode, group-owner selection, system approval, identity matching, and LAN/API v1 compatibility.
+Define bounded fallback behavior for direct discovery failure and unavailable manual targets before
+implementation so preference never becomes an unexplained permanent offline state.
+
 ## After Library/Queue — Multi-player foundation and pairing hardening
 
 - evolve the generic saved-device snapshot and one-slot preferences into an explicit collection;

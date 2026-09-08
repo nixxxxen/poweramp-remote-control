@@ -208,8 +208,11 @@ Every launch starts ordinary NSD. When the known `id` is resolved, the Phone Cli
 Bearer-authenticated API v1 WebSocket at the current LAN address. LAN remains preferred and retains
 bounded exponential reconnect. Recovery observes Wi-Fi/Ethernet networks rather than merely the
 system default network, so cellular availability cannot keep a stale LAN endpoint alive after the
-shared network disappears. Loss invalidates the transient LAN endpoint and restarts NSD/direct
-fallback; a new DHCP address can replace it automatically.
+shared network disappears. A network is infrastructure LAN only when it has Wi-Fi or Ethernet
+transport and does not have `NET_CAPABILITY_WIFI_P2P`; callbacks also reclassify an already known
+network through `onCapabilitiesChanged`. Loss of the final infrastructure LAN immediately
+invalidates a selected LAN endpoint, closes its WebSocket, restarts NSD, and starts the existing
+direct fallback without the normal LAN grace delay. A new DHCP address can replace it automatically.
 
 ### Wi-Fi Direct fallback
 
@@ -232,7 +235,13 @@ either device. The app never auto-accepts or suppresses them.
 After group formation, the phone uses `WifiP2pInfo.groupOwnerAddress` plus advertised port `8765`
 as a transient endpoint. REST, artwork, WebSocket, Bearer auth, JSON, and controls are identical to
 LAN API v1. A direct disconnect returns to LAN discovery and direct fallback. Restored network
-availability restarts ordinary NSD automatically.
+availability restarts ordinary NSD automatically. A P2P network or group existing in Android is not
+itself a direct endpoint and cannot change connected transport presentation. `CONNECTED_DIRECT` is
+reported only after the identity-checked `WIFI_DIRECT` endpoint has delivered a valid API v1
+WebSocket snapshot. Before fresh direct discovery, the existing P2P client inspects and removes an
+untracked pre-existing group, rebuilds its channel, and negotiates again; it never trusts that
+group's address or bypasses Android/OEM approval. If cleanup cannot be confirmed, direct recovery
+stops at the existing user-retry state rather than looping or adopting the group.
 
 Publication does not rely on opening the system Wi-Fi Direct settings screen. After registering its
 local DNS-SD record, the Server starts and refreshes `discoverPeers()` so it participates in the
