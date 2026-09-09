@@ -46,7 +46,7 @@ final class LibraryPageParser {
         }
     }
 
-    private static LibraryItem parseItem(JSONObject object) throws JSONException {
+    static LibraryItem parseItem(JSONObject object) throws JSONException {
         String type = boundedText(object.getString("type"));
         long id = positiveLong(object, "id");
         Long entryId = nullablePositiveLong(object, "entryId");

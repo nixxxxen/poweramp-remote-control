@@ -22,6 +22,7 @@ final class LibraryJson {
             routes.put("folderTree", "/api/v1/library/folder-tree/0/folders");
             routes.put("playlists", "/api/v1/library/playlists");
             routes.put("search", "/api/v1/search");
+            routes.put("categorizedSearch", "/api/v1/search/grouped");
             routes.put("queue", "/api/v1/queue");
             routes.put("play", "/api/v1/library/play");
             root.put("routes", routes);
@@ -66,6 +67,33 @@ final class LibraryJson {
             return root.toString();
         } catch (JSONException impossible) {
             throw new IllegalStateException("Unable to serialize library page", impossible);
+        }
+    }
+
+    static String categorizedSearch(CategorizedSearch search) {
+        try {
+            JSONObject root = new JSONObject();
+            root.put("query", search.query);
+            root.put("limit", search.limit);
+            root.put("trackMatch", search.trackMatch.wireName);
+            JSONArray sections = new JSONArray();
+            for (CategorizedSearch.Section section : search.sections) {
+                JSONObject serializedSection = new JSONObject();
+                serializedSection.put("type", section.type.wireName);
+                JSONArray items = new JSONArray();
+                for (LibraryItem item : section.items) {
+                    items.put(item(item));
+                }
+                serializedSection.put("items", items);
+                serializedSection.put("truncated", section.truncated);
+                sections.put(serializedSection);
+            }
+            root.put("sections", sections);
+            return root.toString();
+        } catch (JSONException impossible) {
+            throw new IllegalStateException(
+                    "Unable to serialize categorized Search", impossible
+            );
         }
     }
 

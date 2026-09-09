@@ -67,8 +67,8 @@ final class BottomNavigation {
         consumePendingEnter(activity, binding);
     }
 
-    static void open(Activity activity, Tab tab) {
-        request(activity, tab);
+    static boolean open(Activity activity, Tab tab) {
+        return request(activity, tab);
     }
 
     static void cancel(Activity activity) {
@@ -98,11 +98,11 @@ final class BottomNavigation {
         request(activity, tab);
     }
 
-    private static void request(Activity activity, Tab tab) {
+    private static boolean request(Activity activity, Tab tab) {
         Binding binding = BINDINGS.get(activity);
         if (binding == null || binding.content == null) {
             navigateNow(activity, tab, inferredTab(activity));
-            return;
+            return true;
         }
         TabTransitionPolicy.Direction direction = TabTransitionPolicy.direction(
                 binding.selected.index,
@@ -110,7 +110,7 @@ final class BottomNavigation {
         );
         if (direction == TabTransitionPolicy.Direction.NONE
                 || binding.transitionRunning) {
-            return;
+            return false;
         }
         binding.transitionRunning = true;
         long generation = ++binding.generation;
@@ -148,6 +148,7 @@ final class BottomNavigation {
                         }
                     }
                 });
+        return true;
     }
 
     @SuppressWarnings("deprecation")

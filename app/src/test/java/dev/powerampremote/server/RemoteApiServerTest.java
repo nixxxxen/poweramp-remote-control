@@ -3,6 +3,8 @@ package dev.powerampremote.server;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -97,6 +99,23 @@ public final class RemoteApiServerTest {
                 "track_id", 2L,
                 "title", "Search Result"
         )));
+        libraryProvider.rows.put("categorized_search_exact_tracks", Collections.singletonList(row(
+                "track_id", 2L,
+                "title", "Obsidian",
+                "artist", "Northlane",
+                "album", "Obsidian"
+        )));
+        libraryProvider.rows.put("categorized_search_tracks", List.of(
+                row("track_id", 2L, "title", "Obsidian", "artist", "Northlane"),
+                row("track_id", 3L, "title", "Obsidian Live", "artist", "Another")
+        ));
+        libraryProvider.rows.put("categorized_search_artists", Collections.emptyList());
+        libraryProvider.rows.put("categorized_search_related_artists", Collections.singletonList(
+                row("item_id", 8L, "title", "Northlane", "track_count", 1L)
+        ));
+        libraryProvider.rows.put("categorized_search_albums", Collections.singletonList(
+                row("item_id", 9L, "title", "Obsidian", "track_count", 1L)
+        ));
         libraryProvider.rows.put("play_queue_entry", Collections.singletonList(row(
                 "track_id", 2L,
                 "entry_id", 1L,
@@ -200,6 +219,7 @@ public final class RemoteApiServerTest {
                 RemoteApiServer.LIBRARY_PATH,
                 RemoteApiServer.LIBRARY_TRACKS_PATH,
                 RemoteApiServer.SEARCH_PATH + "?q=track",
+                RemoteApiServer.CATEGORIZED_SEARCH_PATH + "?q=track",
                 RemoteApiServer.QUEUE_PATH
         };
         for (String path : newGetRoutes) {
@@ -249,6 +269,24 @@ public final class RemoteApiServerTest {
         );
         assertStatus(search, 200);
         assertTrue(search.contains("\"title\":\"Search Result\""));
+
+        String categorized = http(
+                "GET",
+                RemoteApiServer.CATEGORIZED_SEARCH_PATH + "?q=Obsidian&limit=25",
+                TOKEN,
+                null,
+                null
+        );
+        assertStatus(categorized, 200);
+        JSONObject categorizedJson = new JSONObject(body(categorized));
+        assertEquals("exact", categorizedJson.getString("trackMatch"));
+        JSONArray sections = categorizedJson.getJSONArray("sections");
+        assertEquals("tracks", sections.getJSONObject(0).getString("type"));
+        assertEquals(1, sections.getJSONObject(0).getJSONArray("items").length());
+        assertEquals("artists", sections.getJSONObject(1).getString("type"));
+        assertEquals(8L, sections.getJSONObject(1).getJSONArray("items")
+                .getJSONObject(0).getLong("id"));
+        assertEquals("albums", sections.getJSONObject(2).getString("type"));
 
         String queue = http("GET", RemoteApiServer.QUEUE_PATH, TOKEN, null, null);
         assertStatus(queue, 200);

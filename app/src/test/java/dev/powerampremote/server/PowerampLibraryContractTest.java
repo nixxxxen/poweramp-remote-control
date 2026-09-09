@@ -141,6 +141,32 @@ public final class PowerampLibraryContractTest {
         ));
     }
 
+    @Test
+    public void categorizedSearchUsesTitleEntityNamesAndPublicMultiArtistRelation() {
+        PowerampLibraryContract.Query tracks =
+                PowerampLibraryContract.categorizedTrackTitles("100%_!");
+        assertEquals("title_tag LIKE ? ESCAPE '!'", tracks.selection());
+        assertArrayEquals(new String[]{"%100!%!_!!%"}, tracks.selectionArgs());
+
+        PowerampLibraryContract.Query exact =
+                PowerampLibraryContract.categorizedExactTrackTitles("100%_!");
+        assertArrayEquals(new String[]{"100!%!_!!"}, exact.selectionArgs());
+
+        PowerampLibraryContract.Query artists =
+                PowerampLibraryContract.relatedArtists(java.util.List.of(41L, 42L));
+        assertEquals(
+                "EXISTS (SELECT 1 FROM multi_artists"
+                        + " WHERE multi_artists.artist_id=artists._id"
+                        + " AND multi_artists.file_id IN (?,?))",
+                artists.selection()
+        );
+        assertArrayEquals(new String[]{"41", "42"}, artists.selectionArgs());
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/artists?lim=25",
+                artists.providerUri(25)
+        );
+    }
+
     private static void expectInvalid(Runnable runnable) {
         try {
             runnable.run();

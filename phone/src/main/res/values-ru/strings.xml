@@ -16,7 +16,10 @@
     <string name="library_playlists">Плейлисты</string>
     <string name="library_folder_tracks">Треки в этой папке</string>
     <string name="library_subfolders">Вложенные папки</string>
-    <string name="library_search_hint">Название, исполнитель, альбом или имя файла</string>
+    <string name="library_search_hint">Трек, исполнитель или альбом</string>
+    <string name="search_section_tracks">Треки</string>
+    <string name="search_section_artists">Исполнители</string>
+    <string name="search_section_albums">Альбомы</string>
     <string name="library_search_prompt">Введите поисковый запрос</string>
     <string name="library_loading">Загрузка…</string>
     <string name="library_empty">Здесь пока ничего нет</string>

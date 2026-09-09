@@ -80,6 +80,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         void onResult(int connectionGeneration, LibraryPage page, LibraryFailure failure);
     }
 
+    interface CategorizedSearchCallback {
+        void onResult(
+                int connectionGeneration,
+                CategorizedSearchResult result,
+                LibraryFailure failure
+        );
+    }
+
     interface LibraryActionCallback {
         void onResult(int connectionGeneration, LibraryFailure failure);
     }
@@ -438,6 +446,43 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 LibraryFailure resultFailure = failure;
                 mainHandler.post(() -> callback.onResult(
                         generation, resultPage, resultFailure
+                ));
+            });
+        } catch (RejectedExecutionException exception) {
+            callback.onResult(generation, null, LibraryFailure.SERVER_ERROR);
+        }
+    }
+
+    void requestCategorizedSearch(
+            CategorizedSearchRequest request,
+            CategorizedSearchCallback callback
+    ) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
+            callback.onResult(generation, null, LibraryFailure.DISCONNECTED);
+            return;
+        }
+        try {
+            libraryExecutor.execute(() -> {
+                CategorizedSearchResult result = null;
+                LibraryFailure failure = null;
+                try {
+                    result = apiClient.getCategorizedSearch(
+                            currentEndpoint,
+                            currentCredentials.token,
+                            request
+                    );
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    failure = libraryFailure(exception.statusCode);
+                } catch (IOException | RuntimeException exception) {
+                    failure = LibraryFailure.SERVER_ERROR;
+                }
+                CategorizedSearchResult deliveredResult = result;
+                LibraryFailure deliveredFailure = failure;
+                mainHandler.post(() -> callback.onResult(
+                        generation, deliveredResult, deliveredFailure
                 ));
             });
         } catch (RejectedExecutionException exception) {

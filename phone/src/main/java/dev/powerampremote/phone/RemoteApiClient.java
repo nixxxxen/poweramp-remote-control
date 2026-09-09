@@ -19,6 +19,7 @@ final class RemoteApiClient {
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 5_000;
     private static final int READ_TIMEOUT_MILLISECONDS = 10_000;
     private static final int MAX_JSON_BYTES = 128 * 1024;
+    private static final int MAX_CATEGORIZED_SEARCH_JSON_BYTES = 2 * 1024 * 1024;
     private static final int MAX_ARTWORK_BYTES = 8 * 1024 * 1024;
 
     static final class HttpStatusException extends IOException {
@@ -98,6 +99,31 @@ final class RemoteApiClient {
             return LibraryPageParser.parse(new String(response.body, StandardCharsets.UTF_8));
         } catch (IllegalArgumentException exception) {
             throw new IOException("Invalid library response", exception);
+        }
+    }
+
+    CategorizedSearchResult getCategorizedSearch(
+            DiscoveredServer server,
+            String token,
+            CategorizedSearchRequest request
+    ) throws IOException {
+        Response response = request(
+                server,
+                token,
+                "GET",
+                request.path(),
+                null,
+                MAX_CATEGORIZED_SEARCH_JSON_BYTES
+        );
+        if (response.statusCode != HttpURLConnection.HTTP_OK) {
+            throw new HttpStatusException(response.statusCode);
+        }
+        try {
+            return CategorizedSearchParser.parse(
+                    new String(response.body, StandardCharsets.UTF_8)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Invalid categorized Search response", exception);
         }
     }
 

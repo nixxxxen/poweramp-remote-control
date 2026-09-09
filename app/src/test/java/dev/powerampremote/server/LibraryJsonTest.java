@@ -61,6 +61,36 @@ public final class LibraryJsonTest {
         assertFalse(queue.getBoolean("remove"));
         assertFalse(queue.getBoolean("reorder"));
         assertFalse(queue.getBoolean("playNext"));
+        assertEquals(
+                "/api/v1/search/grouped",
+                root.getJSONObject("routes").getString("categorizedSearch")
+        );
+    }
+
+    @Test
+    public void serializesTypedSearchSectionsAndTrackMatchMode() throws Exception {
+        LibraryItem track = new LibraryItem(
+                LibraryItem.Type.TRACK, 41L, null, null, "Obsidian",
+                "Northlane", "Obsidian", null, null,
+                "/api/v1/library/artwork/tracks/41",
+                LibraryItem.PlayTarget.track(41L), null
+        );
+        CategorizedSearch search = new CategorizedSearch(
+                "Obsidian",
+                25,
+                CategorizedSearch.TrackMatch.EXACT,
+                java.util.List.of(new CategorizedSearch.Section(
+                        CategorizedSearch.SectionType.TRACKS,
+                        java.util.Collections.singletonList(track),
+                        false
+                ))
+        );
+
+        JSONObject root = new JSONObject(LibraryJson.categorizedSearch(search));
+        assertEquals("exact", root.getString("trackMatch"));
+        JSONObject section = root.getJSONArray("sections").getJSONObject(0);
+        assertEquals("tracks", section.getString("type"));
+        assertEquals(41L, section.getJSONArray("items").getJSONObject(0).getLong("id"));
     }
 
     @Test

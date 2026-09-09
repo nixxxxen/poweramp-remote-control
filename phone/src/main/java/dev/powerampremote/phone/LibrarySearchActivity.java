@@ -50,31 +50,38 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         final LocalAction action;
         final int labelResource;
         final long folderId;
+        final CategorizedSearchResult.SectionType searchHeader;
 
         private BrowseRow(
                 LibraryItem item,
                 LocalAction action,
                 int labelResource,
-                long folderId
+                long folderId,
+                CategorizedSearchResult.SectionType searchHeader
         ) {
             this.item = item;
             this.action = action;
             this.labelResource = labelResource;
             this.folderId = folderId;
+            this.searchHeader = searchHeader;
         }
 
         static BrowseRow item(LibraryItem item) {
-            return new BrowseRow(item, null, 0, 0L);
+            return new BrowseRow(item, null, 0, 0L, null);
         }
 
         static BrowseRow action(LocalAction action, int labelResource) {
-            return new BrowseRow(null, action, labelResource, 0L);
+            return new BrowseRow(null, action, labelResource, 0L, null);
         }
 
         static BrowseRow folderAction(
                 LocalAction action, int labelResource, long folderId
         ) {
-            return new BrowseRow(null, action, labelResource, folderId);
+            return new BrowseRow(null, action, labelResource, folderId, null);
+        }
+
+        static BrowseRow searchHeader(CategorizedSearchResult.SectionType section) {
+            return new BrowseRow(null, null, 0, 0L, section);
         }
     }
 
@@ -115,8 +122,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<Level> libraryStack = new ArrayList<>();
-    private final LibraryPager searchPager = new LibraryPager();
     private final SearchRequestGate searchGate = new SearchRequestGate();
+    private final SearchOriginState searchOrigin = new SearchOriginState();
+    private final Object searchRenderSource = new Object();
 
     private TextView titleView;
     private EditText searchInput;
@@ -137,6 +145,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private String knownServerId;
     private long libraryRequestSerial;
     private boolean searchLoading;
+    private boolean searchInitialized;
+    private CategorizedSearchResult searchResult;
     private RemoteClientController.LibraryFailure searchFailure;
     private int searchFirstVisible;
     private int searchTopOffset;
@@ -144,6 +154,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private Runnable debounceRunnable;
     private Object renderedSource;
     private int artworkBindingLifecycle;
+    private LibraryItem pendingSearchContainer;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -222,7 +233,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         });
         listView.setOnItemClickListener((parent, view, position, id) -> {
             BrowseRow row = adapter.getItem(position);
-            if (row != null) {
+            if (row != null && row.searchHeader == null) {
                 haptic(view);
                 openRow(row);
             }
@@ -302,6 +313,12 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         libraryRequestSerial++;
         searchGate.invalidate();
         searchLoading = false;
+        if (selectedTab == BottomNavigation.Tab.SEARCH && pendingSearchContainer != null) {
+            // A background/configuration stop can cancel the content exit before showTab().
+            // Leave the still-visible Search presentation ready for another deliberate tap.
+            pendingSearchContainer = null;
+            searchOrigin.clear();
+        }
         for (Level level : libraryStack) level.loading = false;
         if (controller != null) {
             controller.removeListener(this);
@@ -338,6 +355,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     void showTab(BottomNavigation.Tab tab) {
         if (tab != BottomNavigation.Tab.LIBRARY && tab != BottomNavigation.Tab.SEARCH) return;
         saveScrollPosition();
+        if (tab == BottomNavigation.Tab.SEARCH && searchOrigin.active()) {
+            restoreSearchOrigin();
+        }
         selectedTab = tab;
         BottomNavigation.bind(this, selectedTab, findViewById(R.id.tab_content));
         searchInput.setVisibility(tab == BottomNavigation.Tab.SEARCH ? View.VISIBLE : View.GONE);
@@ -348,10 +368,16 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             }
             searchInput.clearFocus();
         }
+        if (tab == BottomNavigation.Tab.LIBRARY && pendingSearchContainer != null) {
+            LibraryItem destination = pendingSearchContainer;
+            pendingSearchContainer = null;
+            openSearchContainerNow(destination);
+            return;
+        }
         if (tab == BottomNavigation.Tab.SEARCH
                 && connected()
                 && !normalizedQuery().isEmpty()
-                && !searchPager.initialized()
+                && !searchInitialized
                 && !searchLoading) {
             runSearchNow();
         } else {
@@ -381,12 +407,18 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void openRow(BrowseRow row) {
+        if (row.searchHeader != null) return;
         if (row.action != null) {
             openLocalAction(row);
             return;
         }
         LibraryItem item = row.item;
         if (item == null) return;
+        if (selectedTab == BottomNavigation.Tab.SEARCH
+                && SearchOriginState.supportsDestination(item)) {
+            openSearchContainer(item);
+            return;
+        }
         switch (item.type) {
             case "artist":
                 pushNetwork(
@@ -418,6 +450,43 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             default:
                 if (item.playTarget != null) play(item.playTarget);
                 break;
+        }
+    }
+
+    private void openSearchContainer(LibraryItem item) {
+        saveScrollPosition();
+        if (pendingSearchContainer != null || searchOrigin.active()
+                || !searchOrigin.begin(
+                        normalizedQuery(),
+                        searchResult,
+                        searchFirstVisible,
+                        searchTopOffset,
+                        libraryStack.size()
+                )) {
+            return;
+        }
+        pendingSearchContainer = item;
+        if (!BottomNavigation.open(this, BottomNavigation.Tab.LIBRARY)) {
+            pendingSearchContainer = null;
+            searchOrigin.clear();
+        }
+    }
+
+    private void openSearchContainerNow(LibraryItem item) {
+        if ("artist".equals(item.type)) {
+            pushNetwork(
+                    displayTitle(item),
+                    LibraryRequest.artistTracks(item.id),
+                    item.type,
+                    item.id
+            );
+        } else if ("album".equals(item.type)) {
+            pushNetwork(
+                    displayTitle(item),
+                    LibraryRequest.albumTracks(item.id),
+                    item.type,
+                    item.id
+            );
         }
     }
 
@@ -482,6 +551,20 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void navigateBack() {
+        if (selectedTab == BottomNavigation.Tab.LIBRARY && searchOrigin.active()) {
+            SearchOriginState.Snapshot origin = searchOrigin.peek();
+            if (origin != null && libraryStack.size() > origin.libraryDepth) {
+                saveScrollPosition();
+                if (!BottomNavigation.open(this, BottomNavigation.Tab.SEARCH)) {
+                    return;
+                }
+                libraryRequestSerial++;
+                while (libraryStack.size() > origin.libraryDepth) {
+                    libraryStack.remove(libraryStack.size() - 1);
+                }
+                return;
+            }
+        }
         if (selectedTab == BottomNavigation.Tab.LIBRARY && libraryStack.size() > 1) {
             saveScrollPosition();
             libraryRequestSerial++;
@@ -492,10 +575,30 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         finish();
     }
 
+    private void restoreSearchOrigin() {
+        SearchOriginState.Snapshot origin = searchOrigin.consume();
+        if (origin == null) return;
+        while (libraryStack.size() > origin.libraryDepth) {
+            libraryStack.remove(libraryStack.size() - 1);
+        }
+        restoringSearchText = true;
+        searchInput.setText(origin.query);
+        searchInput.setSelection(origin.query.length());
+        restoringSearchText = false;
+        searchResult = origin.result;
+        searchInitialized = true;
+        searchLoading = false;
+        searchFailure = null;
+        searchFirstVisible = origin.firstVisible;
+        searchTopOffset = origin.topOffset;
+        renderedSource = null;
+    }
+
     private void scheduleSearch() {
         cancelDebounce();
         searchGate.invalidate();
-        searchPager.reset();
+        searchResult = null;
+        searchInitialized = false;
         searchFirstVisible = 0;
         searchTopOffset = 0;
         renderedSource = null;
@@ -512,7 +615,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         String query = normalizedQuery();
         if (query.isEmpty()) {
             searchGate.invalidate();
-            searchPager.reset();
+            searchResult = null;
+            searchInitialized = false;
             searchLoading = false;
             searchFailure = null;
             render();
@@ -525,9 +629,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (!connected()) return;
         saveScrollPosition();
         if (selectedTab == BottomNavigation.Tab.SEARCH) {
-            if (searchPager.canLoadMore() && !searchLoading && searchFailure == null) {
-                loadSearchPage(true);
-            }
             return;
         }
         Level level = currentLevel();
@@ -582,7 +683,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         });
     }
 
-    private void loadSearchPage(boolean append) {
+    private void loadSearchPage(boolean ignoredAppend) {
         if (controller == null || !connected()) {
             searchFailure = RemoteClientController.LibraryFailure.DISCONNECTED;
             render();
@@ -591,30 +692,28 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (searchLoading) return;
         String query = normalizedQuery();
         if (query.isEmpty()) return;
-        if (!append) {
-            if (searchPager.initialized()) {
-                searchFirstVisible = 0;
-                searchTopOffset = 0;
-            }
-            searchPager.reset();
-            renderedSource = null;
+        if (searchInitialized) {
+            searchFirstVisible = 0;
+            searchTopOffset = 0;
         }
-        String requestedToken = append ? searchPager.nextPageToken() : null;
+        searchResult = null;
+        searchInitialized = false;
+        renderedSource = null;
         int generation = controller.libraryConnectionGeneration();
         SearchRequestGate.Request request = searchGate.begin(query, generation);
         searchLoading = true;
         searchFailure = null;
         render();
-        LibraryRequest apiRequest;
+        CategorizedSearchRequest apiRequest;
         try {
-            apiRequest = LibraryRequest.search(query);
+            apiRequest = CategorizedSearchRequest.create(query);
         } catch (IllegalArgumentException exception) {
             searchLoading = false;
             searchFailure = RemoteClientController.LibraryFailure.SERVER_ERROR;
             render();
             return;
         }
-        controller.requestLibraryPage(apiRequest, requestedToken, (resultGeneration, page, failure) -> {
+        controller.requestCategorizedSearch(apiRequest, (resultGeneration, result, failure) -> {
             if (!started || controller == null || !searchGate.accepts(
                     request, normalizedQuery(), controller.libraryConnectionGeneration()
             ) || resultGeneration != generation) {
@@ -622,12 +721,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             }
             searchLoading = false;
             searchFailure = failure;
-            if (failure == null && page != null) {
-                try {
-                    searchPager.accept(requestedToken, page);
-                } catch (IllegalArgumentException exception) {
-                    searchFailure = RemoteClientController.LibraryFailure.SERVER_ERROR;
-                }
+            if (failure == null && result != null) {
+                searchResult = result;
+                searchInitialized = true;
             }
             if (selectedTab == BottomNavigation.Tab.SEARCH) render();
         });
@@ -649,7 +745,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void render() {
-        Object source = selectedTab == BottomNavigation.Tab.SEARCH ? searchPager : currentLevel();
+        Object source = selectedTab == BottomNavigation.Tab.SEARCH
+                ? searchRenderSource : currentLevel();
         boolean changedSource = renderedSource != source;
         if (!changedSource) saveScrollPosition();
         BottomNavigation.bind(this, selectedTab, findViewById(R.id.tab_content));
@@ -699,7 +796,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 level.pager,
                 level.loading,
                 level.failure,
-                false,
                 () -> loadLibraryPage(level, level.pager.initialized()
                         && level.failure != RemoteClientController.LibraryFailure.PAGE_EXPIRED)
         );
@@ -713,21 +809,35 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             showMessage(R.string.library_search_prompt);
             return;
         }
-        renderNetworkPage(
-                searchPager,
-                searchLoading,
-                searchFailure,
-                true,
-                () -> loadSearchPage(searchPager.initialized()
-                        && searchFailure != RemoteClientController.LibraryFailure.PAGE_EXPIRED)
-        );
+        List<BrowseRow> rows = new ArrayList<>();
+        for (SearchPresentationPolicy.Row row : SearchPresentationPolicy.rows(searchResult)) {
+            rows.add(row.isHeader()
+                    ? BrowseRow.searchHeader(row.header)
+                    : BrowseRow.item(row.item));
+        }
+        adapter.setRows(rows);
+        listView.setVisibility(rows.isEmpty() ? View.GONE : View.VISIBLE);
+        if (searchFailure != null) {
+            showMessage(failureMessage(searchFailure));
+            if (searchFailure != RemoteClientController.LibraryFailure.UNSUPPORTED) {
+                showAction(R.string.library_retry, () -> loadSearchPage(false));
+            }
+            return;
+        }
+        if (searchLoading) {
+            progress.setVisibility(View.VISIBLE);
+            if (rows.isEmpty()) showMessage(R.string.library_loading);
+        } else if (searchInitialized && rows.isEmpty()) {
+            showMessage(R.string.library_search_empty);
+        } else if (searchResult != null && searchResult.truncated()) {
+            showMessage(R.string.library_truncated);
+        }
     }
 
     private void renderNetworkPage(
             LibraryPager pager,
             boolean loading,
             RemoteClientController.LibraryFailure failure,
-            boolean search,
             Runnable retry
     ) {
         List<BrowseRow> rows = new ArrayList<>();
@@ -746,7 +856,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             progress.setVisibility(View.VISIBLE);
             if (rows.isEmpty()) showMessage(R.string.library_loading);
         } else if (pager.initialized() && rows.isEmpty()) {
-            showMessage(search ? R.string.library_search_empty : R.string.library_empty);
+            showMessage(R.string.library_empty);
         } else if (pager.truncated()) {
             showMessage(R.string.library_truncated);
         }
@@ -789,7 +899,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void saveScrollPosition() {
-        Object source = selectedTab == BottomNavigation.Tab.SEARCH ? searchPager : currentLevel();
+        Object source = selectedTab == BottomNavigation.Tab.SEARCH
+                ? searchRenderSource : currentLevel();
         if (renderedSource != source || listView == null || listView.getChildCount() == 0
                 || listView.getVisibility() != View.VISIBLE) return;
         int first = listView.getFirstVisiblePosition();
@@ -835,8 +946,11 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (serverChanged) {
             libraryStack.clear();
             libraryStack.add(libraryRoot());
-            searchPager.reset();
+            searchResult = null;
+            searchInitialized = false;
             searchFailure = null;
+            searchOrigin.clear();
+            pendingSearchContainer = null;
         }
     }
 
@@ -850,6 +964,18 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private String displayTitle(LibraryItem item) {
         return item.title == null || item.title.trim().isEmpty()
                 ? getString(R.string.library_unknown_item) : item.title;
+    }
+
+    private int searchHeaderLabel(CategorizedSearchResult.SectionType section) {
+        switch (section) {
+            case TRACKS:
+                return R.string.search_section_tracks;
+            case ARTISTS:
+                return R.string.search_section_artists;
+            case ALBUMS:
+            default:
+                return R.string.search_section_albums;
+        }
     }
 
     private void requestArtwork(
@@ -922,7 +1048,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 }
             }
             if (selectedTab == BottomNavigation.Tab.SEARCH) {
-                if (!normalizedQuery().isEmpty() && !searchPager.initialized()
+                if (!normalizedQuery().isEmpty() && !searchInitialized
                         && searchFailure == null) runSearchNow();
                 else render();
             } else {
@@ -936,7 +1062,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         }
         if (connected() && selectedTab == BottomNavigation.Tab.SEARCH
                 && !normalizedQuery().isEmpty()
-                && !searchPager.initialized() && !searchLoading && searchFailure == null) {
+                && !searchInitialized && !searchLoading && searchFailure == null) {
             runSearchNow();
             return;
         }
@@ -990,7 +1116,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                     BrowseRow old = this.rows.get(i);
                     BrowseRow next = rows.get(i);
                     if (old.item != next.item || old.action != next.action
-                            || old.labelResource != next.labelResource || old.folderId != next.folderId) {
+                            || old.labelResource != next.labelResource
+                            || old.folderId != next.folderId
+                            || old.searchHeader != next.searchHeader) {
                         same = false;
                         break;
                     }
@@ -1005,13 +1133,36 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         @Override public BrowseRow getItem(int position) {
             return position < 0 || position >= rows.size() ? null : rows.get(position);
         }
+        @Override public int getViewTypeCount() { return 2; }
+        @Override public int getItemViewType(int position) {
+            BrowseRow row = getItem(position);
+            return row != null && row.searchHeader != null ? 1 : 0;
+        }
+        @Override public boolean isEnabled(int position) {
+            BrowseRow row = getItem(position);
+            return row != null && row.searchHeader == null;
+        }
         @Override public long getItemId(int position) {
             BrowseRow row = getItem(position);
+            if (row != null && row.searchHeader != null) {
+                return Long.MIN_VALUE + row.searchHeader.ordinal();
+            }
             return row == null || row.item == null ? position : row.item.id;
         }
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
+            BrowseRow row = getItem(position);
+            if (row != null && row.searchHeader != null) {
+                TextView header;
+                if (convertView == null) {
+                    convertView = LayoutInflater.from(LibrarySearchActivity.this)
+                            .inflate(R.layout.search_section_header, parent, false);
+                }
+                header = (TextView) convertView;
+                header.setText(searchHeaderLabel(row.searchHeader));
+                return convertView;
+            }
             Holder holder;
             if (convertView == null) {
                 convertView = LayoutInflater.from(LibrarySearchActivity.this)
@@ -1021,7 +1172,6 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             } else {
                 holder = (Holder) convertView.getTag();
             }
-            BrowseRow row = getItem(position);
             if (row == null) return convertView;
             renderCurrentIndicator(holder, row);
             if (row.item == null) {

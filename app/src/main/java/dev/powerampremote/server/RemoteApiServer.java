@@ -64,6 +64,7 @@ final class RemoteApiServer implements AutoCloseable {
     static final String LIBRARY_PLAY_PATH = LIBRARY_PATH + "/play";
     static final String LIBRARY_ARTWORK_PATH = LIBRARY_PATH + "/artwork/tracks";
     static final String SEARCH_PATH = "/api/v1/search";
+    static final String CATEGORIZED_SEARCH_PATH = SEARCH_PATH + "/grouped";
     static final String QUEUE_PATH = "/api/v1/queue";
 
     private static final String WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -718,6 +719,43 @@ final class RemoteApiServer implements AutoCloseable {
             return;
         }
 
+        if (CATEGORIZED_SEARCH_PATH.equals(request.path)) {
+            final LibraryApiQuery apiQuery;
+            try {
+                apiQuery = LibraryApiQuery.search(request.rawQuery);
+                if (apiQuery.pageToken != null) {
+                    throw new IllegalArgumentException(
+                            "Categorized Search does not accept page tokens"
+                    );
+                }
+            } catch (IllegalArgumentException exception) {
+                writeJsonError(output, 400, "Bad Request", "invalid_library_request");
+                return;
+            }
+            LibraryCancellation cancellation = beginLibraryRequest();
+            try {
+                PowerampLibrarySource.CategorizedResult result =
+                        librarySource.searchCategorized(
+                                apiQuery.searchQuery,
+                                apiQuery.limit,
+                                cancellation
+                        );
+                if (!result.isSuccess()) {
+                    writeLibraryFailure(output, "categorized_search", result.status);
+                    return;
+                }
+                writeJson(
+                        output,
+                        200,
+                        "OK",
+                        LibraryJson.categorizedSearch(result.search)
+                );
+            } finally {
+                endLibraryRequest(cancellation);
+            }
+            return;
+        }
+
         final PowerampLibraryContract.Query providerQuery;
         final LibraryApiQuery apiQuery;
         try {
@@ -1029,6 +1067,7 @@ final class RemoteApiServer implements AutoCloseable {
         return LIBRARY_PATH.equals(path)
                 || path.startsWith(LIBRARY_PATH + "/")
                 || SEARCH_PATH.equals(path)
+                || CATEGORIZED_SEARCH_PATH.equals(path)
                 || QUEUE_PATH.equals(path);
     }
 

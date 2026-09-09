@@ -14,6 +14,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -29,6 +30,8 @@ final class PowerampLibraryContract {
     static final int DEFAULT_PAGE_SIZE = 25;
     static final int MAX_PAGE_SIZE = 100;
     static final int MAX_CONTINUATION_ROWS = 1_000;
+    static final int MAX_CATEGORIZED_SEARCH_CANDIDATES = 1_000;
+    static final int MAX_RELATED_TRACK_IDS_PER_QUERY = 250;
     static final int MAX_SEARCH_QUERY_LENGTH = 160;
     static final String LIBRARY_ARTWORK_PATH_PREFIX =
             "/api/v1/library/artwork/tracks/";
@@ -81,6 +84,12 @@ final class PowerampLibraryContract {
                     + " OR folder_files.name LIKE ? ESCAPE '!'"
                     + " OR artist LIKE ? ESCAPE '!'"
                     + " OR album LIKE ? ESCAPE '!')";
+    private static final String TRACK_TITLE_SEARCH_SELECTION =
+            "title_tag LIKE ? ESCAPE '!'";
+    private static final String ARTIST_NAME_SEARCH_SELECTION =
+            "artist LIKE ? ESCAPE '!'";
+    private static final String ALBUM_NAME_SEARCH_SELECTION =
+            "album LIKE ? ESCAPE '!'";
     private static final String[] PLAYLIST_ENTRY_PROJECTION = {
             "folder_files._id AS " + COLUMN_TRACK_ID,
             "playlist_entries._id AS " + COLUMN_ENTRY_ID,
@@ -150,19 +159,25 @@ final class PowerampLibraryContract {
         final String filter;
         final RowKind rowKind;
         final Long containerId;
+        private final String selection;
+        private final String[] selectionArgs;
 
         private Query(
                 String category,
                 String path,
                 String filter,
                 RowKind rowKind,
-                Long containerId
+                Long containerId,
+                String selection,
+                String[] selectionArgs
         ) {
             this.category = Objects.requireNonNull(category);
             this.path = Objects.requireNonNull(path);
             this.filter = filter;
             this.rowKind = Objects.requireNonNull(rowKind);
             this.containerId = containerId;
+            this.selection = selection;
+            this.selectionArgs = selectionArgs == null ? null : selectionArgs.clone();
         }
 
         String providerUri(int limit) {
@@ -211,15 +226,11 @@ final class PowerampLibraryContract {
         }
 
         String selection() {
-            return rowKind == RowKind.SEARCH_TRACK ? SEARCH_SELECTION : null;
+            return selection;
         }
 
         String[] selectionArgs() {
-            if (rowKind != RowKind.SEARCH_TRACK) {
-                return null;
-            }
-            String pattern = containsLikePattern(filter);
-            return new String[]{pattern, pattern, pattern, pattern};
+            return selectionArgs == null ? null : selectionArgs.clone();
         }
 
         String paginationKey() {
@@ -305,12 +316,102 @@ final class PowerampLibraryContract {
     }
 
     static Query search(String filter) {
+        String query = validSearchQuery(filter);
+        String pattern = containsLikePattern(query);
         return new Query(
                 "search",
                 "/files",
-                validSearchQuery(filter),
+                query,
                 RowKind.SEARCH_TRACK,
-                null
+                null,
+                SEARCH_SELECTION,
+                new String[]{pattern, pattern, pattern, pattern}
+        );
+    }
+
+    static Query categorizedTrackTitles(String filter) {
+        String query = validSearchQuery(filter);
+        return new Query(
+                "categorized_search_tracks",
+                "/files",
+                query,
+                RowKind.SEARCH_TRACK,
+                null,
+                TRACK_TITLE_SEARCH_SELECTION,
+                new String[]{containsLikePattern(query)}
+        );
+    }
+
+    static Query categorizedExactTrackTitles(String filter) {
+        String query = validSearchQuery(filter);
+        return new Query(
+                "categorized_search_exact_tracks",
+                "/files",
+                query,
+                RowKind.SEARCH_TRACK,
+                null,
+                TRACK_TITLE_SEARCH_SELECTION,
+                new String[]{exactLikePattern(query)}
+        );
+    }
+
+    static Query categorizedArtists(String filter) {
+        String query = validSearchQuery(filter);
+        return new Query(
+                "categorized_search_artists",
+                "/artists",
+                query,
+                RowKind.ARTIST,
+                null,
+                ARTIST_NAME_SEARCH_SELECTION,
+                new String[]{containsLikePattern(query)}
+        );
+    }
+
+    static Query categorizedAlbums(String filter) {
+        String query = validSearchQuery(filter);
+        return new Query(
+                "categorized_search_albums",
+                "/albums",
+                query,
+                RowKind.ALBUM,
+                null,
+                ALBUM_NAME_SEARCH_SELECTION,
+                new String[]{containsLikePattern(query)}
+        );
+    }
+
+    /**
+     * Uses the public TableDefs.MultiArtists one-to-many relation. IDs are generated by Server
+     * from already parsed exact-title track rows and remain bound selection arguments.
+     */
+    static Query relatedArtists(List<Long> trackIds) {
+        if (trackIds == null || trackIds.isEmpty()
+                || trackIds.size() > MAX_RELATED_TRACK_IDS_PER_QUERY) {
+            throw new IllegalArgumentException("Invalid related track ID count");
+        }
+        StringBuilder placeholders = new StringBuilder();
+        String[] arguments = new String[trackIds.size()];
+        for (int index = 0; index < trackIds.size(); index++) {
+            Long id = trackIds.get(index);
+            if (id == null || id <= 0L) {
+                throw new IllegalArgumentException("Invalid related track ID");
+            }
+            if (index > 0) placeholders.append(',');
+            placeholders.append('?');
+            arguments[index] = Long.toString(id);
+        }
+        String selection = "EXISTS (SELECT 1 FROM multi_artists"
+                + " WHERE multi_artists.artist_id=artists._id"
+                + " AND multi_artists.file_id IN (" + placeholders + "))";
+        return new Query(
+                "categorized_search_related_artists",
+                "/artists",
+                null,
+                RowKind.ARTIST,
+                null,
+                selection,
+                arguments
         );
     }
 
@@ -467,7 +568,7 @@ final class PowerampLibraryContract {
             RowKind rowKind,
             Long containerId
     ) {
-        return new Query(category, path, null, rowKind, containerId);
+        return new Query(category, path, null, rowKind, containerId, null, null);
     }
 
     private static String positiveId(long id) {
@@ -487,6 +588,18 @@ final class PowerampLibraryContract {
             escaped.append(character);
         }
         return escaped.append('%').toString();
+    }
+
+    private static String exactLikePattern(String value) {
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character == '!' || character == '%' || character == '_') {
+                escaped.append('!');
+            }
+            escaped.append(character);
+        }
+        return escaped.toString();
     }
 
     private static URI parseContentUri(String value, String expectedAuthority) {

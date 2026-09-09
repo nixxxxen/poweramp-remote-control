@@ -21,7 +21,10 @@
     <string name="library_playlists">Playlists</string>
     <string name="library_folder_tracks">Tracks in this folder</string>
     <string name="library_subfolders">Subfolders</string>
-    <string name="library_search_hint">Title, artist, album, or file name</string>
+    <string name="library_search_hint">Track, artist, or album</string>
+    <string name="search_section_tracks">Tracks</string>
+    <string name="search_section_artists">Artists</string>
+    <string name="search_section_albums">Albums</string>
     <string name="library_search_prompt">Enter a search query</string>
     <string name="library_loading">Loading…</string>
     <string name="library_empty">Nothing here yet</string>

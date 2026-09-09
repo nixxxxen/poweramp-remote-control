@@ -281,14 +281,11 @@ not only on this already loaded window; existing global Search remains the curre
 
 Search executes in Poweramp through `/files` with a fixed parameterized title/file-name/artist/album
 selection, verified with matching and nonmatching queries on Poweramp `1025004-fa3ec08671d`.
-The obsolete `/search?flt` crashes that build and is excluded without fallback. The foundation
-returns track rows only; it neither copies the database nor filters a downloaded first page.
-Separate result entity types remain future scope after their contracts are verified:
-
-- artists;
-- albums;
-- tracks;
-- playlists.
+The obsolete `/search?flt` crashes that build and is excluded without fallback. The historical
+route still returns track rows only; the completed global-search stage adds a separate typed
+Tracks / Artists / Albums route after verifying public provider IDs and the `multi_artists`
+relation. It neither copies the database nor filters an already downloaded Phone page. Playlist
+search remains separate future scope until its contract is requested and verified.
 
 Support playback actions for documented Poweramp content URIs:
 
@@ -303,7 +300,7 @@ Artwork should be loaded lazily rather than transferred for the whole library.
 
 These follow-up requirements are implemented incrementally while retaining the existing
 service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
-volume. Items 1–5 and the currently applicable Library/Search portion of 7 are complete at
+volume. Items 1–6 and the currently applicable Library/Search portion of 8 are complete at
 unchanged versions. The current-row indicator and content-only tab transitions were confirmed on
 matching-revision Server and Phone debug builds on 2026-09-08.
 Versions advance when the series is ready for release, not for each refinement.
@@ -343,17 +340,33 @@ Versions advance when the series is ready for release, not for each refinement.
    last snapshot while disconnected with controls disabled, clears old artwork on identity change,
    and adds only lifecycle-bound Settings binding—no second connection, MediaSession, polling loop,
    palette analysis, or thumbnail-cache path.
-6. **Search within the current scope.** Add a search action inside All tracks and individual
+6. **Completed — Global categorized Search.** The track-only Search presentation is replaced by three
+   visually separated sections in fixed order: Tracks, Artists, Albums. Hide a section when it has
+   no results. Track-title matches belong only to Tracks, artist-name matches only to Artists, and
+   album-title matches only to Albums; deduplicate entity rows by their stable provider IDs. When
+   the normalized query exactly equals one or more track titles, the Tracks section contains only
+   those exact-title tracks rather than additional substring track matches. Artists verified as
+   belonging to those exact tracks are also included in Artists even when their own name does not
+   contain the query; direct artist-name matches remain included. Albums continue to be included
+   from their own title matches. Thus `Obsidian` can show the exact `Northlane — Obsidian` track,
+   `Northlane` in Artists through the verified relation, and the `Obsidian` album in Albums. Do not
+   recover artist/album container IDs by comparing display strings on Phone: Server results must
+   carry verified public provider identities and relations. A track retains the existing play
+   action. Selecting an Artist or Album enters that existing Library container and its track list,
+   preserving Search query/results so Back returns to the same Search state. Search all applicable
+   provider rows before paging/section limits, keep stale-query protection, and add only additive
+   backward-compatible API v1 fields or routes. Never reintroduce `/search?flt`.
+7. **Search within the current scope.** Add a search action inside All tracks and individual
    folders, albums, artists and playlists, with an explicit visible scope. Define direct-folder
    versus recursive behavior before implementation. Search the whole selected container before
    pagination, not just the rows currently loaded on Phone. Verify public provider support and
    add only backward-compatible Server parameters where needed; bind continuation and stale-result
    protection to both query and scope. Never reintroduce the obsolete `/search?flt` path.
-7. **Completed for current Library/Search rows — rounded thumbnails.** Track thumbnails,
+8. **Completed for current Library/Search rows — rounded thumbnails.** Track thumbnails,
    representative category covers, and their placeholders share an 8 dp outline clip, square
    proportions, and `centerCrop`, without bitmap reprocessing per bind. Mini-player artwork remains
    part of its separate future task.
-8. **Per-list sorting.** Add sort selection for track lists, including within containers: title,
+9. **Per-list sorting.** Add sort selection for track lists, including within containers: title,
    album, artist, duration, and, only if publicly available and verified, date added and play count.
    Verify field semantics, units and provider ordering support before exposing each option; do not
    infer date added from an ID or invent play counts. Sort the entire scoped result before paging,

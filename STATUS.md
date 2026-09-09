@@ -13,10 +13,57 @@ The repository builds two native Android applications. At the unchanged Server r
 identity fields required by the Phone current-row indicator. An installed APK with the same version
 number can predate those source changes and must not be treated as an equivalent build.
 At unchanged Phone `0.6.0`, a first Library/Search UI candidate now consumes the existing API; Queue
-UI remains absent. API stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
+UI remains absent, and the Search tab now has additive typed Tracks / Artists / Albums results. API
+stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
+
+## Global categorized Search candidate (2026-09-09)
+
+- Added Bearer-only `GET /api/v1/search/grouped` and advertised it as `categorizedSearch` from the
+  existing Library capability response. The historical paged `/api/v1/search` route, all existing
+  item/play shapes, API version, pairing, Web UI, and runtimes are unchanged. The grouped response
+  carries normalized query, effective per-section limit, `trackMatch`, and non-empty typed sections
+  in fixed Tracks → Artists → Albums order with per-section `truncated` state.
+- The public Poweramp API audit remains pinned to upstream commit
+  `60cac5a24348bde03e0619c0ab891bd752750b92`. `folder_files._id`, `artists._id`, and `albums._id`
+  are the stable provider identities used by the result. Public `TableDefs.MultiArtists` documents
+  the always-used one-to-many relation `multi_artists.file_id` / `multi_artists.artist_id`; Server
+  uses it with only positive exact-track IDs in bounded, parameterized batches and returns every
+  related Artist ID. Phone never derives an ID by comparing `artist` or `album` strings. Direct
+  Artist matches and related Artists are deduplicated only by `artists._id`; Albums by `albums._id`.
+- Track candidates are selected only by `title_tag`. Query and title are trimmed and compared after
+  `Locale.ROOT` case folding: any exact title suppresses partial titles only in Tracks; otherwise
+  partial title matches remain. Albums and direct Artists retain their own name matches, with exact
+  names ranked before partial names. Exact and partial track provider queries are separate, all LIKE
+  metacharacters are escaped, IDs/text are bound through fixed `selectionArgs`, and each
+  provider-filtered candidate set retains the explicit 1000-row safety cap before the `1…100`
+  section limit. No `/search?flt`, filesystem/private database access, Phone database copy, or sort
+  expression was added.
+- `LibrarySearchActivity` renders section headers as a disabled non-artwork row type, reuses the
+  existing Library item rows/current-track matcher/thumbnail paths, and keeps track playback
+  unchanged. Artist/Album taps save a `SearchOriginState` snapshot of query, typed result, list
+  offset, and Library-stack depth, then use the existing content-only Search → Library transition
+  and normal Artist/Album track request. Back removes only that transient level and restores the
+  same Search result/offset, leaving previously loaded Library pages resident. The existing
+  debounce and connection/query generation gates reject stale results; repeat/rapid transitions
+  continue through the shared navigation gate.
+- Targeted JVM verification passed **49/49**: Server `CategorizedSearchPolicyTest` **4/4**,
+  `PowerampLibraryContractTest` **5/5**, `LibraryJsonTest` **4/4**, and `RemoteApiServerTest`
+  **12/12**; Phone `CategorizedSearchParserTest` **2/2**, `SearchPresentationPolicyTest` **1/1**,
+  `SearchOriginStateTest` **1/1**, `SearchRequestGateTest` **2/2**, `LibraryPageParserTest` **6/6**,
+  `LibraryRequestTest` **2/2**, `PhoneResourceParityTest` **4/4**, and
+  `CurrentTrackMatcherTest` **6/6**. Both `:app:assembleDebug` and `:phone:assembleDebug` succeeded;
+  `git diff --check` passed. Full suites, lint, clean, release, and version changes were not run.
+- Read-only ADB confirms the connected R4 and Poweramp `build-1025-bundle-play`; no APK was installed
+  and no device data was changed in this pass. Real-device validation remains for exact/partial and
+  literal/Unicode queries; multiple Artists on one exact track and stable-ID deduplication; empty
+  sections and representative artwork; track play/current indicator/mini-player/WebSocket updates;
+  Artist/Album open plus Back restoration of query, section scroll, keyboard/insets, and retained
+  Library pages; rapid taps, reconnect, permission/provider failure, compact screens, and the
+  1000-candidate truncation presentation. The `multi_artists` provider selection is source-backed
+  but must be confirmed against the installed Poweramp build through the matching debug Server.
 
 ## Phone current-row diagnosis and content-only tab transitions (2026-09-08)
 

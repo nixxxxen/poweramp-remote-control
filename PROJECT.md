@@ -53,7 +53,8 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - `NsdDiscoveryClient` for ordinary LAN discovery/resolution;
 - `WifiDirectConnectionClient` for known-server Wi-Fi Direct discovery and group negotiation;
 - `PairingStore` for a verified stable Server identity, device/service names, and Bearer token;
-- `RemoteApiClient` for REST state/control/artwork and paged Library/Search requests;
+- `RemoteApiClient` for REST state/control/artwork, paged Library requests, and typed categorized
+  Search requests;
 - `RemoteWebSocket` for complete event-driven state snapshots;
 - `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
 - `PairingRequestState` for binder-independent QR/manual requests delivered to that controller;
@@ -69,8 +70,14 @@ depend on visible text. The retained entry Activities share one content-transiti
 their fixed bottom navigation and optional mini-player stay outside the translated content view,
 Activity window animation is disabled for tab requests, and only the outgoing/incoming content
 slides according to the fixed Player / Library / Search / Settings order. A generation gate ignores
-repeat and rapid overlapping requests. `LibrarySearchActivity` owns paged browsing/search
-presentation and its container back stack; its requests go only through the bound service/controller.
+repeat and rapid overlapping requests. `LibrarySearchActivity` owns paged Library browsing, typed
+categorized Search presentation, and its container back stack; its requests go only through the
+bound service/controller. Search headers are a separate disabled row type and never enter artwork,
+current-track, or click handling. Opening a Search Artist/Album snapshots the query, typed result,
+list offset, and current Library-stack depth, switches the same Activity to Library with the existing
+content-only transition, and pushes the normal Library container request. Back trims only that
+temporary container and restores the exact Search presentation; existing Library levels/pages stay
+resident and no Activity or connection runtime is added.
 Library and Search track rows also consume the service-replayed complete playback snapshot. The
 Phone model exposes `underlyingId` only for the API's `track`, `playlist_entry`, and `queue_entry`
 wire types; under the current Library contract that value is the row's documented underlying
@@ -83,11 +90,13 @@ container identity. Metadata, list position, artwork, and optimistic play reques
 as substitutes. State-only changes update the visible indicator views without replacing the loaded
 row set or restoring its scroll position. An older installed Server that omits the additive identity
 fields remains compatible and deliberately produces no current-row indicator.
-Loaded Library/Search pages survive same-Server reconnect. Page append and status rendering leave
-the live ListView position alone; only navigation between lists restores a saved offset. Page
+Loaded Library pages and the current categorized Search result survive same-Server reconnect. Page
+append and status rendering leave the live ListView position alone; only navigation between lists
+restores a saved offset. Page
 failures keep loaded rows visible and stop automatic continuation. A rejected continuation token
 offers an explicit list restart instead of silently resetting to page one. The existing Server
-1000-row window remains in force; global track Search can find matches beyond the browse window.
+1000-row browse window remains in force; global Search executes its typed provider selections
+independently of already loaded Phone/Library pages.
 `PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
 `SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
@@ -352,6 +361,7 @@ credential, not the browser-session cookie; the embedded Web UI has no Library i
 | `GET` | `/api/v1/library/playlists` | Paged Playlists rows |
 | `GET` | `/api/v1/library/playlists/{id}/tracks` | Paged playlist entries |
 | `GET` | `/api/v1/search?q={query}` | Paged server-side Poweramp track search |
+| `GET` | `/api/v1/search/grouped?q={query}` | Bounded typed Tracks / Artists / Albums search |
 | `GET` | `/api/v1/queue` | Paged current queue in provider order |
 | `POST` | `/api/v1/library/play` | Revalidate and enqueue one allowlisted `OPEN_TO_PLAY` target |
 | `GET` | `/api/v1/library/artwork/tracks/{id}` | Lazy authenticated JPEG for track artwork |
@@ -368,8 +378,8 @@ returned cursors and artwork streams close on success, failure, or cancellation.
 The official upstream audit used `maxmpz/powerampapi` master commit
 [`60cac5a24348bde03e0619c0ab891bd752750b92`](https://github.com/maxmpz/powerampapi/commit/60cac5a24348bde03e0619c0ab891bd752750b92)
 (2026-09-01), including
-[`PowerampAPI.java`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java),
-[`TableDefs.kt`](https://github.com/maxmpz/powerampapi/blob/master/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/TableDefs.kt), the Intent API readme, and the official example. The public data authority is
+[`PowerampAPI.java`](https://github.com/maxmpz/powerampapi/blob/60cac5a24348bde03e0619c0ab891bd752750b92/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/PowerampAPI.java),
+[`TableDefs.kt`](https://github.com/maxmpz/powerampapi/blob/60cac5a24348bde03e0619c0ab891bd752750b92/poweramp_api_lib/src/main/java/com/maxmpz/poweramp/player/TableDefs.kt), the Intent API readme, and the official example. The public data authority is
 `com.maxmpz.audioplayer.data`. This foundation uses these public paths:
 
 - `files`, `artists`, `artists/{id}/files`, `albums`, and `albums/{id}/files`;
@@ -378,6 +388,16 @@ The official upstream audit used `maxmpz/powerampapi` master commit
 - `playlists`, `playlists/{id}/files`, and `queue`;
 - exact item forms `files/{id}`, `playlists/{playlistId}/files/{entryId}`, and
   `queue/{entryId}` when validating play targets.
+
+For categorized Search, the same public source fixes entity and relation identity as follows:
+
+- a track is `folder_files._id`, an Artist is `artists._id`, and an Album is `albums._id`;
+- `TableDefs.MultiArtists` is the always-used one-to-many track-artist relation introduced in
+  Poweramp build 899, with `multi_artists.file_id` → `folder_files._id` and
+  `multi_artists.artist_id` → `artists._id`; this preserves every related artist rather than only
+  the display `artist` string or the single `folder_files.artist_id` field;
+- Artist and Album result rows therefore carry provider IDs directly. Phone never reconstructs a
+  container identity from `artist`, `album`, or another display string.
 
 Provider projections are an explicit subset of public `TableDefs` columns:
 
@@ -458,6 +478,32 @@ The contains-pattern is supplied only through four bound `selectionArgs`; `%`, `
 user input are escaped as literals. Matching executes in Poweramp before the provider limit, not
 over a locally downloaded page or database copy. Results are tracks, not separate artist/album
 entities; ordering and case/diacritic matching remain provider-defined.
+
+The additive Bearer-only `/api/v1/search/grouped` route leaves that historical response untouched.
+It accepts required `q` and optional `limit` (`1…100`, default `25`); `pageToken` and unknown
+parameters are rejected. Separate fixed selections run inside the Poweramp provider before the
+per-section output limit: `title_tag LIKE ? ESCAPE '!'` for track titles, `artist LIKE ?` for
+direct Artist names, and `album LIKE ?` for Album names. Literal LIKE metacharacters are escaped and
+all user/track IDs are bound through `selectionArgs`. When at least one normalized track title
+(trimmed, `Locale.ROOT` case-folded) equals the normalized query, only exact-title tracks are
+returned; otherwise partial title matches are used. This dominance is local to Tracks. Albums keep
+their own exact-first plus partial matches. Artists are the stable-ID union of direct name matches
+and every `multi_artists` relation for returned exact-title track IDs, deduplicated only by
+`artists._id`. No sort expression is invented, so provider order remains the tie order.
+
+Each provider-filtered candidate query is capped at the existing 1000-row safety boundary and each
+response section is capped by `limit`; `truncated` states when that bounded candidate or output
+limit was reached. The exact-title track query is separate from the partial query so an exact match
+cannot be hidden behind an earlier substring prefix. The response envelope contains normalized
+`query`, effective `limit`, `trackMatch` (`none`, `exact`, or `partial`), and a `sections` array.
+Each section contains typed `type`, existing Library `items`, and `truncated`. Empty sections are
+omitted and non-empty sections are always serialized Tracks → Artists → Albums. Items retain the
+existing Library item schema and play targets. Phone applies its existing
+query/connection generation gate, renders non-clickable typed headers, plays Tracks through the
+unchanged route, and opens Artist/Album IDs through the existing Library container requests. The
+route uses the same service-owned provider adapter, request cancellation, authentication, and
+sanitized failures; it introduces no WebSocket, cache, service, or Poweramp path. `/search?flt`
+remains forbidden.
 
 On Poweramp `1025004-fa3ec08671d`, the maintainer confirmed a known query returns the matching track
 and a nonexistent query returns an empty page. Device logcat also confirmed why `folder_files.name`
@@ -726,7 +772,10 @@ be selected as group owner for the current IPv4 client path, system approval may
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
 The maintainer has confirmed basic tracks/Albums browsing, album counts/durations, track-ID play,
-and positive/empty search responses on Poweramp `1025004-fa3ec08671d`. The ContentProvider foundation
+and positive/empty legacy search responses on Poweramp `1025004-fa3ec08671d`. A read-only package
+check on the connected debug player also confirms Poweramp build `1025`, but the new categorized
+queries and `multi_artists` selection have not yet been exercised by the installed matching Server
+artifact. The ContentProvider foundation
 still needs broader device coverage: first grant/deny/retry and process-not-running behavior;
 remaining category projections/order; search by artist/album, Unicode and literal wildcard input;
 hierarchy root/children; duplicate playlist/queue entry IDs; queue-current matching and

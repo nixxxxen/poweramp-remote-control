@@ -67,6 +67,38 @@ final class PowerampLibrarySource implements AutoCloseable {
         }
     }
 
+    static final class CategorizedResult {
+        final LibraryAccessState.Status status;
+        final CategorizedSearch search;
+
+        private CategorizedResult(LibraryAccessState.Status status, CategorizedSearch search) {
+            this.status = status;
+            this.search = search;
+        }
+
+        static CategorizedResult success(CategorizedSearch search) {
+            return new CategorizedResult(LibraryAccessState.Status.AVAILABLE, search);
+        }
+
+        static CategorizedResult failure(LibraryAccessState.Status status) {
+            return new CategorizedResult(status, null);
+        }
+
+        boolean isSuccess() {
+            return search != null;
+        }
+    }
+
+    private static final class Candidates {
+        final List<LibraryItem> items;
+        final boolean truncated;
+
+        Candidates(List<LibraryItem> items, boolean truncated) {
+            this.items = items;
+            this.truncated = truncated;
+        }
+    }
+
     static final class SelectionResult {
         final LibraryAccessState.Status status;
         final boolean exists;
@@ -211,6 +243,120 @@ final class PowerampLibrarySource implements AutoCloseable {
                 nextToken,
                 truncated
         ));
+    }
+
+    CategorizedResult searchCategorized(
+            String rawQuery,
+            int limit,
+            LibraryCancellation cancellation
+    ) {
+        String query = PowerampLibraryContract.validSearchQuery(rawQuery);
+        if (limit < 1 || limit > PowerampLibraryContract.MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("Invalid categorized Search limit");
+        }
+        Objects.requireNonNull(cancellation);
+        if (!provider.isPowerampInstalled()) {
+            return categorizedFailure(LibraryAccessState.Status.POWERAMP_MISSING);
+        }
+
+        try {
+            Candidates exactTracks = readCandidates(
+                    PowerampLibraryContract.categorizedExactTrackTitles(query), cancellation
+            );
+            Candidates partialTracks = readCandidates(
+                    PowerampLibraryContract.categorizedTrackTitles(query), cancellation
+            );
+            List<LibraryItem> trackItems = new ArrayList<>(
+                    exactTracks.items.size() + partialTracks.items.size()
+            );
+            trackItems.addAll(exactTracks.items);
+            trackItems.addAll(partialTracks.items);
+            CategorizedSearchPolicy.TrackSelection trackSelection =
+                    CategorizedSearchPolicy.selectTracks(query, trackItems);
+            Candidates directArtists = readCandidates(
+                    PowerampLibraryContract.categorizedArtists(query), cancellation
+            );
+
+            List<LibraryItem> relatedArtistItems = new ArrayList<>();
+            boolean relatedArtistsTruncated = false;
+            if (trackSelection.exact) {
+                LinkedHashMap<Long, Long> exactTrackIds = new LinkedHashMap<>();
+                for (LibraryItem item : trackSelection.matches) {
+                    exactTrackIds.putIfAbsent(item.id, item.id);
+                }
+                List<Long> ids = new ArrayList<>(exactTrackIds.values());
+                int batchSize = PowerampLibraryContract.MAX_RELATED_TRACK_IDS_PER_QUERY;
+                for (int start = 0; start < ids.size(); start += batchSize) {
+                    int end = Math.min(ids.size(), start + batchSize);
+                    Candidates related = readCandidates(
+                            PowerampLibraryContract.relatedArtists(ids.subList(start, end)),
+                            cancellation
+                    );
+                    relatedArtistItems.addAll(related.items);
+                    relatedArtistsTruncated |= related.truncated;
+                }
+            }
+
+            Candidates albums = readCandidates(
+                    PowerampLibraryContract.categorizedAlbums(query), cancellation
+            );
+            CategorizedSearch result = CategorizedSearchPolicy.compose(
+                    query,
+                    limit,
+                    trackSelection,
+                    exactTracks.truncated || partialTracks.truncated,
+                    directArtists.items,
+                    directArtists.truncated,
+                    relatedArtistItems,
+                    relatedArtistsTruncated,
+                    albums.items,
+                    albums.truncated
+            );
+            updateAccess(LibraryAccessState.Status.AVAILABLE);
+            return CategorizedResult.success(result);
+        } catch (PowerampLibraryProvider.ProviderException exception) {
+            LibraryAccessState.Status status = statusFor(exception.failure);
+            if (exception.failure != PowerampLibraryProvider.Failure.CANCELLED) {
+                updateAccess(status);
+            }
+            return CategorizedResult.failure(status);
+        }
+    }
+
+    private Candidates readCandidates(
+            PowerampLibraryContract.Query query,
+            LibraryCancellation cancellation
+    ) throws PowerampLibraryProvider.ProviderException {
+        int maximum = PowerampLibraryContract.MAX_CATEGORIZED_SEARCH_CANDIDATES;
+        List<LibraryItem> items = new ArrayList<>();
+        boolean truncated = false;
+        int rowIndex = 0;
+        try (PowerampLibraryProvider.Rows rows = provider.query(
+                query,
+                maximum + 1,
+                cancellation
+        )) {
+            while (rows.moveToNext()) {
+                if (cancellation.isCancelled()) {
+                    throw new PowerampLibraryProvider.ProviderException(
+                            PowerampLibraryProvider.Failure.CANCELLED
+                    );
+                }
+                if (rowIndex >= maximum) {
+                    truncated = true;
+                    break;
+                }
+                LibraryItem item = parseItem(query, rows, null);
+                if (item != null) {
+                    items.add(item);
+                }
+                rowIndex++;
+            }
+        }
+        return new Candidates(
+                Collections.unmodifiableList(items),
+                truncated
+        );
     }
 
     SelectionResult validateSelection(
@@ -404,6 +550,11 @@ final class PowerampLibrarySource implements AutoCloseable {
     private Result failure(LibraryAccessState.Status status) {
         updateAccess(status);
         return Result.failure(status);
+    }
+
+    private CategorizedResult categorizedFailure(LibraryAccessState.Status status) {
+        updateAccess(status);
+        return CategorizedResult.failure(status);
     }
 
     private Result providerFailure(PowerampLibraryProvider.Failure failure) {
