@@ -62,10 +62,16 @@ final class LibraryPageParser {
         }
         LibraryPlayTarget playTarget = object.isNull("play")
                 ? null : LibraryPlayTarget.parse(object.getJSONObject("play"));
+        LibraryBrowseTarget browseTarget = !object.has("browse") || object.isNull("browse")
+                ? null : LibraryBrowseTarget.parse(object.getJSONObject("browse"));
+        if (browseTarget != null
+                && (!"artist".equals(type) || browseTarget.id != id)) {
+            throw new JSONException("Browse target does not match item");
+        }
         Boolean current = object.isNull("current") ? null : object.getBoolean("current");
         return new LibraryItem(
                 type, id, entryId, parentId, title, artist, album,
-                duration, trackCount, artwork, playTarget, current
+                duration, trackCount, artwork, playTarget, browseTarget, current
         );
     }
 

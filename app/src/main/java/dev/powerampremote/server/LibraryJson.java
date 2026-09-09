@@ -23,6 +23,10 @@ final class LibraryJson {
             routes.put("playlists", "/api/v1/library/playlists");
             routes.put("search", "/api/v1/search");
             routes.put("categorizedSearch", "/api/v1/search/grouped");
+            routes.put(
+                    "artistMembershipTracks",
+                    "/api/v1/library/artists/{id}/member-tracks"
+            );
             routes.put("queue", "/api/v1/queue");
             routes.put("play", "/api/v1/library/play");
             root.put("routes", routes);
@@ -160,7 +164,18 @@ final class LibraryJson {
         object.put("play", item.playTarget == null
                 ? JSONObject.NULL
                 : playTarget(item.playTarget));
+        if (item.browseTarget != null) {
+            object.put("browse", browseTarget(item.browseTarget));
+        }
         object.put("current", nullable(item.current));
+        return object;
+    }
+
+    private static JSONObject browseTarget(LibraryItem.BrowseTarget target)
+            throws JSONException {
+        JSONObject object = new JSONObject();
+        object.put("type", target.type.wireName);
+        object.put("id", target.id);
         return object;
     }
 

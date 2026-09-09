@@ -15,6 +15,7 @@ final class LibraryItem {
     final Integer trackCount;
     final String artworkPath;
     final LibraryPlayTarget playTarget;
+    final LibraryBrowseTarget browseTarget;
     final Boolean current;
 
     LibraryItem(
@@ -31,6 +32,27 @@ final class LibraryItem {
             LibraryPlayTarget playTarget,
             Boolean current
     ) {
+        this(
+                type, id, entryId, parentId, title, artist, album,
+                durationMilliseconds, trackCount, artworkPath, playTarget, null, current
+        );
+    }
+
+    LibraryItem(
+            String type,
+            long id,
+            Long entryId,
+            Long parentId,
+            String title,
+            String artist,
+            String album,
+            Long durationMilliseconds,
+            Integer trackCount,
+            String artworkPath,
+            LibraryPlayTarget playTarget,
+            LibraryBrowseTarget browseTarget,
+            Boolean current
+    ) {
         this.type = type;
         this.id = id;
         this.underlyingId = underlyingId(type, id);
@@ -43,7 +65,14 @@ final class LibraryItem {
         this.trackCount = trackCount;
         this.artworkPath = artworkPath;
         this.playTarget = playTarget;
+        this.browseTarget = browseTarget;
         this.current = current;
+    }
+
+    String representativeType() {
+        return browseTarget != null
+                && LibraryBrowseTarget.TYPE_ARTIST_MEMBERSHIP.equals(browseTarget.type)
+                ? RepresentativeArtworkKey.TYPE_ARTIST_MEMBERSHIP : type;
     }
 
     private static Long underlyingId(String type, long id) {

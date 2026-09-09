@@ -340,7 +340,7 @@ Versions advance when the series is ready for release, not for each refinement.
    last snapshot while disconnected with controls disabled, clears old artwork on identity change,
    and adds only lifecycle-bound Settings binding—no second connection, MediaSession, polling loop,
    palette analysis, or thumbnail-cache path.
-6. **Completed — Global categorized Search.** The track-only Search presentation is replaced by three
+6. **Partially completed — Global categorized Search; provider-canonical device limitation remains.** The track-only Search presentation is replaced by three
    visually separated sections in fixed order: Tracks, Artists, Albums. Hide a section when it has
    no results. Track-title matches belong only to Tracks, artist-name matches only to Artists, and
    album-title matches only to Albums; deduplicate entity rows by their stable provider IDs. When
@@ -355,7 +355,17 @@ Versions advance when the series is ready for release, not for each refinement.
    action. Selecting an Artist or Album enters that existing Library container and its track list,
    preserving Search query/results so Back returns to the same Search state. Search all applicable
    provider rows before paging/section limits, keep stale-query protection, and add only additive
-   backward-compatible API v1 fields or routes. Never reintroduce `/search?flt`.
+   backward-compatible API v1 fields or routes. The refinement now adds normalized `and`/`&`,
+   diacritic and dash comparison, bounded two-error fuzzy fallback, related Albums, public
+   `artists.is_unsplit` filtering, and an additive relation-aware Artist membership browse target;
+   the historical Artist route stays unchanged. On the connected Poweramp build the canonical
+   `Moe Shop` row is deduplicated and normalized/fuzzy probes find `Of Mice & Men`/`Northlane`, but
+   `multi_artists` links collaboration files only to their composite IDs, those rows report
+   `is_unsplit=0`, and no standalone `Sān-Z` ID exists. Therefore complete canonical collaboration
+   merging and a standalone `Sān-Z` result cannot be implemented from stable public IDs on that
+   library without forbidden display-string parsing. Keep this item partial until Poweramp emits
+   split participant relations (or exposes another documented identity relation) and the complete
+   Phone device matrix passes. Never reintroduce `/search?flt`.
 7. **Search within the current scope.** Add a search action inside All tracks and individual
    folders, albums, artists and playlists, with an explicit visible scope. Define direct-folder
    versus recursive behavior before implementation. Search the whole selected container before

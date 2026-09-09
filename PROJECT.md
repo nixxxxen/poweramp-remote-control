@@ -352,6 +352,7 @@ credential, not the browser-session cookie; the embedded Web UI has no Library i
 | `GET` | `/api/v1/library/tracks` | Paged All tracks rows |
 | `GET` | `/api/v1/library/artists` | Paged Artists rows |
 | `GET` | `/api/v1/library/artists/{id}/tracks` | Paged tracks for one artist |
+| `GET` | `/api/v1/library/artists/{id}/member-tracks` | Paged tracks related through public `multi_artists` membership |
 | `GET` | `/api/v1/library/albums` | Paged Albums rows |
 | `GET` | `/api/v1/library/albums/{id}/tracks` | Paged tracks for one album |
 | `GET` | `/api/v1/library/folders` | Paged plain-folder rows |
@@ -394,8 +395,8 @@ For categorized Search, the same public source fixes entity and relation identit
 - a track is `folder_files._id`, an Artist is `artists._id`, and an Album is `albums._id`;
 - `TableDefs.MultiArtists` is the always-used one-to-many track-artist relation introduced in
   Poweramp build 899, with `multi_artists.file_id` → `folder_files._id` and
-  `multi_artists.artist_id` → `artists._id`; this preserves every related artist rather than only
-  the display `artist` string or the single `folder_files.artist_id` field;
+  `multi_artists.artist_id` → `artists._id`; `Artists.IS_UNSPLIT` is the public provider flag for
+  a combined multi-artist row, and `folder_files.album_id` links a related file to `albums._id`;
 - Artist and Album result rows therefore carry provider IDs directly. Phone never reconstructs a
   container identity from `artist`, `album`, or another display string.
 
@@ -404,7 +405,7 @@ Provider projections are an explicit subset of public `TableDefs` columns:
 | Rows | Requested Poweramp columns |
 |---|---|
 | tracks and search | `folder_files._id`, `folder_files.name`, `title_tag`, `artist`, `album`, `folder_files.duration` |
-| artists | `artists._id`, `artist`, `artists.num_files`, `artists.duration` |
+| artists | `artists._id`, `artist`, `artists.num_files`, `artists.duration`, `artists.is_unsplit` |
 | albums | `albums._id`, `album`, `albums.num_files`, `albums.duration` |
 | plain folders | `folders._id`, `folders.name`, `folders.parent_id`, `folders.num_files`, `folders.duration` |
 | hierarchy folders | the same identity/name/parent plus `folders.hier_num_files`, `folders.hier_duration` |
@@ -484,26 +485,42 @@ It accepts required `q` and optional `limit` (`1…100`, default `25`); `pageTok
 parameters are rejected. Separate fixed selections run inside the Poweramp provider before the
 per-section output limit: `title_tag LIKE ? ESCAPE '!'` for track titles, `artist LIKE ?` for
 direct Artist names, and `album LIKE ?` for Album names. Literal LIKE metacharacters are escaped and
-all user/track IDs are bound through `selectionArgs`. When at least one normalized track title
-(trimmed, `Locale.ROOT` case-folded) equals the normalized query, only exact-title tracks are
-returned; otherwise partial title matches are used. This dominance is local to Tracks. Albums keep
-their own exact-first plus partial matches. Artists are the stable-ID union of direct name matches
-and every `multi_artists` relation for returned exact-title track IDs, deduplicated only by
-`artists._id`. No sort expression is invented, so provider order remains the tie order.
+all user/relation IDs are bound through `selectionArgs`.
 
-Each provider-filtered candidate query is capped at the existing 1000-row safety boundary and each
-response section is capped by `limit`; `truncated` states when that bounded candidate or output
-limit was reached. The exact-title track query is separate from the partial query so an exact match
-cannot be hidden behind an earlier substring prefix. The response envelope contains normalized
-`query`, effective `limit`, `trackMatch` (`none`, `exact`, or `partial`), and a `sections` array.
-Each section contains typed `type`, existing Library `items`, and `truncated`. Empty sections are
-omitted and non-empty sections are always serialized Tracks → Artists → Albums. Items retain the
-existing Library item schema and play targets. Phone applies its existing
-query/connection generation gate, renders non-clickable typed headers, plays Tracks through the
-unchanged route, and opens Artist/Album IDs through the existing Library container requests. The
-route uses the same service-owned provider adapter, request cancellation, authentication, and
-sanitized failures; it introduces no WebSocket, cache, service, or Poweramp path. `/search?flt`
-remains forbidden.
+Server builds a comparison-only key with trim, `Locale.ROOT` case folding, Unicode decomposition
+and combining-mark removal, dash canonicalization, standalone `and`/`&` equivalence, and collapsed
+whitespace. Original provider text is never changed. Exact, prefix, substring/token, then bounded
+Damerau-Levenshtein ranks are deterministic; typo distance is disabled below five code points, is
+one for lengths 5–7, and is two from length 8, with at most five fuzzy results. Fuzzy rows are used
+only when that entity section has no deterministic or relation-backed result. A small bounded set
+of normalized and unchanged-substring provider probes finds candidates outside an arbitrary first
+page without an unbounded scan; every probe and their stable-ID union retain the 1000-candidate
+ceiling. Punctuation is preserved in the strong key; a punctuation-insensitive token key is only a
+weaker match and no alphabet transliteration is performed.
+
+Tracks remain title-only and never gain Artist tracks. If any comparison-key exact track title
+exists, it suppresses weaker Track-title matches only in Tracks. Direct Artist exact matches
+suppress their partial matches; otherwise provider rows marked `artists.is_unsplit=1` are excluded,
+while an exact full composite name remains eligible. Exact-track related Artists are added through
+`multi_artists` and all Artist rows are deduplicated by `artists._id`. Every grouped Artist has an
+additive `browse:{type:"artist_membership",id}` target, a null count/duration rather than the legacy
+category's potentially narrower aggregate, and opens the new
+`/api/v1/library/artists/{id}/member-tracks` route. That route queries outer `/files` rows with an
+`EXISTS` membership selection, so each related `folder_files._id` appears once while the historical
+`/artists/{id}/tracks` route remains unchanged. Representative artwork uses the same membership
+route and therefore the same file set.
+
+Albums are the `albums._id` union of direct title matches and albums reached from displayed Artist
+IDs through `multi_artists.file_id` plus `folder_files.album_id`. Exact direct album titles come
+first, then relation-backed Albums, then remaining prefix/substring direct matches; fuzzy Albums
+are a last fallback only when neither deterministic nor relation matches exist. Each section is
+capped by `limit`; source, relation, output, and fuzzy caps contribute to honest `truncated` state.
+The response still omits empty sections and serializes non-empty sections only as Tracks → Artists
+→ Albums. Phone parses the optional browse target (absence from an older Server remains valid),
+retains its existing query/connection generation gate, and preserves Search origin/scroll while
+opening the existing Library surface. The route uses the same service-owned provider adapter,
+request cancellation, authentication, and sanitized failures; it introduces no WebSocket, cache,
+service, or Poweramp path. `/search?flt` remains forbidden.
 
 On Poweramp `1025004-fa3ec08671d`, the maintainer confirmed a known query returns the matching track
 and a nonexistent query returns an empty page. Device logcat also confirmed why `folder_files.name`
@@ -772,10 +789,15 @@ be selected as group owner for the current IPv4 client path, system approval may
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
 The maintainer has confirmed basic tracks/Albums browsing, album counts/durations, track-ID play,
-and positive/empty legacy search responses on Poweramp `1025004-fa3ec08671d`. A read-only package
-check on the connected debug player also confirms Poweramp build `1025`, but the new categorized
-queries and `multi_artists` selection have not yet been exercised by the installed matching Server
-artifact. The ContentProvider foundation
+and positive/empty legacy search responses on Poweramp `1025004-fa3ec08671d`. A matching debug
+Server has now exercised grouped Search, `artists.is_unsplit`, `multi_artists` membership, and
+related-Album selections on that connected Poweramp build. Its actual library demonstrates an
+important public-data boundary: the collab file `TiMEMAXERAS; Moe Shop` relates only to its composite
+Artist ID, not to the separate sole-track `Moe Shop` ID `2449`, and no standalone `Sān-Z` Artist ID
+is published. Those composite rows report `is_unsplit=0`, reflecting the device's configured tag
+splitting. Server therefore cannot merge those participants by stable ID without forbidden
+display-string parsing. It returns every relation Poweramp publishes, keeps grouped Artist counts
+absent, and does not claim heuristic canonical membership. The ContentProvider foundation
 still needs broader device coverage: first grant/deny/retry and process-not-running behavior;
 remaining category projections/order; search by artist/album, Unicode and literal wildcard input;
 hierarchy root/children; duplicate playlist/queue entry IDs; queue-current matching and

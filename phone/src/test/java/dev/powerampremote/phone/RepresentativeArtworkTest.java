@@ -23,6 +23,11 @@ public final class RepresentativeArtworkTest {
                         .tracksRequest(6).path(null)
         );
         assertEquals(
+                "/api/v1/library/artists/1/member-tracks?limit=6",
+                representative(RepresentativeArtworkKey.TYPE_ARTIST_MEMBERSHIP, 1L)
+                        .tracksRequest(6).path(null)
+        );
+        assertEquals(
                 "/api/v1/library/albums/2/tracks?limit=6",
                 representative(RepresentativeArtworkKey.TYPE_ALBUM, 2L)
                         .tracksRequest(6).path(null)

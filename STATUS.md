@@ -19,6 +19,67 @@ Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconne
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
+## Grouped Search relation/canonical/fuzzy refinement (2026-09-10)
+
+- The Bearer-only `/api/v1/search/grouped` envelope and historical `/api/v1/search` remain
+  compatible. Grouped Search now ranks immutable provider labels through a pure comparison policy:
+  trim, `Locale.ROOT` case folding, Unicode decomposition/combining-mark removal, dash folding,
+  standalone `and`/`&` equivalence, and repeated-space collapse. Strong punctuation is preserved;
+  a punctuation-insensitive token key is weaker only. Ranking is exact → prefix → substring/token
+  → fuzzy. Damerau-Levenshtein is disabled below 5 code points, capped at 1 edit for 5–7 and 2
+  edits from 8 onward, and at most 5 fuzzy rows are returned only when the section has no stronger
+  deterministic/relation result. Bounded normalized/unchanged-substring provider probes and their
+  stable-ID union retain the 1000-candidate cap; no full-library Phone copy or `/search?flt` path was
+  added. Track fuzzy fallback remains disabled and exact-title dominance remains Track-only.
+- Public Poweramp `artists.is_unsplit` now distinguishes documented combined rows where Poweramp
+  publishes that flag. Non-exact unsplit Artist rows are suppressed; an exact full composite name
+  remains eligible. Grouped Artists are deduplicated by `artists._id`, have intentionally null
+  count/duration, and carry the additive optional
+  `browse:{"type":"artist_membership","id":...}` object. New Phone parsers accept both this object
+  and old grouped payloads where it is absent.
+- The browse object selects additive
+  `/api/v1/library/artists/{id}/member-tracks`; the legacy `/artists/{id}/tracks` semantics are
+  untouched. Server queries outer `/files` rows with bound
+  `multi_artists.file_id`/`artist_id` membership, so a file related more than once is returned once.
+  Phone opens this target inside the existing Library/Search Activity and uses the same route for
+  representative artwork, while the existing Search-origin snapshot continues to retain query,
+  typed results, scroll offset, and Library depth for Back.
+- Albums now combine direct title matches with albums related to the displayed Artist IDs through
+  public `multi_artists.file_id` and `folder_files.album_id`, deduplicated by `albums._id`. Ordering
+  is exact direct Album → relation Albums → remaining prefix/substring direct Albums; fuzzy Albums
+  appear only when neither deterministic nor relation results exist. Tracks remain title-only.
+- Targeted JVM verification passed **65/65**: Server `SearchComparisonPolicyTest` **4/4**,
+  `CategorizedSearchPolicyTest` **7/7**, `PowerampLibraryContractTest` **5/5**,
+  `PowerampLibrarySourceTest` **13/13**, `LibraryJsonTest` **5/5**, and
+  `RemoteApiServerTest` **12/12**; Phone `CategorizedSearchParserTest` **3/3**,
+  `LibraryRequestTest` **2/2**, `RepresentativeArtworkTest` **5/5**,
+  `SearchOriginStateTest` **2/2**, `SearchPresentationPolicyTest` **1/1**,
+  `SearchRequestGateTest` **2/2**, and `PhoneResourceParityTest` **4/4**. Final
+  `:app:assembleDebug`, `:phone:assembleDebug`, and `git diff --check` passed. Full suites, lint, clean, release, Server
+  `RemoteStateJsonTest`, and version changes were not run.
+- A final Server debug APK was installed over the existing debug app on the connected R4 with app
+  data retained; Poweramp is `build-1025-bundle-play`. Live Bearer-only API checks confirmed:
+  `Moe Shop` returns one Artist ID `2449`, only the one title-matching Track, and four relation
+  Albums; `Moe Shop, KMNZ` finds the provider's exact composite `KMNZ; Moe Shop` ID `3216` through
+  the weaker punctuation/token comparison; `Of Mice and Men` returns canonical `Of Mice & Men` ID
+  `1025` plus its related Albums; and `Nrthlame` returns `Northlane` ID `1024` plus its related
+  Albums. All checked sections reported `truncated=false`.
+- The same device also confirms a non-negotiable provider-data limitation. Its collaboration file
+  `TiMEMAXERAS; Moe Shop` maps through `multi_artists` only to composite Artist ID `1970`; canonical
+  `Moe Shop` ID `2449` still resolves six sole-artist tracks through both legacy and membership
+  routes. Search for `Sān-Z` exposes no standalone provider Artist ID, only six composite IDs, and
+  those composite rows report `artists.is_unsplit=0`. Consequently `san-z` is found
+  accent-insensitively but cannot be collapsed to a synthetic `Sān-Z` row, and the missing Moe Shop
+  collaboration relations cannot be invented without prohibited display-string parsing. The code
+  deliberately reports only verified IDs and leaves this ROADMAP item partial.
+- Remaining real-device work: run the matching Phone debug APK on the Phone device to verify
+  Artist/Album taps, Back/query/section-scroll restoration, representative artwork from the
+  membership set, keyboard/insets, rapid taps, current-track indicator/mini-player/WebSocket state,
+  and compact layouts. Recheck complete sole+collaboration membership and standalone `Sān-Z` only
+  after Poweramp is configured to publish split participant relations (or documents another stable
+  identity relation). The temporary diagnostic field used to inspect `is_unsplit` was removed; no
+  credentials were logged or emitted.
+
 ## Global categorized Search candidate (2026-09-09)
 
 - Added Bearer-only `GET /api/v1/search/grouped` and advertised it as `categorizedSearch` from the

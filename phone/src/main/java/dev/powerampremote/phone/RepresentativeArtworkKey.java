@@ -5,6 +5,7 @@ import java.util.Objects;
 /** Stable identity for a derived category-to-track-artwork selection. */
 final class RepresentativeArtworkKey {
     static final String TYPE_ARTIST = "artist";
+    static final String TYPE_ARTIST_MEMBERSHIP = "artist_membership";
     static final String TYPE_ALBUM = "album";
     static final String TYPE_PLAYLIST = "playlist";
     static final String TYPE_FOLDER = "folder";
@@ -36,6 +37,7 @@ final class RepresentativeArtworkKey {
 
     static boolean isSupportedType(String categoryType) {
         return TYPE_ARTIST.equals(categoryType)
+                || TYPE_ARTIST_MEMBERSHIP.equals(categoryType)
                 || TYPE_ALBUM.equals(categoryType)
                 || TYPE_PLAYLIST.equals(categoryType)
                 || TYPE_FOLDER.equals(categoryType);
@@ -46,6 +48,9 @@ final class RepresentativeArtworkKey {
         switch (categoryType) {
             case TYPE_ARTIST:
                 request = LibraryRequest.artistTracks(categoryId);
+                break;
+            case TYPE_ARTIST_MEMBERSHIP:
+                request = LibraryRequest.artistMemberTracks(categoryId);
                 break;
             case TYPE_ALBUM:
                 request = LibraryRequest.albumTracks(categoryId);

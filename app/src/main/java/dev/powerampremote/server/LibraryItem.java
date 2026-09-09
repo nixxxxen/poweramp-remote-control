@@ -79,6 +79,31 @@ final class LibraryItem {
         }
     }
 
+    static final class BrowseTarget {
+        enum Type {
+            ARTIST_MEMBERSHIP("artist_membership");
+
+            final String wireName;
+
+            Type(String wireName) {
+                this.wireName = wireName;
+            }
+        }
+
+        final Type type;
+        final long id;
+
+        BrowseTarget(Type type, long id) {
+            this.type = Objects.requireNonNull(type);
+            if (id <= 0L) throw new IllegalArgumentException("Poweramp ID must be positive");
+            this.id = id;
+        }
+
+        static BrowseTarget artistMembership(long artistId) {
+            return new BrowseTarget(Type.ARTIST_MEMBERSHIP, artistId);
+        }
+    }
+
     final Type type;
     final long id;
     final Long entryId;
@@ -91,6 +116,10 @@ final class LibraryItem {
     final String artworkPath;
     final PlayTarget playTarget;
     final Boolean current;
+    /** Provider-only Artists.IS_UNSPLIT value; never exposed as presentation metadata. */
+    final Boolean artistUnsplit;
+    /** Optional additive navigation target used only where legacy category browse is insufficient. */
+    final BrowseTarget browseTarget;
 
     LibraryItem(
             Type type,
@@ -105,6 +134,29 @@ final class LibraryItem {
             String artworkPath,
             PlayTarget playTarget,
             Boolean current
+    ) {
+        this(
+                type, id, entryId, parentId, title, artist, album,
+                durationMilliseconds, trackCount, artworkPath, playTarget, current,
+                null, null
+        );
+    }
+
+    LibraryItem(
+            Type type,
+            long id,
+            Long entryId,
+            Long parentId,
+            String title,
+            String artist,
+            String album,
+            Long durationMilliseconds,
+            Integer trackCount,
+            String artworkPath,
+            PlayTarget playTarget,
+            Boolean current,
+            Boolean artistUnsplit,
+            BrowseTarget browseTarget
     ) {
         this.type = Objects.requireNonNull(type);
         if (id <= 0L || entryId != null && entryId <= 0L
@@ -122,6 +174,17 @@ final class LibraryItem {
         this.artworkPath = artworkPath;
         this.playTarget = playTarget;
         this.current = current;
+        this.artistUnsplit = artistUnsplit;
+        this.browseTarget = browseTarget;
+    }
+
+    LibraryItem asArtistMembershipTarget() {
+        if (type != Type.ARTIST) throw new IllegalStateException("Artist item required");
+        return new LibraryItem(
+                type, id, entryId, parentId, title, artist, album,
+                null, null, artworkPath, playTarget, current, artistUnsplit,
+                BrowseTarget.artistMembership(id)
+        );
     }
 
     private static String cleanText(String value) {

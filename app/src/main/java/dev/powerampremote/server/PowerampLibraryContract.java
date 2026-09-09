@@ -32,6 +32,7 @@ final class PowerampLibraryContract {
     static final int MAX_CONTINUATION_ROWS = 1_000;
     static final int MAX_CATEGORIZED_SEARCH_CANDIDATES = 1_000;
     static final int MAX_RELATED_TRACK_IDS_PER_QUERY = 250;
+    static final int MAX_RELATED_ARTIST_IDS_PER_QUERY = 100;
     static final int MAX_SEARCH_QUERY_LENGTH = 160;
     static final String LIBRARY_ARTWORK_PATH_PREFIX =
             "/api/v1/library/artwork/tracks/";
@@ -46,6 +47,7 @@ final class PowerampLibraryContract {
     static final String COLUMN_ALBUM = "album";
     static final String COLUMN_DURATION_MILLISECONDS = "duration_ms";
     static final String COLUMN_TRACK_COUNT = "track_count";
+    static final String COLUMN_ARTIST_IS_UNSPLIT = "artist_is_unsplit";
 
     private static final Pattern POSITIVE_ID = Pattern.compile("[1-9][0-9]{0,18}");
     private static final Pattern NON_NEGATIVE_ID = Pattern.compile("(?:0|[1-9][0-9]{0,18})");
@@ -112,7 +114,8 @@ final class PowerampLibraryContract {
             "artists._id AS " + COLUMN_ITEM_ID,
             "artist AS " + COLUMN_TITLE,
             "artists.num_files AS " + COLUMN_TRACK_COUNT,
-            "artists.duration AS " + COLUMN_DURATION_MILLISECONDS
+            "artists.duration AS " + COLUMN_DURATION_MILLISECONDS,
+            "artists.is_unsplit AS " + COLUMN_ARTIST_IS_UNSPLIT
     };
     private static final String[] ALBUM_PROJECTION = {
             "albums._id AS " + COLUMN_ITEM_ID,
@@ -252,6 +255,26 @@ final class PowerampLibraryContract {
                 "/artists/" + positiveId(artistId) + "/files",
                 RowKind.TRACK,
                 artistId
+        );
+    }
+
+    /**
+     * Relation-aware artist browse. The outer /files row remains unique while membership is
+     * resolved through the public MultiArtists table, so sole and collaboration tracks are
+     * combined without changing the historical /artists/{id}/files category semantics.
+     */
+    static Query artistMemberTracks(long artistId) {
+        String id = positiveId(artistId);
+        return new Query(
+                "artist_member_tracks",
+                "/files",
+                id,
+                RowKind.TRACK,
+                artistId,
+                "EXISTS (SELECT 1 FROM multi_artists"
+                        + " WHERE multi_artists.file_id=folder_files._id"
+                        + " AND multi_artists.artist_id=?)",
+                new String[]{id}
         );
     }
 
@@ -409,6 +432,42 @@ final class PowerampLibraryContract {
                 "/artists",
                 null,
                 RowKind.ARTIST,
+                null,
+                selection,
+                arguments
+        );
+    }
+
+    /**
+     * Finds unique album rows containing at least one track related to any canonical artist ID.
+     * Files.ALBUM_ID and MultiArtists are both public TableDefs relations; all IDs stay bound.
+     */
+    static Query relatedAlbums(List<Long> artistIds) {
+        if (artistIds == null || artistIds.isEmpty()
+                || artistIds.size() > MAX_RELATED_ARTIST_IDS_PER_QUERY) {
+            throw new IllegalArgumentException("Invalid related artist ID count");
+        }
+        StringBuilder placeholders = new StringBuilder();
+        String[] arguments = new String[artistIds.size()];
+        for (int index = 0; index < artistIds.size(); index++) {
+            Long id = artistIds.get(index);
+            if (id == null || id <= 0L) {
+                throw new IllegalArgumentException("Invalid related artist ID");
+            }
+            if (index > 0) placeholders.append(',');
+            placeholders.append('?');
+            arguments[index] = Long.toString(id);
+        }
+        String selection = "EXISTS (SELECT 1 FROM folder_files"
+                + " INNER JOIN multi_artists"
+                + " ON multi_artists.file_id=folder_files._id"
+                + " WHERE folder_files.album_id=albums._id"
+                + " AND multi_artists.artist_id IN (" + placeholders + "))";
+        return new Query(
+                "categorized_search_related_albums",
+                "/albums",
+                null,
+                RowKind.ALBUM,
                 null,
                 selection,
                 arguments

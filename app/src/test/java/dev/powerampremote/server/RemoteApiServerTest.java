@@ -111,10 +111,19 @@ public final class RemoteApiServerTest {
         ));
         libraryProvider.rows.put("categorized_search_artists", Collections.emptyList());
         libraryProvider.rows.put("categorized_search_related_artists", Collections.singletonList(
-                row("item_id", 8L, "title", "Northlane", "track_count", 1L)
+                row("item_id", 8L, "title", "Northlane", "track_count", 1L,
+                        "artist_is_unsplit", 0L)
         ));
         libraryProvider.rows.put("categorized_search_albums", Collections.singletonList(
                 row("item_id", 9L, "title", "Obsidian", "track_count", 1L)
+        ));
+        libraryProvider.rows.put("categorized_search_related_albums", List.of(
+                row("item_id", 9L, "title", "Obsidian", "track_count", 1L),
+                row("item_id", 10L, "title", "Node", "track_count", 11L)
+        ));
+        libraryProvider.rows.put("artist_member_tracks", List.of(
+                row("track_id", 2L, "title", "Obsidian"),
+                row("track_id", 4L, "title", "Collaboration")
         ));
         libraryProvider.rows.put("play_queue_entry", Collections.singletonList(row(
                 "track_id", 2L,
@@ -284,9 +293,21 @@ public final class RemoteApiServerTest {
         assertEquals("tracks", sections.getJSONObject(0).getString("type"));
         assertEquals(1, sections.getJSONObject(0).getJSONArray("items").length());
         assertEquals("artists", sections.getJSONObject(1).getString("type"));
-        assertEquals(8L, sections.getJSONObject(1).getJSONArray("items")
-                .getJSONObject(0).getLong("id"));
+        JSONObject artist = sections.getJSONObject(1).getJSONArray("items").getJSONObject(0);
+        assertEquals(8L, artist.getLong("id"));
+        assertEquals("artist_membership", artist.getJSONObject("browse").getString("type"));
         assertEquals("albums", sections.getJSONObject(2).getString("type"));
+        assertEquals(2, sections.getJSONObject(2).getJSONArray("items").length());
+
+        String memberships = http(
+                "GET",
+                RemoteApiServer.LIBRARY_ARTISTS_PATH + "/8/member-tracks?limit=25",
+                TOKEN,
+                null,
+                null
+        );
+        assertStatus(memberships, 200);
+        assertEquals(2, new JSONObject(body(memberships)).getJSONArray("items").length());
 
         String queue = http("GET", RemoteApiServer.QUEUE_PATH, TOKEN, null, null);
         assertStatus(queue, 200);

@@ -925,6 +925,14 @@ final class RemoteApiServer implements AutoCloseable {
                     PowerampLibraryContract.parsePositiveId(artistId)
             );
         }
+        String memberArtistId = nestedId(
+                path, LIBRARY_ARTISTS_PATH, "/member-tracks"
+        );
+        if (memberArtistId != null) {
+            return PowerampLibraryContract.artistMemberTracks(
+                    PowerampLibraryContract.parsePositiveId(memberArtistId)
+            );
+        }
         String albumId = nestedId(path, LIBRARY_ALBUMS_PATH, "/tracks");
         if (albumId != null) {
             return PowerampLibraryContract.albumTracks(

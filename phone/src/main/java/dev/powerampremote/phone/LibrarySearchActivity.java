@@ -474,10 +474,16 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     private void openSearchContainerNow(LibraryItem item) {
         if ("artist".equals(item.type)) {
+            boolean membership = item.browseTarget != null
+                    && LibraryBrowseTarget.TYPE_ARTIST_MEMBERSHIP.equals(
+                            item.browseTarget.type
+                    );
             pushNetwork(
                     displayTitle(item),
-                    LibraryRequest.artistTracks(item.id),
-                    item.type,
+                    membership
+                            ? LibraryRequest.artistMemberTracks(item.id)
+                            : LibraryRequest.artistTracks(item.id),
+                    item.representativeType(),
                     item.id
             );
         } else if ("album".equals(item.type)) {
@@ -1202,7 +1208,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             boolean track = "track".equals(item.type)
                     || "playlist_entry".equals(item.type)
                     || "queue_entry".equals(item.type);
-            boolean representative = RepresentativeArtworkKey.isSupportedType(item.type);
+            String representativeType = item.representativeType();
+            boolean representative = RepresentativeArtworkKey.isSupportedType(
+                    representativeType
+            );
             if (!track && !representative) {
                 holder.artworkGate.bind(null);
                 holder.artwork.setVisibility(View.INVISIBLE);
@@ -1235,7 +1244,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             } else {
                 holder.artwork.setVisibility(View.VISIBLE);
                 RepresentativeArtworkKey representativeKey = controller == null
-                        ? null : controller.representativeArtworkKey(item.type, item.id);
+                        ? null : controller.representativeArtworkKey(
+                                representativeType, item.id
+                        );
                 LibraryArtworkBindingGate.Request binding =
                         holder.artworkGate.bind(representativeKey, artworkBindingLifecycle);
                 Bitmap bitmap = controller == null

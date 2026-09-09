@@ -65,6 +65,10 @@ public final class LibraryJsonTest {
                 "/api/v1/search/grouped",
                 root.getJSONObject("routes").getString("categorizedSearch")
         );
+        assertEquals(
+                "/api/v1/library/artists/{id}/member-tracks",
+                root.getJSONObject("routes").getString("artistMembershipTracks")
+        );
     }
 
     @Test
@@ -91,6 +95,28 @@ public final class LibraryJsonTest {
         JSONObject section = root.getJSONArray("sections").getJSONObject(0);
         assertEquals("tracks", section.getString("type"));
         assertEquals(41L, section.getJSONArray("items").getJSONObject(0).getLong("id"));
+    }
+
+    @Test
+    public void serializesAdditiveArtistMembershipBrowseTarget() throws Exception {
+        LibraryItem artist = new LibraryItem(
+                LibraryItem.Type.ARTIST, 8L, null, null, "Northlane",
+                null, null, null, null, null, null, null,
+                false, LibraryItem.BrowseTarget.artistMembership(8L)
+        );
+        CategorizedSearch search = new CategorizedSearch(
+                "Northlane", 25, CategorizedSearch.TrackMatch.NONE,
+                java.util.List.of(new CategorizedSearch.Section(
+                        CategorizedSearch.SectionType.ARTISTS,
+                        java.util.Collections.singletonList(artist), false
+                ))
+        );
+
+        JSONObject serialized = new JSONObject(LibraryJson.categorizedSearch(search));
+        JSONObject browse = serialized.getJSONArray("sections").getJSONObject(0)
+                .getJSONArray("items").getJSONObject(0).getJSONObject("browse");
+        assertEquals("artist_membership", browse.getString("type"));
+        assertEquals(8L, browse.getLong("id"));
     }
 
     @Test

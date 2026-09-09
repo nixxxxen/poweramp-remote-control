@@ -28,6 +28,27 @@ public final class CategorizedSearchParserTest {
     }
 
     @Test
+    public void parsesAdditiveArtistMembershipBrowseAndAcceptsOldPayloadWithoutIt() {
+        String membershipArtist = item("artist", 8L, "Northlane", false)
+                .replace("\"current\":null", "\"browse\":{\"type\":"
+                        + "\"artist_membership\",\"id\":8},\"current\":null");
+        CategorizedSearchResult current = CategorizedSearchParser.parse("{"
+                + "\"query\":\"Northlane\",\"limit\":25,\"trackMatch\":\"none\","
+                + "\"sections\":[" + section("artists", membershipArtist) + "]}");
+        LibraryItem artist = current.sections.get(0).items.get(0);
+        assertEquals(LibraryBrowseTarget.TYPE_ARTIST_MEMBERSHIP, artist.browseTarget.type);
+        assertEquals(RepresentativeArtworkKey.TYPE_ARTIST_MEMBERSHIP,
+                artist.representativeType());
+
+        CategorizedSearchResult legacy = CategorizedSearchParser.parse("{"
+                + "\"query\":\"Northlane\",\"limit\":25,\"trackMatch\":\"none\","
+                + "\"sections\":[" + section(
+                        "artists", item("artist", 8L, "Northlane", false)
+                ) + "]}");
+        assertNull(legacy.sections.get(0).items.get(0).browseTarget);
+    }
+
+    @Test
     public void rejectsOutOfOrderSectionsAndWrongEntityTypes() {
         assertInvalid("{\"query\":\"x\",\"limit\":25,\"trackMatch\":\"none\","
                 + "\"sections\":["

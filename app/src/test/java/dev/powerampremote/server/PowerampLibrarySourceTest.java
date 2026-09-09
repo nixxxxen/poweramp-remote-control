@@ -318,6 +318,56 @@ public final class PowerampLibrarySourceTest {
     }
 
     @Test
+    public void categorizedSearchUsesCanonicalArtistAndItsRelatedAlbums() {
+        provider.rows.put("categorized_search_artists", List.of(
+                row("item_id", 10L, "title", "Moe Shop", "track_count", 6L,
+                        "artist_is_unsplit", 0L),
+                row("item_id", 11L, "title", "Moe Shop, KMNZ", "track_count", 1L,
+                        "artist_is_unsplit", 1L)
+        ));
+        provider.rows.put("categorized_search_related_albums", List.of(
+                row("item_id", 20L, "title", "Pure Pure", "track_count", 9L),
+                row("item_id", 20L, "title", "Provider duplicate", "track_count", 9L),
+                row("item_id", 21L, "title", "WWW", "track_count", 4L)
+        ));
+
+        PowerampLibrarySource.CategorizedResult result = source.searchCategorized(
+                "Moe Shop", 25, cancellation()
+        );
+
+        assertTrue(result.isSuccess());
+        assertEquals(2, result.search.sections.size());
+        LibraryItem artist = result.search.sections.get(0).items.get(0);
+        assertEquals(LibraryItem.Type.ARTIST, artist.type);
+        assertEquals(10L, artist.id);
+        assertNull(artist.trackCount);
+        assertNotNull(artist.browseTarget);
+        assertEquals(List.of(20L, 21L), ids(result.search.sections.get(1).items));
+    }
+
+    @Test
+    public void artistMembershipBrowseReturnsOneOuterFileRowPerSoleOrCollaborationTrack()
+            throws Exception {
+        provider.rows.put("artist_member_tracks", List.of(
+                row("track_id", 1L, "title", "Solo"),
+                row("track_id", 2L, "title", "Collaboration"),
+                row("track_id", 3L, "title", "Another collaboration")
+        ));
+
+        PowerampLibrarySource.Result result = source.query(
+                PowerampLibraryContract.artistMemberTracks(10L),
+                25,
+                null,
+                null,
+                cancellation()
+        );
+
+        assertTrue(result.isSuccess());
+        assertEquals(List.of(1L, 2L, 3L), ids(result.page.items));
+        assertEquals(10L, result.page.items.get(1).parentId.longValue());
+    }
+
+    @Test
     public void validatesThatSelectedQueueEntryStillExists() {
         provider.rows.put("play_queue_entry", Collections.singletonList(row(
                 "track_id", 5L, "entry_id", 91L, "title", "Queued"
@@ -453,6 +503,12 @@ public final class PowerampLibrarySourceTest {
             row.put((String) values[index], values[index + 1]);
         }
         return row;
+    }
+
+    private static List<Long> ids(List<LibraryItem> items) {
+        List<Long> ids = new ArrayList<>();
+        for (LibraryItem item : items) ids.add(item.id);
+        return ids;
     }
 
     private interface ThrowingQuery {

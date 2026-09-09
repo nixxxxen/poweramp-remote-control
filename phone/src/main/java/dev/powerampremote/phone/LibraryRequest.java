@@ -30,6 +30,10 @@ final class LibraryRequest {
         return container("/api/v1/library/artists/", id, "/tracks");
     }
 
+    static LibraryRequest artistMemberTracks(long id) {
+        return container("/api/v1/library/artists/", id, "/member-tracks");
+    }
+
     static LibraryRequest albumTracks(long id) {
         return container("/api/v1/library/albums/", id, "/tracks");
     }

@@ -28,6 +28,10 @@ public final class LibraryRequestTest {
                 LibraryRequest.albumTracks(8L).path(null)
         );
         assertEquals(
+                "/api/v1/library/artists/8/member-tracks?limit=25",
+                LibraryRequest.artistMemberTracks(8L).path(null)
+        );
+        assertEquals(
                 "/api/v1/library/folder-tree/0/folders?limit=25",
                 LibraryRequest.subfolders(0L).path(null)
         );

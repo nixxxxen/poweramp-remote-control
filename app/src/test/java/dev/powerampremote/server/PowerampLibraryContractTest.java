@@ -165,6 +165,38 @@ public final class PowerampLibraryContractTest {
                 "content://com.maxmpz.audioplayer.data/artists?lim=25",
                 artists.providerUri(25)
         );
+
+        PowerampLibraryContract.Query membership =
+                PowerampLibraryContract.artistMemberTracks(8L);
+        assertEquals(
+                "EXISTS (SELECT 1 FROM multi_artists"
+                        + " WHERE multi_artists.file_id=folder_files._id"
+                        + " AND multi_artists.artist_id=?)",
+                membership.selection()
+        );
+        assertArrayEquals(new String[]{"8"}, membership.selectionArgs());
+        assertEquals(
+                "content://com.maxmpz.audioplayer.data/files?lim=25",
+                membership.providerUri(25)
+        );
+        assertFalse(membership.paginationKey().equals(
+                PowerampLibraryContract.artistMemberTracks(9L).paginationKey()
+        ));
+
+        PowerampLibraryContract.Query albums =
+                PowerampLibraryContract.relatedAlbums(java.util.List.of(8L, 9L));
+        assertEquals(
+                "EXISTS (SELECT 1 FROM folder_files"
+                        + " INNER JOIN multi_artists"
+                        + " ON multi_artists.file_id=folder_files._id"
+                        + " WHERE folder_files.album_id=albums._id"
+                        + " AND multi_artists.artist_id IN (?,?))",
+                albums.selection()
+        );
+        assertArrayEquals(new String[]{"8", "9"}, albums.selectionArgs());
+        assertTrue(java.util.Arrays.asList(
+                PowerampLibraryContract.categorizedArtists("artist").projection()
+        ).contains("artists.is_unsplit AS artist_is_unsplit"));
     }
 
     private static void expectInvalid(Runnable runnable) {

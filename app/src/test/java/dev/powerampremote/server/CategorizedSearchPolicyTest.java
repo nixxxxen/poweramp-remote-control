@@ -7,91 +7,137 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public final class CategorizedSearchPolicyTest {
     @Test
-    public void exactTrackTitlesDominatePartialTitlesAfterTrimAndCaseNormalization() {
+    public void exactTrackTitlesDominateNormalizedPartialTitles() {
         CategorizedSearchPolicy.TrackSelection selection =
-                CategorizedSearchPolicy.selectTracks("  ObSiDiAn  ", List.of(
-                        item(LibraryItem.Type.TRACK, 1L, "Obsidian"),
-                        item(LibraryItem.Type.TRACK, 2L, "Obsidian (Live)"),
-                        item(LibraryItem.Type.TRACK, 3L, " obsidian ")
+                CategorizedSearchPolicy.selectTracks("  Of Mice and Men  ", List.of(
+                        item(LibraryItem.Type.TRACK, 1L, "Of Mice & Men"),
+                        item(LibraryItem.Type.TRACK, 2L, "Of Mice & Men (Live)"),
+                        item(LibraryItem.Type.TRACK, 3L, "Elsewhere")
                 ));
 
         assertTrue(selection.exact);
-        assertEquals(List.of(1L, 3L), List.of(
-                selection.matches.get(0).id,
-                selection.matches.get(1).id
-        ));
+        assertEquals(Collections.singletonList(1L), ids(selection.matches));
     }
 
     @Test
-    public void partialTrackTitlesRemainWhenThereIsNoExactTitle() {
-        CategorizedSearchPolicy.TrackSelection selection =
-                CategorizedSearchPolicy.selectTracks("sid", List.of(
-                        item(LibraryItem.Type.TRACK, 1L, "Obsidian"),
-                        item(LibraryItem.Type.TRACK, 2L, "Elsewhere")
+    public void deterministicArtistMatchSuppressesFuzzyFallback() {
+        CategorizedSearchPolicy.ArtistSelection selection =
+                CategorizedSearchPolicy.selectArtists("Northlane", List.of(
+                        artist(8L, "Northlane", false, 12),
+                        artist(9L, "Northlame", false, 1)
+                ), Collections.emptyList());
+
+        assertEquals(Collections.singletonList(8L), ids(selection.matches));
+    }
+
+    @Test
+    public void canonicalArtistSuppressesPartialUnsplitRowsAndUsesMembershipBrowse() {
+        CategorizedSearchPolicy.ArtistSelection selection =
+                CategorizedSearchPolicy.selectArtists("Moe Shop", List.of(
+                        artist(10L, "Moe Shop", false, 6),
+                        artist(11L, "Moe Shop, KMNZ", true, 1),
+                        artist(12L, "Moe Shop, Hentai Dude", true, 1)
+                ), Collections.emptyList());
+
+        assertEquals(Collections.singletonList(10L), ids(selection.matches));
+        LibraryItem canonical = selection.matches.get(0);
+        assertNull(canonical.trackCount);
+        assertNull(canonical.durationMilliseconds);
+        assertNotNull(canonical.browseTarget);
+        assertEquals(LibraryItem.BrowseTarget.Type.ARTIST_MEMBERSHIP,
+                canonical.browseTarget.type);
+    }
+
+    @Test
+    public void exactFullCompositeArtistMayRemainAResult() {
+        CategorizedSearchPolicy.ArtistSelection selection =
+                CategorizedSearchPolicy.selectArtists("Moe Shop, KMNZ", List.of(
+                        artist(10L, "Moe Shop", false, 6),
+                        artist(11L, "Moe Shop, KMNZ", true, 1),
+                        artist(12L, "Moe Shop, KMNZ & Friends", true, 1)
+                ), Collections.emptyList());
+
+        assertEquals(Collections.singletonList(11L), ids(selection.matches));
+    }
+
+    @Test
+    public void relatedArtistsAreCanonicalAndDeduplicatedOnlyByStableId() {
+        CategorizedSearchPolicy.ArtistSelection selection =
+                CategorizedSearchPolicy.selectArtists("Obsidian", Collections.emptyList(), List.of(
+                        artist(8L, "Northlane, Guest", true, 1),
+                        artist(9L, "Northlane", false, 10),
+                        artist(9L, "Renamed duplicate", false, 10),
+                        artist(10L, "Guest", false, 2)
                 ));
 
-        assertFalse(selection.exact);
-        assertEquals(1, selection.matches.size());
-        assertEquals(1L, selection.matches.get(0).id);
+        assertEquals(List.of(9L, 10L), ids(selection.matches));
     }
 
     @Test
-    public void artistsUnionDirectAndRelatedRowsAndDeduplicateOnlyById() {
+    public void relatedAlbumsFollowExactDirectAndPrecedeRemainingPartialWithIdDeduplication() {
         CategorizedSearch result = CategorizedSearchPolicy.compose(
-                "Obsidian",
-                25,
-                CategorizedSearchPolicy.selectTracks("Obsidian", Collections.singletonList(
-                        item(LibraryItem.Type.TRACK, 1L, "Obsidian")
-                )),
-                false,
-                List.of(
-                        item(LibraryItem.Type.ARTIST, 10L, "Obsidian Choir"),
-                        item(LibraryItem.Type.ARTIST, 12L, "Obsidian Duo")
-                ),
-                false,
-                List.of(
-                        item(LibraryItem.Type.ARTIST, 10L, "Renamed duplicate"),
-                        item(LibraryItem.Type.ARTIST, 11L, "Northlane"),
-                        item(LibraryItem.Type.ARTIST, 13L, "Obsidian Duo")
-                ),
-                false,
-                Collections.singletonList(item(LibraryItem.Type.ALBUM, 20L, "Obsidian")),
-                false
-        );
-
-        assertEquals(CategorizedSearch.SectionType.TRACKS, result.sections.get(0).type);
-        assertEquals(CategorizedSearch.SectionType.ARTISTS, result.sections.get(1).type);
-        assertEquals(CategorizedSearch.SectionType.ALBUMS, result.sections.get(2).type);
-        assertEquals(List.of(10L, 12L, 11L, 13L), List.of(
-                result.sections.get(1).items.get(0).id,
-                result.sections.get(1).items.get(1).id,
-                result.sections.get(1).items.get(2).id,
-                result.sections.get(1).items.get(3).id
-        ));
-    }
-
-    @Test
-    public void emptySectionsAreOmittedWithoutChangingFixedOrder() {
-        CategorizedSearch result = CategorizedSearchPolicy.compose(
-                "record",
+                "Moe Shop",
                 25,
                 new CategorizedSearchPolicy.TrackSelection(false, Collections.emptyList()),
                 false,
-                Collections.emptyList(),
+                new CategorizedSearchPolicy.ArtistSelection(Collections.singletonList(
+                        artist(10L, "Moe Shop", false, 6).asArtistMembershipTarget()
+                )),
                 false,
-                Collections.emptyList(),
+                List.of(
+                        item(LibraryItem.Type.ALBUM, 20L, "Moe Shop"),
+                        item(LibraryItem.Type.ALBUM, 24L, "Moe Shop Collection")
+                ),
                 false,
-                Collections.singletonList(item(LibraryItem.Type.ALBUM, 7L, "Record")),
+                List.of(
+                        item(LibraryItem.Type.ALBUM, 23L, "Pure Pure"),
+                        item(LibraryItem.Type.ALBUM, 23L, "Duplicate title")
+                ),
                 false
         );
 
-        assertEquals(CategorizedSearch.TrackMatch.NONE, result.trackMatch);
-        assertEquals(1, result.sections.size());
-        assertEquals(CategorizedSearch.SectionType.ALBUMS, result.sections.get(0).type);
+        assertEquals(CategorizedSearch.SectionType.ARTISTS, result.sections.get(0).type);
+        assertEquals(CategorizedSearch.SectionType.ALBUMS, result.sections.get(1).type);
+        assertEquals(List.of(20L, 23L, 24L), ids(result.sections.get(1).items));
+    }
+
+    @Test
+    public void fixedSectionOrderAndEmptySectionOmissionRemainStable() {
+        CategorizedSearchPolicy.TrackSelection tracks =
+                CategorizedSearchPolicy.selectTracks("record", Collections.singletonList(
+                        item(LibraryItem.Type.TRACK, 1L, "record")
+                ));
+        CategorizedSearch result = CategorizedSearchPolicy.compose(
+                "record",
+                25,
+                tracks,
+                false,
+                new CategorizedSearchPolicy.ArtistSelection(Collections.emptyList()),
+                false,
+                Collections.singletonList(item(LibraryItem.Type.ALBUM, 7L, "Record")),
+                false,
+                Collections.emptyList(),
+                false
+        );
+
+        assertEquals(CategorizedSearch.TrackMatch.EXACT, result.trackMatch);
+        assertEquals(2, result.sections.size());
+        assertEquals(CategorizedSearch.SectionType.TRACKS, result.sections.get(0).type);
+        assertEquals(CategorizedSearch.SectionType.ALBUMS, result.sections.get(1).type);
+        assertFalse(result.sections.get(1).truncated);
+    }
+
+    private static LibraryItem artist(long id, String title, boolean unsplit, int oldCount) {
+        return new LibraryItem(
+                LibraryItem.Type.ARTIST, id, null, null, title, null, null,
+                10_000L, oldCount, null, null, null, unsplit, null
+        );
     }
 
     private static LibraryItem item(LibraryItem.Type type, long id, String title) {
@@ -104,5 +150,11 @@ public final class CategorizedSearchPolicyTest {
                 type, id, null, null, title, null, null,
                 null, null, null, play, null
         );
+    }
+
+    private static List<Long> ids(List<LibraryItem> items) {
+        java.util.ArrayList<Long> ids = new java.util.ArrayList<>();
+        for (LibraryItem item : items) ids.add(item.id);
+        return ids;
     }
 }

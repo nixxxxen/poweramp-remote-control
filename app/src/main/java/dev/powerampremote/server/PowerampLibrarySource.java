@@ -266,16 +266,27 @@ final class PowerampLibrarySource implements AutoCloseable {
             Candidates partialTracks = readCandidates(
                     PowerampLibraryContract.categorizedTrackTitles(query), cancellation
             );
-            List<LibraryItem> trackItems = new ArrayList<>(
-                    exactTracks.items.size() + partialTracks.items.size()
-            );
-            trackItems.addAll(exactTracks.items);
-            trackItems.addAll(partialTracks.items);
+            List<Candidates> trackSources = new ArrayList<>();
+            trackSources.add(exactTracks);
+            trackSources.add(partialTracks);
+            for (String probe : SearchComparisonPolicy.providerSearchProbes(query)) {
+                trackSources.add(readCandidates(
+                        PowerampLibraryContract.categorizedTrackTitles(probe), cancellation
+                ));
+            }
+            Candidates trackCandidates = mergeCandidates(trackSources);
             CategorizedSearchPolicy.TrackSelection trackSelection =
-                    CategorizedSearchPolicy.selectTracks(query, trackItems);
-            Candidates directArtists = readCandidates(
+                    CategorizedSearchPolicy.selectTracks(query, trackCandidates.items);
+            List<Candidates> artistSources = new ArrayList<>();
+            artistSources.add(readCandidates(
                     PowerampLibraryContract.categorizedArtists(query), cancellation
-            );
+            ));
+            for (String probe : SearchComparisonPolicy.providerSearchProbes(query)) {
+                artistSources.add(readCandidates(
+                        PowerampLibraryContract.categorizedArtists(probe), cancellation
+                ));
+            }
+            Candidates directArtists = mergeCandidates(artistSources);
 
             List<LibraryItem> relatedArtistItems = new ArrayList<>();
             boolean relatedArtistsTruncated = false;
@@ -297,20 +308,43 @@ final class PowerampLibrarySource implements AutoCloseable {
                 }
             }
 
-            Candidates albums = readCandidates(
+            CategorizedSearchPolicy.ArtistSelection artistSelection =
+                    CategorizedSearchPolicy.selectArtists(
+                            query, directArtists.items, relatedArtistItems
+                    );
+
+            List<Candidates> albumSources = new ArrayList<>();
+            albumSources.add(readCandidates(
                     PowerampLibraryContract.categorizedAlbums(query), cancellation
-            );
+            ));
+            for (String probe : SearchComparisonPolicy.providerSearchProbes(query)) {
+                albumSources.add(readCandidates(
+                        PowerampLibraryContract.categorizedAlbums(probe), cancellation
+                ));
+            }
+            Candidates directAlbums = mergeCandidates(albumSources);
+            List<LibraryItem> relatedAlbumItems = Collections.emptyList();
+            boolean relatedAlbumsTruncated = false;
+            List<Long> displayedArtistIds = artistSelection.displayedIds(limit);
+            if (!displayedArtistIds.isEmpty()) {
+                Candidates relatedAlbums = readCandidates(
+                        PowerampLibraryContract.relatedAlbums(displayedArtistIds), cancellation
+                );
+                relatedAlbumItems = relatedAlbums.items;
+                relatedAlbumsTruncated = relatedAlbums.truncated;
+            }
             CategorizedSearch result = CategorizedSearchPolicy.compose(
                     query,
                     limit,
                     trackSelection,
-                    exactTracks.truncated || partialTracks.truncated,
-                    directArtists.items,
-                    directArtists.truncated,
-                    relatedArtistItems,
-                    relatedArtistsTruncated,
-                    albums.items,
-                    albums.truncated
+                    trackCandidates.truncated,
+                    artistSelection,
+                    directArtists.truncated
+                            || relatedArtistsTruncated,
+                    directAlbums.items,
+                    directAlbums.truncated,
+                    relatedAlbumItems,
+                    relatedAlbumsTruncated
             );
             updateAccess(LibraryAccessState.Status.AVAILABLE);
             return CategorizedResult.success(result);
@@ -321,6 +355,27 @@ final class PowerampLibrarySource implements AutoCloseable {
             }
             return CategorizedResult.failure(status);
         }
+    }
+
+    private static Candidates mergeCandidates(List<Candidates> sources) {
+        LinkedHashMap<Long, LibraryItem> byId = new LinkedHashMap<>();
+        boolean truncated = false;
+        int maximum = PowerampLibraryContract.MAX_CATEGORIZED_SEARCH_CANDIDATES;
+        for (Candidates source : sources) {
+            if (source == null) continue;
+            truncated |= source.truncated;
+            for (LibraryItem item : source.items) {
+                if (item == null || byId.containsKey(item.id)) continue;
+                if (byId.size() >= maximum) {
+                    truncated = true;
+                    continue;
+                }
+                byId.put(item.id, item);
+            }
+        }
+        return new Candidates(
+                Collections.unmodifiableList(new ArrayList<>(byId.values())), truncated
+        );
     }
 
     private Candidates readCandidates(
@@ -467,6 +522,12 @@ final class PowerampLibrarySource implements AutoCloseable {
                 toInteger(rows.longValue(PowerampLibraryContract.COLUMN_TRACK_COUNT)),
                 null,
                 playTarget,
+                null,
+                type == LibraryItem.Type.ARTIST
+                        ? booleanValue(rows.longValue(
+                                PowerampLibraryContract.COLUMN_ARTIST_IS_UNSPLIT
+                        ))
+                        : null,
                 null
         );
     }
@@ -611,6 +672,10 @@ final class PowerampLibrarySource implements AutoCloseable {
         return value != null && value >= 0L && value <= Integer.MAX_VALUE
                 ? value.intValue()
                 : null;
+    }
+
+    private static Boolean booleanValue(Long value) {
+        return value == null ? null : value != 0L;
     }
 
     @Override
