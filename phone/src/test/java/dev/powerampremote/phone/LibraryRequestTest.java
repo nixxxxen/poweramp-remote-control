@@ -39,5 +39,14 @@ public final class LibraryRequestTest {
                 "/api/v1/search/grouped?q=A%26B+%2B+%D1%82%D1%80%D0%B5%D0%BA&limit=25",
                 CategorizedSearchRequest.create("A&B + трек").path()
         );
+        assertEquals(
+                "/api/v1/search/grouped?q=Oblivion&limit=25&section=tracks"
+                        + "&pageToken=ABCDEFGHIJKLMNOPQRSTUVWX",
+                CategorizedSearchRequest.section(
+                        "Oblivion",
+                        CategorizedSearchResult.SectionType.TRACKS,
+                        "ABCDEFGHIJKLMNOPQRSTUVWX"
+                ).path()
+        );
     }
 }

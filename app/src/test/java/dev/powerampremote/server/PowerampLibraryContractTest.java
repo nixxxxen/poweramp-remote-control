@@ -17,6 +17,12 @@ public final class PowerampLibraryContractTest {
                 PowerampLibraryContract.allTracks().providerUri(25)
         );
         assertEquals(
+                "content://com.maxmpz.audioplayer.data/files",
+                PowerampLibraryContract.allTracks().providerUri(
+                        PowerampLibraryContract.PROVIDER_ALL_ROWS
+                )
+        );
+        assertEquals(
                 "content://com.maxmpz.audioplayer.data/artists/12/files?lim=7",
                 PowerampLibraryContract.artistTracks(12L).providerUri(7)
         );
@@ -52,7 +58,6 @@ public final class PowerampLibraryContractTest {
                 "content://other.provider/files?lim=10",
                 "content://com.maxmpz.audioplayer.data/../files?lim=10",
                 "content://com.maxmpz.audioplayer.data/files%2F1?lim=10",
-                "content://com.maxmpz.audioplayer.data/files",
                 "content://com.maxmpz.audioplayer.data/files?lim=0",
                 "content://com.maxmpz.audioplayer.data/files?lim=1002",
                 "content://com.maxmpz.audioplayer.data/files?lim=10&offset=2",
@@ -97,7 +102,9 @@ public final class PowerampLibraryContractTest {
         expectInvalid(() -> PowerampLibraryContract.parsePositiveId("9223372036854775808"));
         expectInvalid(() -> PowerampLibraryContract.validSearchQuery("   "));
         expectInvalid(() -> PowerampLibraryContract.validSearchQuery("bad\nquery"));
-        expectInvalid(() -> PowerampLibraryContract.allTracks().providerUri(0));
+        assertTrue(PowerampLibraryContract.isAllowedProviderUri(
+                PowerampLibraryContract.allTracks().providerUri(0)
+        ));
         assertTrue(PowerampLibraryContract.isAllowedProviderUri(
                 PowerampLibraryContract.queue().providerUri(100)
         ));
@@ -194,6 +201,33 @@ public final class PowerampLibraryContractTest {
                 albums.selection()
         );
         assertArrayEquals(new String[]{"8", "9"}, albums.selectionArgs());
+
+        PowerampLibraryContract.Query structuredTracks =
+                PowerampLibraryContract.categorizedTrackTitlesForArtists(
+                        "rare%_!", java.util.List.of(8L, 9L)
+                );
+        assertEquals(
+                "(title_tag LIKE ? ESCAPE '!') AND EXISTS (SELECT 1 FROM multi_artists"
+                        + " WHERE multi_artists.file_id=folder_files._id"
+                        + " AND multi_artists.artist_id IN (?,?))",
+                structuredTracks.selection()
+        );
+        assertArrayEquals(
+                new String[]{"%rare!%!_!!%", "8", "9"},
+                structuredTracks.selectionArgs()
+        );
+
+        PowerampLibraryContract.Query structuredAlbums =
+                PowerampLibraryContract.categorizedAlbumsForArtists(
+                        "record", java.util.List.of(8L)
+                );
+        assertTrue(structuredAlbums.selection().contains(
+                "multi_artists.file_id=folder_files._id"
+        ));
+        assertTrue(structuredAlbums.selection().contains(
+                "folder_files.album_id=albums._id"
+        ));
+        assertArrayEquals(new String[]{"%record%", "8"}, structuredAlbums.selectionArgs());
         assertTrue(java.util.Arrays.asList(
                 PowerampLibraryContract.categorizedArtists("artist").projection()
         ).contains("artists.is_unsplit AS artist_is_unsplit"));

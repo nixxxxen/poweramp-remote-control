@@ -13,7 +13,7 @@ import static org.junit.Assert.assertTrue;
 
 public final class CategorizedSearchPolicyTest {
     @Test
-    public void exactTrackTitlesDominateNormalizedPartialTitles() {
+    public void exactTrackTitlesLeadWithoutSuppressingPartialTitles() {
         CategorizedSearchPolicy.TrackSelection selection =
                 CategorizedSearchPolicy.selectTracks("  Of Mice and Men  ", List.of(
                         item(LibraryItem.Type.TRACK, 1L, "Of Mice & Men"),
@@ -22,7 +22,7 @@ public final class CategorizedSearchPolicyTest {
                 ));
 
         assertTrue(selection.exact);
-        assertEquals(Collections.singletonList(1L), ids(selection.matches));
+        assertEquals(List.of(1L, 2L), ids(selection.matches));
     }
 
     @Test
@@ -47,7 +47,7 @@ public final class CategorizedSearchPolicyTest {
 
         assertEquals(Collections.singletonList(10L), ids(selection.matches));
         LibraryItem canonical = selection.matches.get(0);
-        assertNull(canonical.trackCount);
+        assertEquals(6, canonical.trackCount.intValue());
         assertNull(canonical.durationMilliseconds);
         assertNotNull(canonical.browseTarget);
         assertEquals(LibraryItem.BrowseTarget.Type.ARTIST_MEMBERSHIP,

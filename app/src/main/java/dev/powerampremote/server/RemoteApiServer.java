@@ -350,6 +350,7 @@ final class RemoteApiServer implements AutoCloseable {
             closeWebSockets();
             closeConnections();
             cancelLibraryRequests();
+            if (librarySource != null) librarySource.cancelPagingSessions();
             pendingEvent.set(null);
             notifyStatus(false, null);
         }
@@ -722,11 +723,9 @@ final class RemoteApiServer implements AutoCloseable {
         if (CATEGORIZED_SEARCH_PATH.equals(request.path)) {
             final LibraryApiQuery apiQuery;
             try {
-                apiQuery = LibraryApiQuery.search(request.rawQuery);
-                if (apiQuery.pageToken != null) {
-                    throw new IllegalArgumentException(
-                            "Categorized Search does not accept page tokens"
-                    );
+                apiQuery = LibraryApiQuery.categorizedSearch(request.rawQuery);
+                if (apiQuery.pageToken != null && apiQuery.searchSection == null) {
+                    throw new IllegalArgumentException("Search section is required");
                 }
             } catch (IllegalArgumentException exception) {
                 writeJsonError(output, 400, "Bad Request", "invalid_library_request");
@@ -738,6 +737,8 @@ final class RemoteApiServer implements AutoCloseable {
                         librarySource.searchCategorized(
                                 apiQuery.searchQuery,
                                 apiQuery.limit,
+                                apiQuery.searchSection,
+                                apiQuery.pageToken,
                                 cancellation
                         );
                 if (!result.isSuccess()) {
@@ -750,6 +751,8 @@ final class RemoteApiServer implements AutoCloseable {
                         "OK",
                         LibraryJson.categorizedSearch(result.search)
                 );
+            } catch (PowerampLibrarySource.InvalidPageTokenException exception) {
+                writeJsonError(output, 400, "Bad Request", "invalid_page_token");
             } finally {
                 endLibraryRequest(cancellation);
             }

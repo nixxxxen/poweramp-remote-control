@@ -26,17 +26,19 @@ public final class SearchPresentationPolicyTest {
                         new CategorizedSearchResult.Section(
                                 CategorizedSearchResult.SectionType.TRACKS,
                                 Collections.singletonList(track),
-                                false
+                                true,
+                                "ABCDEFGHIJKLMNOPQRSTUVWX"
                         )
                 )
         );
 
         List<SearchPresentationPolicy.Row> rows = SearchPresentationPolicy.rows(result);
-        assertEquals(4, rows.size());
+        assertEquals(5, rows.size());
         assertEquals(CategorizedSearchResult.SectionType.TRACKS, rows.get(0).header);
         assertEquals(track, rows.get(1).item);
-        assertEquals(CategorizedSearchResult.SectionType.ARTISTS, rows.get(2).header);
-        assertEquals(artist, rows.get(3).item);
+        assertEquals(CategorizedSearchResult.SectionType.TRACKS, rows.get(2).more);
+        assertEquals(CategorizedSearchResult.SectionType.ARTISTS, rows.get(3).header);
+        assertEquals(artist, rows.get(4).item);
         assertTrue(rows.stream().noneMatch(row ->
                 row.header == CategorizedSearchResult.SectionType.ALBUMS));
     }

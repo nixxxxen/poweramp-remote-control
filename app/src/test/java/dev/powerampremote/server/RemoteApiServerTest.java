@@ -291,13 +291,36 @@ public final class RemoteApiServerTest {
         assertEquals("exact", categorizedJson.getString("trackMatch"));
         JSONArray sections = categorizedJson.getJSONArray("sections");
         assertEquals("tracks", sections.getJSONObject(0).getString("type"));
-        assertEquals(1, sections.getJSONObject(0).getJSONArray("items").length());
+        assertEquals(2, sections.getJSONObject(0).getJSONArray("items").length());
         assertEquals("artists", sections.getJSONObject(1).getString("type"));
         JSONObject artist = sections.getJSONObject(1).getJSONArray("items").getJSONObject(0);
         assertEquals(8L, artist.getLong("id"));
         assertEquals("artist_membership", artist.getJSONObject("browse").getString("type"));
         assertEquals("albums", sections.getJSONObject(2).getString("type"));
         assertEquals(2, sections.getJSONObject(2).getJSONArray("items").length());
+
+        JSONObject firstSearchPage = new JSONObject(body(http(
+                "GET",
+                RemoteApiServer.CATEGORIZED_SEARCH_PATH + "?q=Obsidian&limit=1",
+                TOKEN,
+                null,
+                null
+        )));
+        JSONObject firstTracks = firstSearchPage.getJSONArray("sections").getJSONObject(0);
+        assertEquals(2L, firstTracks.getJSONArray("items").getJSONObject(0).getLong("id"));
+        String tracksToken = firstTracks.getString("nextPageToken");
+        JSONObject secondSearchPage = new JSONObject(body(http(
+                "GET",
+                RemoteApiServer.CATEGORIZED_SEARCH_PATH
+                        + "?q=Obsidian&limit=1&section=tracks&pageToken=" + tracksToken,
+                TOKEN,
+                null,
+                null
+        )));
+        assertEquals(1, secondSearchPage.getJSONArray("sections").length());
+        JSONObject secondTracks = secondSearchPage.getJSONArray("sections").getJSONObject(0);
+        assertEquals(3L, secondTracks.getJSONArray("items").getJSONObject(0).getLong("id"));
+        assertTrue(secondTracks.isNull("nextPageToken"));
 
         String memberships = http(
                 "GET",
@@ -1108,10 +1131,9 @@ public final class RemoteApiServerTest {
                     query.category,
                     Collections.emptyList()
             );
-            return new TestRows(
-                    available.subList(0, Math.min(limit, available.size())),
-                    cancellation
-            );
+            int end = limit == PowerampLibraryContract.PROVIDER_ALL_ROWS
+                    ? available.size() : Math.min(limit, available.size());
+            return new TestRows(available.subList(0, end), cancellation);
         }
     }
 

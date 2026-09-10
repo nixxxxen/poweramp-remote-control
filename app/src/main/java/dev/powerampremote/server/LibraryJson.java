@@ -34,11 +34,9 @@ final class LibraryJson {
             JSONObject pagination = new JSONObject();
             pagination.put("defaultLimit", PowerampLibraryContract.DEFAULT_PAGE_SIZE);
             pagination.put("maximumLimit", PowerampLibraryContract.MAX_PAGE_SIZE);
-            pagination.put(
-                    "maximumContinuationRows",
-                    PowerampLibraryContract.MAX_CONTINUATION_ROWS
-            );
+            pagination.put("maximumContinuationRows", JSONObject.NULL);
             pagination.put("providerOffsetSupported", false);
+            pagination.put("continuationModel", "server_snapshot");
             root.put("pagination", pagination);
 
             JSONObject queue = new JSONObject();
@@ -90,6 +88,9 @@ final class LibraryJson {
                 }
                 serializedSection.put("items", items);
                 serializedSection.put("truncated", section.truncated);
+                serializedSection.put(
+                        "nextPageToken", nullable(section.nextPageToken)
+                );
                 sections.put(serializedSection);
             }
             root.put("sections", sections);

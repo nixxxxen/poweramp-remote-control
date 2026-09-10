@@ -69,6 +69,10 @@ public final class LibraryJsonTest {
                 "/api/v1/library/artists/{id}/member-tracks",
                 root.getJSONObject("routes").getString("artistMembershipTracks")
         );
+        JSONObject pagination = root.getJSONObject("pagination");
+        assertTrue(pagination.isNull("maximumContinuationRows"));
+        assertEquals("server_snapshot", pagination.getString("continuationModel"));
+        assertFalse(pagination.getBoolean("providerOffsetSupported"));
     }
 
     @Test
@@ -86,7 +90,8 @@ public final class LibraryJsonTest {
                 java.util.List.of(new CategorizedSearch.Section(
                         CategorizedSearch.SectionType.TRACKS,
                         java.util.Collections.singletonList(track),
-                        false
+                        true,
+                        "ABCDEFGHIJKLMNOPQRSTUVWX"
                 ))
         );
 
@@ -95,6 +100,8 @@ public final class LibraryJsonTest {
         JSONObject section = root.getJSONArray("sections").getJSONObject(0);
         assertEquals("tracks", section.getString("type"));
         assertEquals(41L, section.getJSONArray("items").getJSONObject(0).getLong("id"));
+        assertTrue(section.getBoolean("truncated"));
+        assertEquals("ABCDEFGHIJKLMNOPQRSTUVWX", section.getString("nextPageToken"));
     }
 
     @Test

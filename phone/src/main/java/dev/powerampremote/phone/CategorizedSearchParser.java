@@ -61,7 +61,18 @@ final class CategorizedSearchParser {
                     items.add(item);
                 }
                 boolean truncated = value.getBoolean("truncated");
-                sections.add(new CategorizedSearchResult.Section(type, items, truncated));
+                String nextPageToken = value.isNull("nextPageToken")
+                        ? null : value.optString("nextPageToken", null);
+                if (nextPageToken != null
+                        && !nextPageToken.matches("[A-Za-z0-9_-]{24}")) {
+                    throw new JSONException("Invalid Search page token");
+                }
+                if (nextPageToken != null && !truncated) {
+                    throw new JSONException("Search continuation is not marked truncated");
+                }
+                sections.add(new CategorizedSearchResult.Section(
+                        type, items, truncated, nextPageToken
+                ));
                 hasTracks |= type == CategorizedSearchResult.SectionType.TRACKS;
             }
             if (hasTracks == "none".equals(trackMatch)) {

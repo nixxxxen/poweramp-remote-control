@@ -182,7 +182,7 @@ final class LibraryItem {
         if (type != Type.ARTIST) throw new IllegalStateException("Artist item required");
         return new LibraryItem(
                 type, id, entryId, parentId, title, artist, album,
-                null, null, artworkPath, playTarget, current, artistUnsplit,
+                null, trackCount, artworkPath, playTarget, current, artistUnsplit,
                 BrowseTarget.artistMembership(id)
         );
     }

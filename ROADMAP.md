@@ -256,36 +256,41 @@ Initial browsing structure:
 
 Server foundation is implemented at the unchanged Server `0.10.2` / API `v1`: bounded
 ContentProvider-backed routes, strict ID/category/query validation, lazy track artwork, explicit
-permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. A first Phone
-Library/Search UI candidate now adds the agreed navigation, bounded paging, lazy thumbnail cache,
-container Back stack, and stale-search protection at unchanged Phone `0.6.0`. Versions increase only
-after the whole series is complete. Basic Server tracks/Albums browsing, track-ID play, and
-positive/empty search are confirmed on the maintainer's Poweramp build; the new Phone surface and
-remaining category/permission/large-library matrix still require device validation.
+permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. The Phone
+Library/Search UI now adds the agreed navigation, unlimited server-snapshot continuation with
+bounded HTTP pages, lazy thumbnail cache, container Back stack, stale-search protection, grouped
+Tracks/Artists/Albums continuation, structured Artist/title Search, clear, and private local history
+at unchanged Phone `0.6.0`. Versions increase only after the whole series is complete. The current
+Library/Search device matrix is maintainer-confirmed; broader category/permission/OEM coverage
+remains ongoing.
 
 Phone navigation is now Player / Library / Search / Settings in a bottom bar. About is in Settings,
 the top-left main menu is removed, and the existing connection pill is retained. A later Queue task
 can add its Player entry after the Queue device matrix. Navigation preserves playback and the
 existing service-owned runtime.
 
-Load only the currently requested category/page and cache recent results locally for responsive navigation.
+Phone loads only the currently requested page and caches recent presentation data locally for
+responsive navigation. Server may retain only a bounded short-lived immutable result snapshot
+behind opaque continuation tokens; it never persists a Poweramp database copy.
 
-Long-list Phone stability is implemented pending real-device confirmation: append/status updates
+Long-list Phone stability is implemented and device-confirmed: append/status updates
 do not restore stale offsets, same-Server reconnect keeps loaded pages, continuation failures keep
 the list visible without automatic retries, and visible artwork survives RAM eviction/rebind.
-The current Server browse window still stops at 1000 provider rows. Before removing this limit,
-verify a supported bounded continuation/ordering strategy against the public provider and a large
-real-device library, including live library changes. Do not merely raise the prefix-scan cap or
-invent an undocumented SQL offset. Scoped search and sorting below must operate before pagination,
-not only on this already loaded window; existing global Search remains the current workaround.
+The former 1000-row Server window is removed without inventing an undocumented SQL offset/keyset:
+one documented base-URI Cursor is consumed and closed into a bounded-TTL/LRU server-owned snapshot,
+then `1…100`-row pages continue to its actual end. One session has stable ordering and no skips or
+duplicates; library edits appear only after Reload. Sorting below must still operate before
+snapshot pagination, not only on an already loaded Phone page. Scoped Search is no longer part of
+the next release scope.
 
 Search executes in Poweramp through `/files` with a fixed parameterized title/file-name/artist/album
 selection, verified with matching and nonmatching queries on Poweramp `1025004-fa3ec08671d`.
 The obsolete `/search?flt` crashes that build and is excluded without fallback. The historical
-route still returns track rows only; the completed global-search stage adds a separate typed
-Tracks / Artists / Albums route after verifying public provider IDs and the `multi_artists`
-relation. It neither copies the database nor filters an already downloaded Phone page. Playlist
-search remains separate future scope until its contract is requested and verified.
+route still returns track rows only; completed Global Search adds a separate typed Tracks / Artists
+/ Albums route with independently pageable sections, exact → prefix → substring Track ordering,
+fuzzy Artist/Album cache, structured `artist - track/album` queries, and verified public
+`multi_artists` relations. It neither persists the database nor filters an already downloaded Phone
+page. Playlist search remains separate future scope until its contract is requested and verified.
 
 Support playback actions for documented Poweramp content URIs:
 
@@ -340,38 +345,27 @@ Versions advance when the series is ready for release, not for each refinement.
    last snapshot while disconnected with controls disabled, clears old artwork on identity change,
    and adds only lifecycle-bound Settings binding—no second connection, MediaSession, polling loop,
    palette analysis, or thumbnail-cache path.
-6. **Partially completed — Global categorized Search; provider-canonical device limitation remains.** The track-only Search presentation is replaced by three
-   visually separated sections in fixed order: Tracks, Artists, Albums. Hide a section when it has
-   no results. Track-title matches belong only to Tracks, artist-name matches only to Artists, and
-   album-title matches only to Albums; deduplicate entity rows by their stable provider IDs. When
-   the normalized query exactly equals one or more track titles, the Tracks section contains only
-   those exact-title tracks rather than additional substring track matches. Artists verified as
-   belonging to those exact tracks are also included in Artists even when their own name does not
-   contain the query; direct artist-name matches remain included. Albums continue to be included
-   from their own title matches. Thus `Obsidian` can show the exact `Northlane — Obsidian` track,
-   `Northlane` in Artists through the verified relation, and the `Obsidian` album in Albums. Do not
-   recover artist/album container IDs by comparing display strings on Phone: Server results must
-   carry verified public provider identities and relations. A track retains the existing play
-   action. Selecting an Artist or Album enters that existing Library container and its track list,
-   preserving Search query/results so Back returns to the same Search state. Search all applicable
-   provider rows before paging/section limits, keep stale-query protection, and add only additive
-   backward-compatible API v1 fields or routes. The refinement now adds normalized `and`/`&`,
-   diacritic and dash comparison, bounded two-error fuzzy fallback, related Albums, public
-   `artists.is_unsplit` filtering, and an additive relation-aware Artist membership browse target;
-   the historical Artist route stays unchanged. On the connected Poweramp build the canonical
-   `Moe Shop` row is deduplicated and normalized/fuzzy probes find `Of Mice & Men`/`Northlane`, but
-   `multi_artists` links collaboration files only to their composite IDs, those rows report
-   `is_unsplit=0`, and no standalone `Sān-Z` ID exists. Therefore complete canonical collaboration
-   merging and a standalone `Sān-Z` result cannot be implemented from stable public IDs on that
-   library without forbidden display-string parsing. Keep this item partial until Poweramp emits
-   split participant relations (or exposes another documented identity relation) and the complete
-   Phone device matrix passes. Never reintroduce `/search?flt`.
-7. **Search within the current scope.** Add a search action inside All tracks and individual
-   folders, albums, artists and playlists, with an explicit visible scope. Define direct-folder
-   versus recursive behavior before implementation. Search the whole selected container before
-   pagination, not just the rows currently loaded on Phone. Verify public provider support and
-   add only backward-compatible Server parameters where needed; bind continuation and stale-result
-   protection to both query and scope. Never reintroduce the obsolete `/search?flt` path.
+6. **Completed — Global categorized Search.** The track-only presentation is replaced by fixed
+   Tracks / Artists / Albums sections with stable provider-ID deduplication and independent lazy
+   continuation to each section's actual end. Track ordering is exact → prefix → substring/token;
+   an exact title no longer hides `Beyond Oblivion` or another partial match, and Track fuzzy noise
+   remains disabled. Artist/Album normalized fuzzy fallback uses a bounded service-owned TTL index.
+   Poweramp's configured `,`/`;` participant splitting now publishes canonical `multi_artists`
+   membership; `artists.num_files`, relation-backed Albums, and Artist browse use those public rows
+   without parsing display metadata. Explicit spaced `artist - track/album` queries restrict Track
+   and Album results through the same relations, while an unresolved Artist falls back to ordinary
+   full-string Search. Phone preserves Search-origin Back state, adds per-section Show more/retry,
+   a generation-clearing 48 dp input clear action, and a private 20-entry completed-query history
+   visible only with focused empty input and a genuinely visible IME. The maintainer confirmed the
+   complete requested device matrix. API `v1`, historical `/api/v1/search`, services, playback,
+   transports, pairing, and `/search?flt` prohibition remain unchanged.
+7. **Deferred until after the next release / on demand — Scoped Search.** Search inside All Tracks,
+   folders, Artists, Albums, and Playlists is removed from the current release path because the
+   completed Global Search covers the primary use case. Revisit it only after the Library/Queue
+   release when explicitly requested or when repository adoption shows clear demand. Any future
+   implementation must expose the active scope, define direct-folder versus recursive behavior,
+   search the whole container before pagination, bind continuation/stale-result protection to the
+   scope, and never reintroduce `/search?flt`.
 8. **Completed for current Library/Search rows — rounded thumbnails.** Track thumbnails,
    representative category covers, and their placeholders share an 8 dp outline clip, square
    proportions, and `centerCrop`, without bitmap reprocessing per bind. Mini-player artwork remains
@@ -384,9 +378,10 @@ Versions advance when the series is ready for release, not for each refinement.
    sort per relevant view, reset paging when it changes, and retain a provider-default order option.
    Sorting only an already downloaded page must not be presented as sorting the whole library.
 
-Scoped search and sorting require a focused public Poweramp API/device check: the current Server
-contract exposes global track search and provider-default ordering, not these additional options.
-Unsupported criteria should remain unavailable with honest UI rather than fabricated values.
+Sorting requires a focused public Poweramp API/device check: the current Server contract exposes
+provider-default ordering, not the additional options below. Unsupported criteria should remain
+unavailable with honest UI rather than fabricated values. Deferred Scoped Search requires its own
+separate audit if it is resumed after release.
 
 ## Queue
 

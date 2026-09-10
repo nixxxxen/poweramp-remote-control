@@ -12,75 +12,81 @@ The repository builds two native Android applications. At the unchanged Server r
 `0.10.2`, the current source adds the Library/Search/current-Queue API foundation and the playback
 identity fields required by the Phone current-row indicator. An installed APK with the same version
 number can predate those source changes and must not be treated as an equivalent build.
-At unchanged Phone `0.6.0`, a first Library/Search UI candidate now consumes the existing API; Queue
-UI remains absent, and the Search tab now has additive typed Tracks / Artists / Albums results. API
-stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
+At unchanged Phone `0.6.0`, the Library/Search UI now consumes unlimited server-snapshot paging;
+Queue UI remains absent, and Search has independently pageable typed Tracks / Artists / Albums,
+structured Artist/title queries, clear, and private local history. API stays backward-compatible
+`v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
 
-## Grouped Search relation/canonical/fuzzy refinement (2026-09-10)
+## Completed Global Search and unlimited Library pagination (2026-09-10)
 
-- The Bearer-only `/api/v1/search/grouped` envelope and historical `/api/v1/search` remain
-  compatible. Grouped Search now ranks immutable provider labels through a pure comparison policy:
-  trim, `Locale.ROOT` case folding, Unicode decomposition/combining-mark removal, dash folding,
-  standalone `and`/`&` equivalence, and repeated-space collapse. Strong punctuation is preserved;
-  a punctuation-insensitive token key is weaker only. Ranking is exact → prefix → substring/token
-  → fuzzy. Damerau-Levenshtein is disabled below 5 code points, capped at 1 edit for 5–7 and 2
-  edits from 8 onward, and at most 5 fuzzy rows are returned only when the section has no stronger
-  deterministic/relation result. Bounded normalized/unchanged-substring provider probes and their
-  stable-ID union retain the 1000-candidate cap; no full-library Phone copy or `/search?flt` path was
-  added. Track fuzzy fallback remains disabled and exact-title dominance remains Track-only.
-- Public Poweramp `artists.is_unsplit` now distinguishes documented combined rows where Poweramp
-  publishes that flag. Non-exact unsplit Artist rows are suppressed; an exact full composite name
-  remains eligible. Grouped Artists are deduplicated by `artists._id`, have intentionally null
-  count/duration, and carry the additive optional
-  `browse:{"type":"artist_membership","id":...}` object. New Phone parsers accept both this object
-  and old grouped payloads where it is absent.
-- The browse object selects additive
-  `/api/v1/library/artists/{id}/member-tracks`; the legacy `/artists/{id}/tracks` semantics are
-  untouched. Server queries outer `/files` rows with bound
-  `multi_artists.file_id`/`artist_id` membership, so a file related more than once is returned once.
-  Phone opens this target inside the existing Library/Search Activity and uses the same route for
-  representative artwork, while the existing Search-origin snapshot continues to retain query,
-  typed results, scroll offset, and Library depth for Back.
-- Albums now combine direct title matches with albums related to the displayed Artist IDs through
-  public `multi_artists.file_id` and `folder_files.album_id`, deduplicated by `albums._id`. Ordering
-  is exact direct Album → relation Albums → remaining prefix/substring direct Albums; fuzzy Albums
-  appear only when neither deterministic nor relation results exist. Tracks remain title-only.
-- Targeted JVM verification passed **65/65**: Server `SearchComparisonPolicyTest` **4/4**,
-  `CategorizedSearchPolicyTest` **7/7**, `PowerampLibraryContractTest` **5/5**,
-  `PowerampLibrarySourceTest` **13/13**, `LibraryJsonTest` **5/5**, and
-  `RemoteApiServerTest` **12/12**; Phone `CategorizedSearchParserTest` **3/3**,
-  `LibraryRequestTest` **2/2**, `RepresentativeArtworkTest` **5/5**,
-  `SearchOriginStateTest` **2/2**, `SearchPresentationPolicyTest` **1/1**,
-  `SearchRequestGateTest` **2/2**, and `PhoneResourceParityTest` **4/4**. Final
-  `:app:assembleDebug`, `:phone:assembleDebug`, and `git diff --check` passed. Full suites, lint, clean, release, Server
-  `RemoteStateJsonTest`, and version changes were not run.
-- A final Server debug APK was installed over the existing debug app on the connected R4 with app
-  data retained; Poweramp is `build-1025-bundle-play`. Live Bearer-only API checks confirmed:
-  `Moe Shop` returns one Artist ID `2449`, only the one title-matching Track, and four relation
-  Albums; `Moe Shop, KMNZ` finds the provider's exact composite `KMNZ; Moe Shop` ID `3216` through
-  the weaker punctuation/token comparison; `Of Mice and Men` returns canonical `Of Mice & Men` ID
-  `1025` plus its related Albums; and `Nrthlame` returns `Northlane` ID `1024` plus its related
-  Albums. All checked sections reported `truncated=false`.
-- The same device also confirms a non-negotiable provider-data limitation. Its collaboration file
-  `TiMEMAXERAS; Moe Shop` maps through `multi_artists` only to composite Artist ID `1970`; canonical
-  `Moe Shop` ID `2449` still resolves six sole-artist tracks through both legacy and membership
-  routes. Search for `Sān-Z` exposes no standalone provider Artist ID, only six composite IDs, and
-  those composite rows report `artists.is_unsplit=0`. Consequently `san-z` is found
-  accent-insensitively but cannot be collapsed to a synthetic `Sān-Z` row, and the missing Moe Shop
-  collaboration relations cannot be invented without prohibited display-string parsing. The code
-  deliberately reports only verified IDs and leaves this ROADMAP item partial.
-- Remaining real-device work: run the matching Phone debug APK on the Phone device to verify
-  Artist/Album taps, Back/query/section-scroll restoration, representative artwork from the
-  membership set, keyboard/insets, rapid taps, current-track indicator/mini-player/WebSocket state,
-  and compact layouts. Recheck complete sole+collaboration membership and standalone `Sān-Z` only
-  after Poweramp is configured to publish split participant relations (or documents another stable
-  identity relation). The temporary diagnostic field used to inspect `is_unsplit` was removed; no
-  credentials were logged or emitted.
+- Root cause for missing `Beyond Oblivion` had two independent parts:
+  `CategorizedSearchPolicy.selectTracks()` dropped every partial match as soon as any exact title
+  existed, and `MAX_CATEGORIZED_SEARCH_CANDIDATES` stopped the grouped provider read at 1000 rows
+  before ranking. Exact Track matches now lead prefix and substring/token
+  matches without suppressing them; Track fuzzy fallback remains disabled. Provider candidates are
+  consumed to their real end and deduplicated by public `folder_files._id`. Tracks, Artists, and
+  Albums remain separate and an exact Track never removes the other sections.
+- The public Poweramp audit still documents optional `lim`/`shf` but no offset, keyset, or ordering
+  guarantee across separate queries. Initial Library/Search requests therefore consume one
+  documented base-URI Cursor into a server-owned immutable model snapshot, immediately close the
+  Cursor/client, and return only a `1…100`-row page. At most eight snapshot sessions exist, with a
+  five-minute sliding TTL and LRU eviction. Final page, expiry, eviction, cancellation discard, API
+  stop, service shutdown, or provider failure releases its state/resources. Tokens are opaque,
+  query-bound, and stable for retry; pages inside one session have no gaps/duplicates. Live library
+  changes appear only after explicit Reload. The old `truncated` field stays compatible, while
+  Library now has no fixed total-row ceiling; `MAX_CONTINUATION_ROWS` was removed rather than raised.
+- Grouped Search additively gives Tracks, Artists, and Albums independent `nextPageToken` values.
+  Continuation requires `section` plus its token and returns only that section; Phone inserts the
+  page before the following header and preserves every other section and the list position. Each
+  **Show more** row owns local progress/retry. Expiry offers a section-only Reload, normal end is not
+  truncation, and Search no longer reuses the Library message that suggests going to Search.
+- Poweramp is configured to split participant relations on `,` and `;`. Search Artist totals now
+  preserve public `artists.num_files`; the maintainer confirmed that the displayed total agrees
+  with the unique `artist_membership` rows, including solo and collaboration files. Counts are not
+  inferred from loaded Phone pages. Artist/Album membership remains bound to public
+  `multi_artists` and `folder_files.album_id`; no display Artist string is parsed.
+- Explicit spaced ASCII/en/em-style dash queries resolve as `artist - title`. The left side uses the
+  existing normalization/fuzzy Artist policy; Track and Album titles on the right are restricted by
+  public membership relations and stay in their sections. `Sān-Z` is not split. If the Artist side
+  does not resolve, ordinary Search receives the full original query.
+- Fuzzy Artist/Album fallback now uses one lazily built service-owned normalized in-memory index on
+  a single background worker. Deterministic provider matches do not wait for it; repeated fuzzy
+  queries reuse it. Its generation expires after two minutes because no reliable library-change
+  event is available; it is never persisted and is cancelled/cleared at service shutdown.
+- Phone Search now has a 48 dp inline clear action and independent section continuation rows. Clear
+  cancels debounce, invalidates the request generation, clears results/tokens, retains focus/IME,
+  and does not touch history. Private `search_history` preferences retain at most 20 completed
+  queries, newest first, deduplicated by stable Search normalization while preserving display text.
+  Save points are IME Search/Enter, selection of a Search result, or IME close after a successful
+  current query; live debounce fragments, empty queries, and failed queries are not saved. History
+  appears only for focused empty input while `WindowInsetsCompat.Type.ime()` is visible; individual
+  removal never runs Search and Forget/Re-pair does not clear it.
+- Targeted Server/Phone JVM tests passed **75/75** with zero failures/errors: Server coverage includes
+  source/contract/policy/JSON/API parsing, snapshot TTL/LRU/retry/
+  cancellation, continuation beyond 1000, exact-plus-partial Track order, structured Search, Artist
+  count preservation, and fuzzy cache reuse/expiry/cancellation; Phone coverage includes
+  grouped parsing/merge, section presentation/request paths, clear generation invalidation, history
+  ordering/dedup/removal/bound, legacy Library parsing, Search-origin restoration, and English/
+  Russian resource parity. `:app:assembleDebug`, `:phone:assembleDebug`, and final
+  `git diff --check` passed. Full suites, lint, clean, and release tasks were intentionally not run;
+  versions remain Server `0.10.2` / code 13, Phone `0.6.0` / code 15, API `v1`.
+- The maintainer independently completed the requested device matrix and reports it passing:
+  `oblivion` includes exact titles before `Beyond Oblivion`, canonical participant totals and
+  Artist browse agree, Library/Search continue beyond the former boundary, section loading and
+  structured queries work, clear/history obey IME behavior, repeated fuzzy Search is faster, and
+  Back/query/scroll/keyboard/insets/current playback UI did not regress. Remaining limitations are
+  snapshot/reload semantics for concurrent library edits, short-lived/LRU token expiry, and broader
+  OEM/provider coverage; sorting and Queue remain in the current release path. Scoped Search is
+  explicitly deferred until after release/on demand; transport settings and pairing hardening
+  remain later separate work.
 
-## Global categorized Search candidate (2026-09-09)
+## Superseded Global categorized Search candidate (2026-09-09)
+
+This pre-completion record is retained only as history; its exact-title and 1000-row limitations
+were removed by the completed 2026-09-10 work above.
 
 - Added Bearer-only `GET /api/v1/search/grouped` and advertised it as `categorizedSearch` from the
   existing Library capability response. The historical paged `/api/v1/search` route, all existing
@@ -247,6 +253,9 @@ full multi-player persistence remain absent.
 
 ## Phone Library: long-list stability follow-up (2026-09-08)
 
+This record predates and is superseded by the unlimited snapshot continuation completed on
+2026-09-10; the retained scroll/artwork behavior described here still applies.
+
 - Saved the completed representative-category artwork stage as commit `a7c3970` before this fix.
 - Code inspection found that each render posted an old `setSelectionFromTop`, including during
   page append/status updates; same-Server reconnect also unconditionally reset paging. The Phone
@@ -264,9 +273,8 @@ full multi-player persistence remain absent.
   resume. Visible rows now retain their images across LRU eviction, and lifecycle-aware binding
   tokens allow a new request while rejecting the old delivery. Recycled rows still reject images
   belonging to another identity; memory/disk budgets and the connection runtime are unchanged.
-- The Server's 1000-row browse window is **not removed**. No documented provider offset exists in
-  the audited contract; the Phone now explains the limit and directs users to existing global
-  Search. True large-library continuation remains separate verified Server work in ROADMAP.
+- At this historical stage the Server still had a 1000-row window. The completed implementation
+  above replaced it with server-owned snapshot sessions; Phone no longer shows the old redirect.
 - Targeted `LibraryArtworkBindingGateTest`, `LibraryPageParserTest`, and
   `RepresentativeArtworkTest`: **18/18 passed**; `:phone:assembleDebug` succeeded using the
   persistent local JDK/SDK. No clean, lint, full regression suites, or Server build was run for
@@ -389,9 +397,9 @@ recorded below; the final release task rebuilds and verifies the exact permanent
   Browser-session cookies cannot use them, so the current Web UI remains unchanged. Existing v1
   routes and payloads are untouched.
 - `limit` defaults to 25 and is capped at 100. Opaque 24-character Base64URL page tokens last five
-  minutes, are category/container/search-bound, and are bounded to a 1000-row continuation window.
-  Server uses only Poweramp's documented increasing `lim`, closes each Cursor per request, and emits
-  `truncated=true` rather than inventing provider offset semantics.
+  minutes and are category/container/search-bound. One initial base-URI Cursor is consumed into an
+  immutable in-memory snapshot and closed with its client; bounded TTL/LRU sessions page that
+  snapshot without inventing provider offset semantics or a fixed total-row ceiling.
 - Input validation rejects unknown categories/parameters, duplicate/malformed query parameters,
   invalid UTF-8, non-positive/overflow IDs, invalid/expired/cross-query tokens, and every client URI.
   Search is 1–160 non-control characters. Items preserve separate playlist/queue `entryId`, handle
@@ -1613,17 +1621,17 @@ and hardening work should additionally exercise more vendors, Android versions, 
   selection and mandatory approval; the applications do not bypass either.
 - Force-stop, explicit notification Stop, or reboot ends the corresponding runtime until launch.
 - Exact public semantics of Poweramp bitrate units and list index base remain unverified.
-- Phone Library/Search UI is implemented as a device-validation candidate; Queue UI is not. The
-  Server foundation deliberately stops at a 1000-row continuation window because Poweramp documents
-  integer `lim` but no offset; device verification may refine only a publicly confirmed strategy.
+- Phone Library/Search UI and its unlimited snapshot/section continuation are implemented and
+  maintainer-confirmed on the current device setup; Queue UI is not. An existing snapshot does not
+  change under concurrent library edits, and expired/evicted tokens require explicit Reload.
 - Queue Add/Remove/Reorder/Play Next remain disabled. Add has an official sample for later audit;
   the other mutations have no confirmed public contract. Lyrics remains out of scope.
 
 ## Next scope
 
-Validate the first Phone Library/Search candidate on device and complete the remaining category,
-permission, old-Server, artwork, pagination, and compact-layout matrix. Then verify Queue
-duplicates/current-entry selection before its Phone UI.
+Extend Library/Search coverage to other Poweramp builds/OEMs and complete remaining category,
+permission, old-Server, and artwork edge cases. Then verify Queue duplicates/current-entry
+selection before its Phone UI.
 Do not change the one-service connection architecture. Multi-player foundation and pairing hardening follow that
 series as ordered in [`ROADMAP.md`](ROADMAP.md). Queue mutations, Lyrics, multi-player persistence,
 and pairing/transport security still require separate scope and public-contract verification.

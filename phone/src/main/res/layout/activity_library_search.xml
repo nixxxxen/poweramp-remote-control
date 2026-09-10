@@ -45,24 +45,41 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <EditText
-            android:id="@+id/library_search_input"
+        <FrameLayout
+            android:id="@+id/library_search_container"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:layout_marginTop="6dp"
-            android:background="@drawable/panel_background"
-            android:hint="@string/library_search_hint"
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLength="160"
-            android:maxLines="1"
-            android:paddingLeft="16dp"
-            android:paddingRight="16dp"
-            android:singleLine="true"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_secondary"
-            android:textSize="15sp"
-            android:visibility="gone" />
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/library_search_input"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/panel_background"
+                android:hint="@string/library_search_hint"
+                android:imeOptions="actionSearch"
+                android:inputType="text"
+                android:maxLength="160"
+                android:maxLines="1"
+                android:paddingLeft="16dp"
+                android:paddingRight="56dp"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary"
+                android:textSize="15sp" />
+
+            <ImageButton
+                android:id="@+id/library_search_clear"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="end|center_vertical"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/search_clear"
+                android:padding="13dp"
+                android:src="@drawable/ic_close"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <ListView
             android:id="@+id/library_list"

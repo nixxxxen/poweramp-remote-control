@@ -26,4 +26,15 @@ public final class SearchRequestGateTest {
         gate.invalidate();
         assertFalse(gate.accepts(request, "rare title", 4));
     }
+
+    @Test
+    public void clearInvalidatesTheActiveRequestGeneration() {
+        SearchRequestGate gate = new SearchRequestGate();
+        SearchRequestGate.Request active = gate.begin("Oblivion", 9);
+
+        gate.invalidate();
+
+        assertFalse(gate.accepts(active, "", 9));
+        assertFalse(gate.accepts(active, "Oblivion", 9));
+    }
 }

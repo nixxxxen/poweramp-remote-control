@@ -68,6 +68,14 @@ final class SearchComparisonPolicy {
     static Match match(String query, String candidate, boolean allowFuzzy) {
         String queryKey = comparisonKey(query);
         String candidateKey = comparisonKey(candidate);
+        return matchComparisonKeys(queryKey, candidateKey, allowFuzzy);
+    }
+
+    static Match matchComparisonKeys(
+            String queryKey,
+            String candidateKey,
+            boolean allowFuzzy
+    ) {
         if (queryKey.isEmpty() || candidateKey.isEmpty()) {
             return new Match(MatchClass.NONE, Integer.MAX_VALUE);
         }

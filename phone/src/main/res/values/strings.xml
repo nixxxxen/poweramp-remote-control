@@ -25,10 +25,16 @@
     <string name="search_section_tracks">Tracks</string>
     <string name="search_section_artists">Artists</string>
     <string name="search_section_albums">Albums</string>
+    <string name="search_show_more">Show more</string>
+    <string name="search_section_retry">Retry this section</string>
+    <string name="search_section_reload">Reload this section</string>
+    <string name="search_clear">Clear search query</string>
+    <string name="search_history_remove">Remove from search history</string>
+    <string name="search_history_title">Recent searches</string>
     <string name="library_search_prompt">Enter a search query</string>
     <string name="library_loading">Loading…</string>
     <string name="library_empty">Nothing here yet</string>
-    <string name="library_search_empty">No matching tracks</string>
+    <string name="library_search_empty">No matching tracks, artists, or albums</string>
     <string name="library_disconnected">Connect to the Server to browse the library.</string>
     <string name="library_permission_required">Poweramp library access is not granted. Request it on the Server device.</string>
     <string name="library_unsupported">This Server does not support Library/Search yet.</string>

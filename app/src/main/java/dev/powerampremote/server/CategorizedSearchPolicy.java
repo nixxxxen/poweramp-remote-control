@@ -33,10 +33,9 @@ final class CategorizedSearchPolicy {
             this.truncated = truncated;
         }
 
-        List<Long> displayedIds(int limit) {
-            int end = Math.min(limit, matches.size());
-            List<Long> ids = new ArrayList<>(end);
-            for (int index = 0; index < end; index++) ids.add(matches.get(index).id);
+        List<Long> ids() {
+            List<Long> ids = new ArrayList<>(matches.size());
+            for (LibraryItem match : matches) ids.add(match.id);
             return ids;
         }
     }
@@ -68,9 +67,7 @@ final class CategorizedSearchPolicy {
         boolean exact = hasMatchClass(ranked, SearchComparisonPolicy.MatchClass.EXACT);
         List<LibraryItem> selected = new ArrayList<>();
         for (RankedItem value : ranked) {
-            if (!exact || value.match.matchClass == SearchComparisonPolicy.MatchClass.EXACT) {
-                selected.add(value.item);
-            }
+            selected.add(value.item);
         }
         return new TrackSelection(exact, selected);
     }
@@ -120,10 +117,39 @@ final class CategorizedSearchPolicy {
             List<LibraryItem> relatedAlbums,
             boolean relatedAlbumsSourceTruncated
     ) {
+        return compose(
+                query,
+                query,
+                limit,
+                trackSelection,
+                tracksSourceTruncated,
+                artistSelection,
+                artistsSourceTruncated,
+                directAlbums,
+                directAlbumsSourceTruncated,
+                relatedAlbums,
+                relatedAlbumsSourceTruncated
+        );
+    }
+
+    static CategorizedSearch compose(
+            String responseQuery,
+            String titleQuery,
+            int limit,
+            TrackSelection trackSelection,
+            boolean tracksSourceTruncated,
+            ArtistSelection artistSelection,
+            boolean artistsSourceTruncated,
+            List<LibraryItem> directAlbums,
+            boolean directAlbumsSourceTruncated,
+            List<LibraryItem> relatedAlbums,
+            boolean relatedAlbumsSourceTruncated
+    ) {
         if (limit < 1 || limit > PowerampLibraryContract.MAX_PAGE_SIZE) {
             throw new IllegalArgumentException("Invalid categorized Search limit");
         }
-        String cleanQuery = PowerampLibraryContract.validSearchQuery(query);
+        String cleanQuery = PowerampLibraryContract.validSearchQuery(responseQuery);
+        String cleanTitleQuery = PowerampLibraryContract.validSearchQuery(titleQuery);
         List<CategorizedSearch.Section> sections = new ArrayList<>(3);
 
         addSection(
@@ -142,7 +168,7 @@ final class CategorizedSearchPolicy {
         );
 
         RankedItems albumRanking = rankedNameMatches(
-                cleanQuery, directAlbums, LibraryItem.Type.ALBUM, true, false
+                cleanTitleQuery, directAlbums, LibraryItem.Type.ALBUM, true, false
         );
         List<RankedItem> rankedAlbums = albumRanking.values;
         boolean directAlbumDeterministic = hasDeterministic(rankedAlbums);
@@ -318,11 +344,10 @@ final class CategorizedSearchPolicy {
             boolean sourceTruncated
     ) {
         if (matches.isEmpty()) return;
-        int end = Math.min(limit, matches.size());
         sections.add(new CategorizedSearch.Section(
                 type,
-                matches.subList(0, end),
-                sourceTruncated || matches.size() > limit
+                matches,
+                sourceTruncated
         ));
     }
 

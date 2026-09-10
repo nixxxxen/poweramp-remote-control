@@ -20,10 +20,16 @@
     <string name="search_section_tracks">Треки</string>
     <string name="search_section_artists">Исполнители</string>
     <string name="search_section_albums">Альбомы</string>
+    <string name="search_show_more">Показать ещё</string>
+    <string name="search_section_retry">Повторить для этого раздела</string>
+    <string name="search_section_reload">Обновить этот раздел</string>
+    <string name="search_clear">Очистить поисковый запрос</string>
+    <string name="search_history_remove">Удалить из истории поиска</string>
+    <string name="search_history_title">Недавние запросы</string>
     <string name="library_search_prompt">Введите поисковый запрос</string>
     <string name="library_loading">Загрузка…</string>
     <string name="library_empty">Здесь пока ничего нет</string>
-    <string name="library_search_empty">Подходящие треки не найдены</string>
+    <string name="library_search_empty">Подходящие треки, исполнители и альбомы не найдены</string>
     <string name="library_disconnected">Подключитесь к Серверу, чтобы открыть библиотеку.</string>
     <string name="library_permission_required">Доступ к библиотеке Poweramp не выдан. Запросите его на устройстве с Сервером.</string>
     <string name="library_unsupported">Этот Сервер пока не поддерживает Библиотеку и Поиск.</string>

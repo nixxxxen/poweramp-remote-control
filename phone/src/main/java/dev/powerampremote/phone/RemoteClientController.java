@@ -475,7 +475,9 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                             request
                     );
                 } catch (RemoteApiClient.HttpStatusException exception) {
-                    failure = libraryFailure(exception.statusCode);
+                    failure = exception.statusCode == 400 && request.isContinuation()
+                            ? LibraryFailure.PAGE_EXPIRED
+                            : libraryFailure(exception.statusCode);
                 } catch (IOException | RuntimeException exception) {
                     failure = LibraryFailure.SERVER_ERROR;
                 }

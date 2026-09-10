@@ -5,7 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-/** One bounded, typed result from the additive categorized Search route. */
+/** One typed, independently pageable result from the additive categorized Search route. */
 final class CategorizedSearch {
     enum TrackMatch {
         NONE("none"),
@@ -29,17 +29,35 @@ final class CategorizedSearch {
         SectionType(String wireName) {
             this.wireName = wireName;
         }
+
+        static SectionType fromWireName(String wireName) {
+            for (SectionType type : values()) {
+                if (type.wireName.equals(wireName)) return type;
+            }
+            throw new IllegalArgumentException("Unknown Search section");
+        }
     }
 
     static final class Section {
         final SectionType type;
         final List<LibraryItem> items;
         final boolean truncated;
+        final String nextPageToken;
 
         Section(SectionType type, List<LibraryItem> items, boolean truncated) {
+            this(type, items, truncated, null);
+        }
+
+        Section(
+                SectionType type,
+                List<LibraryItem> items,
+                boolean truncated,
+                String nextPageToken
+        ) {
             this.type = Objects.requireNonNull(type);
             this.items = Collections.unmodifiableList(new ArrayList<>(items));
             this.truncated = truncated;
+            this.nextPageToken = nextPageToken;
         }
     }
 

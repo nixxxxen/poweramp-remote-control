@@ -26,6 +26,12 @@ public final class LibraryApiQueryTest {
         LibraryApiQuery search = LibraryApiQuery.search("q=" + query + "&limit=3");
         assertEquals("Björk live", search.searchQuery);
         assertEquals(3, search.limit);
+
+        LibraryApiQuery categorized = LibraryApiQuery.categorizedSearch(
+                "q=" + query + "&limit=3&section=artists&pageToken=" + TOKEN
+        );
+        assertEquals("artists", categorized.searchSection);
+        assertEquals(TOKEN, categorized.pageToken);
     }
 
     @Test
@@ -57,6 +63,8 @@ public final class LibraryApiQueryTest {
         for (String query : rejectedSearches) {
             expectInvalid(() -> LibraryApiQuery.search(query));
         }
+        expectInvalid(() -> LibraryApiQuery.categorizedSearch("q=x&section=queue"));
+        expectInvalid(() -> LibraryApiQuery.search("q=x&section=tracks"));
     }
 
     @Test

@@ -2,6 +2,8 @@ package dev.powerampremote.phone;
 
 import org.junit.Test;
 
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -59,9 +61,55 @@ public final class CategorizedSearchParserTest {
                 + section("artists", item("album", 9L, "x", false)) + "]}");
     }
 
+    @Test
+    public void parsesAdditiveSectionTokenAndMergesOnlyThatSection() {
+        String token = "ABCDEFGHIJKLMNOPQRSTUVWX";
+        CategorizedSearchResult initial = CategorizedSearchParser.parse("{"
+                + "\"query\":\"x\",\"limit\":25,\"trackMatch\":\"partial\","
+                + "\"sections\":["
+                + sectionWithToken("tracks", item("track", 1L, "x track", true), token)
+                + "," + sectionWithToken(
+                        "artists", item("artist", 2L, "x artist", false), token
+                ) + "]}");
+        CategorizedSearchResult artistPage = new CategorizedSearchResult(
+                "x",
+                25,
+                "partial",
+                List.of(new CategorizedSearchResult.Section(
+                        CategorizedSearchResult.SectionType.ARTISTS,
+                        List.of(CategorizedSearchParser.parse("{"
+                                + "\"query\":\"x\",\"limit\":25,"
+                                + "\"trackMatch\":\"none\",\"sections\":["
+                                + section("artists", item(
+                                        "artist", 3L, "x artist two", false
+                                )) + "]}").sections.get(0).items.get(0)),
+                        false,
+                        null
+                ))
+        );
+
+        CategorizedSearchResult merged = initial.mergeSection(
+                CategorizedSearchResult.SectionType.ARTISTS, artistPage, false
+        );
+        assertEquals(token, merged.section(
+                CategorizedSearchResult.SectionType.TRACKS
+        ).nextPageToken);
+        assertEquals(2, merged.section(
+                CategorizedSearchResult.SectionType.ARTISTS
+        ).items.size());
+        assertNull(merged.section(
+                CategorizedSearchResult.SectionType.ARTISTS
+        ).nextPageToken);
+    }
+
     private static String section(String type, String item) {
         return "{\"type\":\"" + type + "\",\"items\":[" + item
                 + "],\"truncated\":false}";
+    }
+
+    private static String sectionWithToken(String type, String item, String token) {
+        return "{\"type\":\"" + type + "\",\"items\":[" + item
+                + "],\"truncated\":true,\"nextPageToken\":\"" + token + "\"}";
     }
 
     private static String item(String type, long id, String title, boolean playable) {

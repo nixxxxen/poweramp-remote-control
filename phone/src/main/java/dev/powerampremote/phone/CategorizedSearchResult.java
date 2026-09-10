@@ -2,6 +2,7 @@ package dev.powerampremote.phone;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 /** Typed response from the additive API v1 categorized Search route. */
@@ -31,11 +32,22 @@ final class CategorizedSearchResult {
         final SectionType type;
         final List<LibraryItem> items;
         final boolean truncated;
+        final String nextPageToken;
 
         Section(SectionType type, List<LibraryItem> items, boolean truncated) {
+            this(type, items, truncated, null);
+        }
+
+        Section(
+                SectionType type,
+                List<LibraryItem> items,
+                boolean truncated,
+                String nextPageToken
+        ) {
             this.type = type;
             this.items = Collections.unmodifiableList(new ArrayList<>(items));
             this.truncated = truncated;
+            this.nextPageToken = nextPageToken;
         }
     }
 
@@ -68,5 +80,45 @@ final class CategorizedSearchResult {
             if (section.truncated) return true;
         }
         return false;
+    }
+
+    CategorizedSearchResult mergeSection(
+            SectionType type,
+            CategorizedSearchResult page,
+            boolean replace
+    ) {
+        if (page == null || !query.equals(page.query)
+                || (!replace && !trackMatch.equals(page.trackMatch))) {
+            throw new IllegalArgumentException("Mismatched Search continuation");
+        }
+        Section incoming = page.section(type);
+        List<Section> merged = new ArrayList<>();
+        for (SectionType candidate : SectionType.values()) {
+            Section current = section(candidate);
+            if (candidate == type) {
+                if (incoming == null) {
+                    if (!replace && current != null) merged.add(current);
+                    continue;
+                }
+                if (replace || current == null) {
+                    merged.add(incoming);
+                } else {
+                    LinkedHashMap<Long, LibraryItem> byId = new LinkedHashMap<>();
+                    for (LibraryItem item : current.items) byId.putIfAbsent(item.id, item);
+                    for (LibraryItem item : incoming.items) byId.putIfAbsent(item.id, item);
+                    merged.add(new Section(
+                            type,
+                            new ArrayList<>(byId.values()),
+                            incoming.truncated,
+                            incoming.nextPageToken
+                    ));
+                }
+            } else if (current != null) {
+                merged.add(current);
+            }
+        }
+        String mergedTrackMatch = replace && type == SectionType.TRACKS
+                ? page.trackMatch : trackMatch;
+        return new CategorizedSearchResult(query, limit, mergedTrackMatch, merged);
     }
 }

@@ -72,12 +72,15 @@ Activity window animation is disabled for tab requests, and only the outgoing/in
 slides according to the fixed Player / Library / Search / Settings order. A generation gate ignores
 repeat and rapid overlapping requests. `LibrarySearchActivity` owns paged Library browsing, typed
 categorized Search presentation, and its container back stack; its requests go only through the
-bound service/controller. Search headers are a separate disabled row type and never enter artwork,
-current-track, or click handling. Opening a Search Artist/Album snapshots the query, typed result,
-list offset, and current Library-stack depth, switches the same Activity to Library with the existing
-content-only transition, and pushes the normal Library container request. Back trims only that
-temporary container and restores the exact Search presentation; existing Library levels/pages stay
-resident and no Activity or connection runtime is added.
+bound service/controller. Search headers, per-section **Show more** controls, and local-history rows
+are separate row types and never enter artwork or current-track handling. Tracks, Artists, and
+Albums continue independently; a section append inserts rows before the following header and owns
+its own progress/retry state without resetting the other sections or the live list position.
+Opening a Search Artist/Album snapshots the query, typed result, list offset, and current Library-
+stack depth, switches the same Activity to Library with the existing content-only transition, and
+pushes the normal Library container request. Back trims only that temporary container and restores
+the exact Search presentation; existing Library levels/pages stay resident and no Activity or
+connection runtime is added.
 Library and Search track rows also consume the service-replayed complete playback snapshot. The
 Phone model exposes `underlyingId` only for the API's `track`, `playlist_entry`, and `queue_entry`
 wire types; under the current Library contract that value is the row's documented underlying
@@ -94,9 +97,10 @@ Loaded Library pages and the current categorized Search result survive same-Serv
 append and status rendering leave the live ListView position alone; only navigation between lists
 restores a saved offset. Page
 failures keep loaded rows visible and stop automatic continuation. A rejected continuation token
-offers an explicit list restart instead of silently resetting to page one. The existing Server
-1000-row browse window remains in force; global Search executes its typed provider selections
-independently of already loaded Phone/Library pages.
+offers an explicit list or section reload instead of silently resetting to page one. Library and
+Search have no fixed total-row ceiling; every HTTP page remains lazy and bounded to `1…100` rows.
+Global Search executes its typed provider selections independently of already loaded Phone/Library
+pages.
 `PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
 `SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
@@ -362,7 +366,7 @@ credential, not the browser-session cookie; the embedded Web UI has no Library i
 | `GET` | `/api/v1/library/playlists` | Paged Playlists rows |
 | `GET` | `/api/v1/library/playlists/{id}/tracks` | Paged playlist entries |
 | `GET` | `/api/v1/search?q={query}` | Paged server-side Poweramp track search |
-| `GET` | `/api/v1/search/grouped?q={query}` | Bounded typed Tracks / Artists / Albums search |
+| `GET` | `/api/v1/search/grouped?q={query}` | Independently paged typed Tracks / Artists / Albums search |
 | `GET` | `/api/v1/queue` | Paged current queue in provider order |
 | `POST` | `/api/v1/library/play` | Revalidate and enqueue one allowlisted `OPEN_TO_PLAY` target |
 | `GET` | `/api/v1/library/artwork/tracks/{id}` | Lazy authenticated JPEG for track artwork |
@@ -371,10 +375,11 @@ There is no CORS API, polling endpoint, URL credential, or WebSocket command cha
 
 ### Library, Search, and Queue contract
 
-This is the Server foundation for the Library/Queue series. It adds no Phone or Web UI, second
-service/Poweramp connection, library WebSocket stream, or local copy of Poweramp data. Every request
-queries only its current category/page through the adapter owned by `RemotePlaybackService`. All
-returned cursors and artwork streams close on success, failure, or cancellation.
+This is the Server foundation for the Library/Queue series. It adds no Web UI, second service/
+Poweramp connection, library WebSocket stream, or persistent copy of Poweramp data. An initial
+Library/Search request reads its provider result through the adapter owned by
+`RemotePlaybackService`; Phone still receives only the requested bounded page. All returned cursors
+and artwork streams close on success, failure, or cancellation.
 
 The official upstream audit used `maxmpz/powerampapi` master commit
 [`60cac5a24348bde03e0619c0ab891bd752750b92`](https://github.com/maxmpz/powerampapi/commit/60cac5a24348bde03e0619c0ab891bd752750b92)
@@ -422,22 +427,33 @@ therefore does not establish a stable dependency that lets Android kill Server w
 `DeadObjectException`/`RemoteException` become a controlled unavailable response without retry.
 
 The public list-query parameters are integer `lim` (SQL limit) and integer `shf` (shuffle mode);
-this foundation sends only `lim`, because it neither requests nor invents shuffled ordering.
-The ContentProvider contract does not document an offset parameter. API `limit` defaults to `25`
-and has a hard maximum of `100`.
-`pageToken` is a 24-character opaque Base64URL capability kept in memory for five minutes and bound
-to the exact category, container, and search. For continuation, Server requeries the same URI with
-a bounded increasing `lim`, skips only inside the returned Cursor, and never retains a Cursor
-between HTTP requests. The hard provider window is `1000` rows (`1001` only to detect more data).
-When more rows exist beyond that boundary, `nextPageToken` is `null` and `truncated` is `true`;
-otherwise `truncated` remains `false`. The last page is clipped to the remaining window even if
-`limit` does not divide 1000; the extra detection row is never returned. This explicit limitation
-avoids inventing undocumented SQL offset/keyset semantics. Since each page requeries current
-provider order, library edits between requests can cause repeats or omissions; tokens do not freeze
-a database snapshot. Tokens disappear on eviction or service/process
-shutdown. Invalid, expired, or cross-query tokens return `400 invalid_page_token`.
-Response `offset` is only the number of provider rows already skipped for that opaque token; clients
-cannot submit it, and it is not claimed to be a Poweramp/SQL offset.
+the implementation never invents `offset`, keyset, or sort parameters and never requests shuffled
+ordering. The audited ContentProvider contract documents no offset/keyset continuation and does not
+promise stable ordering across separate queries. It does document each base content URI without
+optional query parameters. API `limit` therefore remains a client page size only: it defaults to
+`25` and has a hard maximum of `100`.
+
+On an initial request, Server opens the documented base provider URI once, applies the fixed bound
+selection when applicable, consumes that one Cursor in its provider order into an immutable
+in-memory model snapshot, then closes the Cursor and unstable `ContentProviderClient` before the
+HTTP response is returned. A short-lived server-owned paging session serves `1…100`-row slices of
+that snapshot. At most eight sessions coexist; they have a five-minute sliding TTL and access-order
+LRU eviction. The store retains parsed public model fields only—never a Cursor, provider client,
+Android Context, credential, or raw provider URI.
+
+`pageToken` is a 24-character opaque Base64URL capability bound to the exact query/category/
+container and one snapshot offset. Retrying a non-final token returns the same slice and next token;
+one session therefore has no skips or duplicates even if the live Poweramp library changes. The
+last page, expiry, LRU eviction, explicit cancellation discard, API stop, and service shutdown clear
+the session; provider failure and request cancellation close the provider resources through the
+same request boundary. Invalid, expired, evicted, or cross-query tokens return
+`400 invalid_page_token`, which Phone presents as an explicit **Reload** rather than a false end.
+Reload starts a new snapshot and is the only way an in-progress traversal observes library edits.
+`offset` is only the zero-based index in that immutable Server snapshot; clients cannot submit it
+and it is not claimed to be a Poweramp/SQL offset. Library `truncated` remains in API v1 for old
+clients but is `false`; actual continuation is represented by `nextPageToken`. Capabilities expose
+`maximumContinuationRows: null`, `providerOffsetSupported: false`, and
+`continuationModel: "server_snapshot"`.
 
 Page JSON is:
 
@@ -473,19 +489,29 @@ retains provider defaults and never triggers an artwork download. Artists/albums
 do not claim artwork until exact entity-art semantics are verified.
 
 Search accepts required `q`, trimmed to 1–160 non-control characters; `q`, `limit`, and `pageToken`
-are its only parameters. It queries `/files?lim=N` using the normal track projection and fixed
+are its only parameters. Its initial snapshot queries the documented `/files` base URI using the
+normal track projection and fixed
 `LIKE ? ESCAPE '!'` selection over `title_tag`, `folder_files.name`, `artist`, and `album`.
 The contains-pattern is supplied only through four bound `selectionArgs`; `%`, `_`, and `!` in
-user input are escaped as literals. Matching executes in Poweramp before the provider limit, not
-over a locally downloaded page or database copy. Results are tracks, not separate artist/album
-entities; ordering and case/diacritic matching remain provider-defined.
+user input are escaped as literals. Matching executes in Poweramp before Server snapshot paging,
+not over a locally downloaded Phone page. Results are tracks, not separate artist/album entities;
+ordering and case/diacritic matching remain provider-defined. The historical route now uses the
+same unlimited snapshot continuation model while retaining its response fields and API v1 path.
 
 The additive Bearer-only `/api/v1/search/grouped` route leaves that historical response untouched.
-It accepts required `q` and optional `limit` (`1…100`, default `25`); `pageToken` and unknown
-parameters are rejected. Separate fixed selections run inside the Poweramp provider before the
-per-section output limit: `title_tag LIKE ? ESCAPE '!'` for track titles, `artist LIKE ?` for
-direct Artist names, and `album LIKE ?` for Album names. Literal LIKE metacharacters are escaped and
-all user/relation IDs are bound through `selectionArgs`.
+It accepts required `q` and optional `limit` (`1…100`, default `25`). Its initial response keeps
+the old non-empty Tracks → Artists → Albums sections and `truncated` fields, and additively supplies
+an independent `nextPageToken` on every section that has more matches. A continuation requires both
+`section=tracks|artists|albums` and that section's query-bound `pageToken`; it returns only the
+requested section's next slice. Normal completion has no token and is not truncation. An expired
+token is recoverable by reloading only that section from a new snapshot. Other sections and Phone
+scroll state remain untouched.
+
+Separate fixed selections run inside Poweramp before Server ranking: `title_tag LIKE ? ESCAPE '!'`
+for track titles, `artist LIKE ?` for direct Artist names, and `album LIKE ?` for Album names.
+Literal LIKE metacharacters are escaped and all user/relation IDs are bound through
+`selectionArgs`. Every provider Cursor is consumed to its actual end; neither grouped candidates
+nor final section continuation has a fixed total-row ceiling.
 
 Server builds a comparison-only key with trim, `Locale.ROOT` case folding, Unicode decomposition
 and combining-mark removal, dash canonicalization, standalone `and`/`&` equivalence, and collapsed
@@ -493,34 +519,67 @@ whitespace. Original provider text is never changed. Exact, prefix, substring/to
 Damerau-Levenshtein ranks are deterministic; typo distance is disabled below five code points, is
 one for lengths 5–7, and is two from length 8, with at most five fuzzy results. Fuzzy rows are used
 only when that entity section has no deterministic or relation-backed result. A small bounded set
-of normalized and unchanged-substring provider probes finds candidates outside an arbitrary first
-page without an unbounded scan; every probe and their stable-ID union retain the 1000-candidate
-ceiling. Punctuation is preserved in the strong key; a punctuation-insensitive token key is only a
-weaker match and no alphabet transliteration is performed.
+of normalized and unchanged-substring provider probes handles provider-side accent and punctuation
+differences. Punctuation is preserved in the strong key; a punctuation-insensitive token key is
+only a weaker match and no alphabet transliteration is performed.
 
-Tracks remain title-only and never gain Artist tracks. If any comparison-key exact track title
-exists, it suppresses weaker Track-title matches only in Tracks. Direct Artist exact matches
+Artist/Album fuzzy fallback uses one service-owned lazy in-memory index of normalized public rows.
+The single background worker builds it only after provider `LIKE` and normalized probes find no
+stronger candidate; ordinary deterministic searches do not wait for it. Concurrent/repeated fuzzy
+queries share the same index, which has a two-minute TTL and generation, is never persisted or sent
+to Phone, and is cancelled/cleared on service shutdown. With no reliable public library-change
+event in this integration, the short TTL is the documented invalidation policy. Request
+cancellation remains responsive while an already-started service-owned build may finish for a
+later query; provider failure remains a sanitized recoverable error.
+
+Tracks remain title-only and never gain Artist tracks. All exact matches are ranked first, followed
+by prefix and substring/token matches; the presence of an exact title never suppresses a weaker
+matching Track. Track fuzzy fallback remains disabled, and all Track rows are deduplicated only by
+their public `folder_files._id`. Direct Artist exact matches
 suppress their partial matches; otherwise provider rows marked `artists.is_unsplit=1` are excluded,
 while an exact full composite name remains eligible. Exact-track related Artists are added through
 `multi_artists` and all Artist rows are deduplicated by `artists._id`. Every grouped Artist has an
-additive `browse:{type:"artist_membership",id}` target, a null count/duration rather than the legacy
-category's potentially narrower aggregate, and opens the new
+additive `browse:{type:"artist_membership",id}` target and opens the new
 `/api/v1/library/artists/{id}/member-tracks` route. That route queries outer `/files` rows with an
 `EXISTS` membership selection, so each related `folder_files._id` appears once while the historical
 `/artists/{id}/tracks` route remains unchanged. Representative artwork uses the same membership
-route and therefore the same file set.
+route and therefore the same file set. Grouped Artist `trackCount` comes directly from public
+`artists.num_files`; after Poweramp was configured to split participant relations, device checking
+confirmed that aggregate agrees with the unique membership set, including solo and collaboration
+tracks. It is never inferred from loaded pages; a missing/invalid public count stays `null`.
 
 Albums are the `albums._id` union of direct title matches and albums reached from displayed Artist
 IDs through `multi_artists.file_id` plus `folder_files.album_id`. Exact direct album titles come
 first, then relation-backed Albums, then remaining prefix/substring direct matches; fuzzy Albums
 are a last fallback only when neither deterministic nor relation matches exist. Each section is
-capped by `limit`; source, relation, output, and fuzzy caps contribute to honest `truncated` state.
-The response still omits empty sections and serializes non-empty sections only as Tracks → Artists
-→ Albums. Phone parses the optional browse target (absence from an older Server remains valid),
-retains its existing query/connection generation gate, and preserves Search origin/scroll while
-opening the existing Library surface. The route uses the same service-owned provider adapter,
-request cancellation, authentication, and sanitized failures; it introduces no WebSocket, cache,
-service, or Poweramp path. `/search?flt` remains forbidden.
+capped only per HTTP page by `limit`, with independent continuation to the actual end. The response
+still omits empty sections and serializes non-empty sections only as Tracks → Artists → Albums.
+
+A query containing an explicit spaced ASCII or typographic dash is additionally interpreted as
+`artist - title`. The left side resolves through the same normalized/fuzzy Artist policy; the right
+side is matched independently against Track and Album titles. Bound `multi_artists`/
+`folder_files.album_id` relations restrict both sections to the resolved Artist IDs, while that
+Artist remains in Artists. Hyphens without surrounding spaces, such as `Sān-Z`, never split. If the
+left side resolves to no Artist, Server runs the ordinary full original query instead. Phone never
+parses display metadata.
+
+Phone parses the optional browse and continuation fields (their absence from an older Server
+remains valid), retains its existing query/connection generation gate, and preserves Search
+origin/scroll while opening the existing Library surface. A 48 dp clear button is visible only for
+non-empty input; it clears debounce, the active request generation, results, and every section
+continuation while keeping focus and IME. Private Phone-only Search history contains at most 20
+completed user queries, newest first, with stable Search-normalized deduplication but original
+display text. It records only explicit IME Search/Enter, a selected Search result, or IME close
+after the current full query has succeeded—never live debounce fragments or failed/empty queries.
+History appears only for focused empty Search input while
+`WindowInsetsCompat.Type.ime()` is actually visible. Each entry has its own 48 dp remove action;
+selecting an entry starts Search, while removal does not. The separate `search_history`
+SharedPreferences contains no endpoint, Server ID, credential, or result and is unaffected by
+Forget/Re-pair.
+
+The route uses the same service-owned provider adapter, request cancellation, authentication, and
+sanitized failures; it introduces no WebSocket, persistent index, service, or Poweramp path.
+`/search?flt` remains forbidden.
 
 On Poweramp `1025004-fa3ec08671d`, the maintainer confirmed a known query returns the matching track
 and a nonexistent query returns an empty page. Device logcat also confirmed why `folder_files.name`
@@ -789,25 +848,23 @@ be selected as group owner for the current IPv4 client path, system approval may
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
 The maintainer has confirmed basic tracks/Albums browsing, album counts/durations, track-ID play,
-and positive/empty legacy search responses on Poweramp `1025004-fa3ec08671d`. A matching debug
-Server has now exercised grouped Search, `artists.is_unsplit`, `multi_artists` membership, and
-related-Album selections on that connected Poweramp build. Its actual library demonstrates an
-important public-data boundary: the collab file `TiMEMAXERAS; Moe Shop` relates only to its composite
-Artist ID, not to the separate sole-track `Moe Shop` ID `2449`, and no standalone `Sān-Z` Artist ID
-is published. Those composite rows report `is_unsplit=0`, reflecting the device's configured tag
-splitting. Server therefore cannot merge those participants by stable ID without forbidden
-display-string parsing. It returns every relation Poweramp publishes, keeps grouped Artist counts
-absent, and does not claim heuristic canonical membership. The ContentProvider foundation
-still needs broader device coverage: first grant/deny/retry and process-not-running behavior;
-remaining category projections/order; search by artist/album, Unicode and literal wildcard input;
-hierarchy root/children; duplicate playlist/queue entry IDs; queue-current matching and
-`OPEN_TO_PLAY`; album-art access for arbitrary tracks; and derived representative covers across
-artists, albums, playlists, and direct folder tracks. Extra category metadata remains intentionally
-absent, not failed track metadata. The first Phone Library/Search UI now
-consumes this baseline but still requires the device checks below; Queue-specific behavior must be
-checked before exposing Queue UI.
-The 1000-row continuation boundary is an explicit public-contract safety limit, not a claim that
-Poweramp libraries are capped at that size.
+and positive/empty legacy search responses on Poweramp `1025004-fa3ec08671d`. Poweramp is now
+configured to split Artists on `,` and `;`, and a matching debug Server/Phone pair has exercised the
+published `artists.is_unsplit`, `artists.num_files`, `multi_artists` membership, and related-Album
+relations. The maintainer confirmed the completed Global Search/Library matrix: exact plus partial
+Track ordering (including `Beyond Oblivion`), canonical Artist totals and solo/collaboration browse,
+large lists beyond the former 1000-row boundary, independently continued Search sections,
+structured queries, clear/history/IME behavior, repeated fuzzy speedup, Back/query/scroll/insets,
+and unchanged playback UI. Server uses only those provider relations and never parses Artist display
+strings.
+
+The ContentProvider foundation still needs broader device/OEM coverage: first grant/deny/retry and
+process-not-running behavior; remaining category projections/order; hierarchy root/children;
+duplicate playlist/queue entry IDs; queue-current matching and `OPEN_TO_PLAY`; album-art access for
+arbitrary tracks; and derived representative covers across artists, albums, playlists, and direct
+folder tracks. Extra category metadata remains intentionally absent, not failed track metadata.
+Live library edits do not mutate an existing paging snapshot: users must Reload to start a fresh
+view. Queue-specific behavior must still be checked before exposing Queue UI.
 
 Exact completed automation, the earlier Server `0.10.2` / Phone `0.5.0` in-place release matrix,
 and the maintainer-confirmed Phone `0.6.0` UI validation are recorded in `STATUS.md`. Broader

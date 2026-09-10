@@ -142,7 +142,7 @@ public final class PowerampLibrarySourceTest {
         ));
         assertEquals("Found", found.title);
         assertEquals(
-                "content://com.maxmpz.audioplayer.data/files?lim=11",
+                "content://com.maxmpz.audioplayer.data/files",
                 provider.lastProviderUri
         );
 
@@ -166,7 +166,8 @@ public final class PowerampLibrarySourceTest {
     }
 
     @Test
-    public void paginationIsBoundedOpaqueAndClosesEachCursor() throws Exception {
+    public void paginationContinuesBeyondOneThousandWithoutGapsOrDuplicateReads()
+            throws Exception {
         List<Map<String, Object>> tracks = new ArrayList<>();
         for (long id = 1L; id <= 1_001L; id++) {
             tracks.add(row("track_id", id, "title", "Track " + id));
@@ -174,7 +175,8 @@ public final class PowerampLibrarySourceTest {
         provider.rows.put("tracks", tracks);
 
         String token = null;
-        for (int pageIndex = 0; pageIndex < 10; pageIndex++) {
+        List<Long> delivered = new ArrayList<>();
+        for (int pageIndex = 0; pageIndex < 11; pageIndex++) {
             PowerampLibrarySource.Result result = source.query(
                     PowerampLibraryContract.allTracks(),
                     100,
@@ -185,25 +187,28 @@ public final class PowerampLibrarySourceTest {
             assertTrue(result.isSuccess());
             assertEquals(pageIndex * 100, result.page.offset);
             assertEquals(pageIndex * 100L + 1L, result.page.items.get(0).id);
-            if (pageIndex < 9) {
+            for (LibraryItem item : result.page.items) delivered.add(item.id);
+            if (pageIndex < 10) {
                 assertNotNull(result.page.nextPageToken);
                 assertFalse(result.page.truncated);
             } else {
                 assertNull(result.page.nextPageToken);
-                assertTrue(result.page.truncated);
+                assertFalse(result.page.truncated);
+                assertEquals(1, result.page.items.size());
             }
             token = result.page.nextPageToken;
         }
-        assertEquals(10, provider.closedRows.get());
-        assertEquals(101, provider.requestedLimits.get(0).intValue());
-        assertEquals(1_001, provider.requestedLimits.get(9).intValue());
-        for (int limit : provider.requestedLimits) {
-            assertTrue(limit <= PowerampLibraryContract.MAX_CONTINUATION_ROWS + 1);
+        assertEquals(1_001, delivered.size());
+        for (int index = 0; index < delivered.size(); index++) {
+            assertEquals(index + 1L, delivered.get(index).longValue());
         }
+        assertEquals(1, provider.closedRows.get());
+        assertEquals(Collections.singletonList(0), provider.requestedLimits);
+        assertEquals("content://com.maxmpz.audioplayer.data/files", provider.lastProviderUri);
     }
 
     @Test
-    public void paginationClipsPartialLastPageAtSafetyWindow() throws Exception {
+    public void paginationEndsOnlyAtActualProviderEnd() throws Exception {
         for (int availableRows : new int[]{999, 1_000, 1_001}) {
             List<Map<String, Object>> tracks = new ArrayList<>();
             for (long id = 1L; id <= availableRows; id++) {
@@ -219,17 +224,17 @@ public final class PowerampLibrarySourceTest {
                 ).page;
                 assertEquals(33, page.limit);
                 assertEquals(delivered, page.offset);
-                int expectedCount = Math.min(33, Math.min(availableRows, 1_000) - delivered);
+                int expectedCount = Math.min(33, availableRows - delivered);
                 assertEquals(expectedCount, page.items.size());
                 for (LibraryItem item : page.items) {
                     assertEquals(++delivered, item.id);
                 }
                 token = page.nextPageToken;
-                boolean lastPage = delivered == Math.min(availableRows, 1_000);
+                boolean lastPage = delivered == availableRows;
                 assertEquals(lastPage, token == null);
-                assertEquals(lastPage && availableRows > 1_000, page.truncated);
+                assertFalse(page.truncated);
             } while (token != null);
-            assertEquals(Math.min(availableRows, 1_000), delivered);
+            assertEquals(availableRows, delivered);
         }
     }
 
@@ -255,7 +260,7 @@ public final class PowerampLibrarySourceTest {
     }
 
     @Test
-    public void searchPaginationKeepsBoundedProviderLimitsAndQueryBinding() throws Exception {
+    public void searchPaginationUsesOneClosedProviderSnapshotAndQueryBinding() throws Exception {
         provider.rows.put("search", List.of(
                 row("track_id", 1L, "title", "First"),
                 row("track_id", 2L, "title", "Second"),
@@ -281,10 +286,10 @@ public final class PowerampLibrarySourceTest {
         );
         assertEquals(1, second.page.offset);
         assertEquals(2L, second.page.items.get(0).id);
-        assertEquals(List.of(2, 3), provider.requestedLimits);
-        assertEquals(2, provider.closedRows.get());
+        assertEquals(Collections.singletonList(0), provider.requestedLimits);
+        assertEquals(1, provider.closedRows.get());
         assertEquals(
-                "content://com.maxmpz.audioplayer.data/files?lim=3",
+                "content://com.maxmpz.audioplayer.data/files",
                 provider.lastProviderUri
         );
     }
@@ -320,7 +325,7 @@ public final class PowerampLibrarySourceTest {
     @Test
     public void categorizedSearchUsesCanonicalArtistAndItsRelatedAlbums() {
         provider.rows.put("categorized_search_artists", List.of(
-                row("item_id", 10L, "title", "Moe Shop", "track_count", 6L,
+                row("item_id", 10L, "title", "Moe Shop", "track_count", 11L,
                         "artist_is_unsplit", 0L),
                 row("item_id", 11L, "title", "Moe Shop, KMNZ", "track_count", 1L,
                         "artist_is_unsplit", 1L)
@@ -340,7 +345,7 @@ public final class PowerampLibrarySourceTest {
         LibraryItem artist = result.search.sections.get(0).items.get(0);
         assertEquals(LibraryItem.Type.ARTIST, artist.type);
         assertEquals(10L, artist.id);
-        assertNull(artist.trackCount);
+        assertEquals(11, artist.trackCount.intValue());
         assertNotNull(artist.browseTarget);
         assertEquals(List.of(20L, 21L), ids(result.search.sections.get(1).items));
     }
@@ -365,6 +370,157 @@ public final class PowerampLibrarySourceTest {
         assertTrue(result.isSuccess());
         assertEquals(List.of(1L, 2L, 3L), ids(result.page.items));
         assertEquals(10L, result.page.items.get(1).parentId.longValue());
+    }
+
+    @Test
+    public void exactOblivionLeadsWithoutHidingPartialBeyondFormerCandidateBoundary() {
+        List<Map<String, Object>> tracks = new ArrayList<>();
+        tracks.add(row("track_id", 1L, "title", "Oblivion"));
+        for (long id = 2L; id <= 1_001L; id++) {
+            tracks.add(row("track_id", id, "title", "Unrelated " + id));
+        }
+        tracks.add(row(
+                "track_id", 1_002L,
+                "title", "Beyond Oblivion",
+                "artist", "Trivium"
+        ));
+        provider.rows.put("categorized_search_tracks", tracks);
+
+        PowerampLibrarySource.CategorizedResult result = source.searchCategorized(
+                "oblivion", 25, cancellation()
+        );
+
+        assertTrue(result.isSuccess());
+        assertEquals(CategorizedSearch.TrackMatch.EXACT, result.search.trackMatch);
+        assertEquals(List.of(1L, 1_002L), ids(result.search.sections.get(0).items));
+        assertEquals("Beyond Oblivion", result.search.sections.get(0).items.get(1).title);
+    }
+
+    @Test
+    public void groupedSearchContinuesEachSectionIndependently() throws Exception {
+        List<Map<String, Object>> tracks = new ArrayList<>();
+        List<Map<String, Object>> artists = new ArrayList<>();
+        List<Map<String, Object>> albums = new ArrayList<>();
+        for (long index = 1L; index <= 60L; index++) {
+            tracks.add(row("track_id", index, "title", "query track " + index));
+            artists.add(row(
+                    "item_id", 1_000L + index,
+                    "title", "query artist " + index,
+                    "artist_is_unsplit", 0L
+            ));
+            albums.add(row(
+                    "item_id", 2_000L + index,
+                    "title", "query album " + index
+            ));
+        }
+        provider.rows.put("categorized_search_tracks", tracks);
+        provider.rows.put("categorized_search_artists", artists);
+        provider.rows.put("categorized_search_albums", albums);
+
+        PowerampLibrarySource.CategorizedResult first = source.searchCategorized(
+                "query", 25, null, null, cancellation()
+        );
+        assertEquals(3, first.search.sections.size());
+        String trackToken = first.search.sections.get(0).nextPageToken;
+        String artistToken = first.search.sections.get(1).nextPageToken;
+        String albumToken = first.search.sections.get(2).nextPageToken;
+        assertNotNull(trackToken);
+        assertNotNull(artistToken);
+        assertNotNull(albumToken);
+
+        PowerampLibrarySource.CategorizedResult artistsPage = source.searchCategorized(
+                "query", 25, "artists", artistToken, cancellation()
+        );
+        assertEquals(1, artistsPage.search.sections.size());
+        assertEquals(CategorizedSearch.SectionType.ARTISTS,
+                artistsPage.search.sections.get(0).type);
+        assertEquals(1_026L, artistsPage.search.sections.get(0).items.get(0).id);
+
+        PowerampLibrarySource.CategorizedResult tracksPage = source.searchCategorized(
+                "query", 25, "tracks", trackToken, cancellation()
+        );
+        assertEquals(CategorizedSearch.SectionType.TRACKS,
+                tracksPage.search.sections.get(0).type);
+        assertEquals(26L, tracksPage.search.sections.get(0).items.get(0).id);
+
+        PowerampLibrarySource.CategorizedResult albumsPage = source.searchCategorized(
+                "query", 25, "albums", albumToken, cancellation()
+        );
+        assertEquals(CategorizedSearch.SectionType.ALBUMS,
+                albumsPage.search.sections.get(0).type);
+        assertEquals(2_026L, albumsPage.search.sections.get(0).items.get(0).id);
+    }
+
+    @Test
+    public void structuredArtistQueryFiltersTrackAndAlbumSectionsThroughMembership() {
+        provider.rows.put("categorized_search_artists", Collections.singletonList(row(
+                "item_id", 10L,
+                "title", "Moe Shop",
+                "track_count", 11L,
+                "artist_is_unsplit", 0L
+        )));
+        provider.rows.put("categorized_search_artist_tracks", List.of(
+                row("track_id", 31L, "title", "Notice"),
+                row("track_id", 32L, "title", "Notice Me")
+        ));
+        provider.rows.put("categorized_search_artist_albums", Collections.singletonList(row(
+                "item_id", 41L, "title", "Notice"
+        )));
+
+        PowerampLibrarySource.CategorizedResult result = source.searchCategorized(
+                "Moe Shop — Notice", 25, cancellation()
+        );
+
+        assertTrue(result.isSuccess());
+        assertEquals(CategorizedSearch.TrackMatch.EXACT, result.search.trackMatch);
+        assertEquals(List.of(31L, 32L), ids(result.search.sections.get(0).items));
+        assertEquals(10L, result.search.sections.get(1).items.get(0).id);
+        assertEquals(11, result.search.sections.get(1).items.get(0).trackCount.intValue());
+        assertEquals(41L, result.search.sections.get(2).items.get(0).id);
+    }
+
+    @Test
+    public void fuzzyArtistAlbumIndexIsReusedUntilItsHonestTtlExpires() {
+        provider.rows.put("artists", Collections.singletonList(row(
+                "item_id", 8L,
+                "title", "Northlane",
+                "artist_is_unsplit", 0L
+        )));
+        provider.rows.put("albums", Collections.singletonList(row(
+                "item_id", 9L, "title", "Unrelated"
+        )));
+
+        assertTrue(source.searchCategorized("Nrthlame", 25, cancellation()).isSuccess());
+        assertTrue(source.searchCategorized("Nrthlame", 25, cancellation()).isSuccess());
+        assertEquals(1L, provider.queryCount("artists"));
+        assertEquals(1L, provider.queryCount("albums"));
+
+        clock.addAndGet(2L * 60L * 1_000L);
+        assertTrue(source.searchCategorized("Nrthlame", 25, cancellation()).isSuccess());
+        assertEquals(2L, provider.queryCount("artists"));
+        assertEquals(2L, provider.queryCount("albums"));
+    }
+
+    @Test
+    public void fuzzyIndexWaitHonorsRequestCancellationAndShutdownCancelsBuild()
+            throws Exception {
+        CountDownLatch indexStarted = new CountDownLatch(1);
+        provider.blockedIndexStarted = indexStarted;
+        LibraryCancellation requestCancellation = cancellation();
+        AtomicReference<PowerampLibrarySource.CategorizedResult> result =
+                new AtomicReference<>();
+        Thread request = new Thread(() -> result.set(source.searchCategorized(
+                "Nrthlame", 25, requestCancellation
+        )));
+        request.start();
+        assertTrue(indexStarted.await(2, TimeUnit.SECONDS));
+
+        requestCancellation.cancel();
+        request.join(2_000L);
+        assertFalse(request.isAlive());
+        assertEquals(LibraryAccessState.Status.PROVIDER_ERROR, result.get().status);
+
+        source.close();
     }
 
     @Test
@@ -432,7 +588,7 @@ public final class PowerampLibrarySourceTest {
         assertEquals(LibraryAccessState.Status.PROVIDER_UNAVAILABLE, result.status);
         assertNull(result.page);
         assertEquals(1, provider.requestedLimits.size());
-        assertEquals(11, provider.requestedLimits.get(0).intValue());
+        assertEquals(0, provider.requestedLimits.get(0).intValue());
     }
 
     @Test
@@ -527,11 +683,13 @@ public final class PowerampLibrarySourceTest {
     private static final class FakeProvider implements PowerampLibraryProvider {
         final Map<String, List<Map<String, Object>>> rows = new HashMap<>();
         final List<Integer> requestedLimits = new ArrayList<>();
+        final Map<String, AtomicLong> queryCounts = new HashMap<>();
         final AtomicLong closedRows = new AtomicLong();
         volatile boolean installed = true;
         volatile Failure failure;
         volatile boolean failOnMove;
         volatile CountDownLatch blockedSearchStarted;
+        volatile CountDownLatch blockedIndexStarted;
         volatile String lastProviderUri;
 
         @Override
@@ -546,6 +704,8 @@ public final class PowerampLibrarySourceTest {
                 LibraryCancellation cancellation
         ) throws ProviderException {
             requestedLimits.add(limit);
+            queryCounts.computeIfAbsent(query.category, ignored -> new AtomicLong())
+                    .incrementAndGet();
             lastProviderUri = query.providerUri(limit);
             if (failure != null) {
                 throw new ProviderException(failure);
@@ -567,14 +727,34 @@ public final class PowerampLibrarySourceTest {
                 }
                 throw new ProviderException(Failure.CANCELLED);
             }
+            if ("artists".equals(query.category) && blockedIndexStarted != null) {
+                CountDownLatch released = new CountDownLatch(1);
+                cancellation.attach(released::countDown);
+                blockedIndexStarted.countDown();
+                try {
+                    if (!released.await(2, TimeUnit.SECONDS)) {
+                        throw new ProviderException(Failure.ERROR);
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    cancellation.detach();
+                }
+                throw new ProviderException(Failure.CANCELLED);
+            }
             List<Map<String, Object>> available = rows.getOrDefault(
                     query.category,
                     Collections.emptyList()
             );
-            List<Map<String, Object>> limited = new ArrayList<>(
-                    available.subList(0, Math.min(limit, available.size()))
-            );
+            int end = limit == PowerampLibraryContract.PROVIDER_ALL_ROWS
+                    ? available.size() : Math.min(limit, available.size());
+            List<Map<String, Object>> limited = new ArrayList<>(available.subList(0, end));
             return new FakeRows(limited, cancellation, failOnMove, closedRows);
+        }
+
+        long queryCount(String category) {
+            AtomicLong count = queryCounts.get(category);
+            return count == null ? 0L : count.get();
         }
     }
 

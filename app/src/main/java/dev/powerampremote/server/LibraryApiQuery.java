@@ -17,19 +17,30 @@ final class LibraryApiQuery {
     final int limit;
     final String pageToken;
     final String searchQuery;
+    final String searchSection;
 
-    private LibraryApiQuery(int limit, String pageToken, String searchQuery) {
+    private LibraryApiQuery(
+            int limit,
+            String pageToken,
+            String searchQuery,
+            String searchSection
+    ) {
         this.limit = limit;
         this.pageToken = pageToken;
         this.searchQuery = searchQuery;
+        this.searchSection = searchSection;
     }
 
     static LibraryApiQuery page(String rawQuery) {
-        return parse(rawQuery, false);
+        return parse(rawQuery, false, false);
     }
 
     static LibraryApiQuery search(String rawQuery) {
-        return parse(rawQuery, true);
+        return parse(rawQuery, true, false);
+    }
+
+    static LibraryApiQuery categorizedSearch(String rawQuery) {
+        return parse(rawQuery, true, true);
     }
 
     static void requireEmpty(String rawQuery) {
@@ -38,11 +49,16 @@ final class LibraryApiQuery {
         }
     }
 
-    private static LibraryApiQuery parse(String rawQuery, boolean search) {
+    private static LibraryApiQuery parse(
+            String rawQuery,
+            boolean search,
+            boolean categorized
+    ) {
         Map<String, String> parameters = parseParameters(rawQuery);
         for (String key : parameters.keySet()) {
             if (!"limit".equals(key) && !"pageToken".equals(key)
-                    && !(search && "q".equals(key))) {
+                    && !(search && "q".equals(key))
+                    && !(categorized && "section".equals(key))) {
                 throw new IllegalArgumentException("Unexpected query parameter");
             }
         }
@@ -71,7 +87,12 @@ final class LibraryApiQuery {
         } else if (query != null) {
             throw new IllegalArgumentException("Unexpected search query");
         }
-        return new LibraryApiQuery(limit, pageToken, query);
+        String section = parameters.get("section");
+        if (!categorized && section != null) {
+            throw new IllegalArgumentException("Unexpected Search section");
+        }
+        if (section != null) CategorizedSearch.SectionType.fromWireName(section);
+        return new LibraryApiQuery(limit, pageToken, query, section);
     }
 
     private static Map<String, String> parseParameters(String rawQuery) {
@@ -134,5 +155,6 @@ final class LibraryApiQuery {
         limit = 0;
         pageToken = null;
         searchQuery = null;
+        searchSection = null;
     }
 }
