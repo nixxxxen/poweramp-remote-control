@@ -14,8 +14,8 @@ android {
         minSdk 26
         targetSdk 36
         // The legacy 0.7.0 phone APK already shipped code 7; keep upgrades monotonic.
-        versionCode 15
-        versionName '0.6.0'
+        versionCode 16
+        versionName '0.7.0'
 
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }

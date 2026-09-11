@@ -5,12 +5,12 @@
 Poweramp Remote provides a reliable native Android Server for any compatible Android player device
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
-- Server: `0.10.2` (`versionCode 13`)
-- Phone Client: `0.6.0` (`versionCode 15`)
+- Server: `0.11.0` (`versionCode 14`)
+- Phone Client: `0.7.0` (`versionCode 16`)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; the Server counter is now `13` and the Phone counter is `15`. This preserves
+`versionCode 7`; the Server counter is now `14` and the Phone counter is `16`. This preserves
 Android upgrade compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.

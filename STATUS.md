@@ -2,17 +2,16 @@
 
 Current versions:
 
-- Server: `0.10.2` (`versionCode 13`)
-- Phone Client: `0.6.0` (`versionCode 15`)
+- Server release candidate: `0.11.0` (`versionCode 14`)
+- Phone Client release candidate: `0.7.0` (`versionCode 16`)
 - API: backward-compatible `v1`
 
 ## Stage
 
-The repository builds two native Android applications. At the unchanged Server release number
-`0.10.2`, the current source adds the Library/Search/current-Queue API foundation and the playback
-identity fields required by the Phone current-row indicator. An installed APK with the same version
-number can predate those source changes and must not be treated as an equivalent build.
-At unchanged Phone `0.6.0`, the Library/Search UI now consumes unlimited server-snapshot paging;
+The repository builds two native Android applications. The release candidate advances Server to
+`0.11.0` / code 14 for the Library/Search/Queue API and Phone to `0.7.0` / code 16 for the matching
+Library/Search/Queue UI. API `v1` remains backward-compatible.
+The Phone Library/Search UI consumes unlimited server-snapshot paging;
 the completed read-only Queue Stage 1 UI consumes the existing Queue route, and Search has
 independently pageable typed Tracks / Artists / Albums,
 structured Artist/title queries, clear, and private local history. Library track lists add
@@ -24,6 +23,38 @@ batch UI are implemented as the final pre-release candidate; Remove, Clear, Reor
 Lyrics, a new transport, and full multi-player persistence remain absent. The complete Queue Stage
 1 physical-device matrix is maintainer-confirmed; the new mutation Phone matrix remains release
 validation and is not marked complete below.
+
+## Server 0.11.0 / Phone 0.7.0 release-candidate preparation (2026-09-12)
+
+- Version metadata now advances independently to Server `0.11.0` / code 14 and Phone `0.7.0` /
+  code 16. Legacy application IDs, min API 26, target/compile API 36, permanent-signing contract,
+  and backward-compatible local API `v1` are unchanged.
+- `README.md`, `RELEASE_NOTES.md`, `RELEASING.md`, `PROJECT.md`, `ROADMAP.md`, and repository agent
+  guidance describe the Library/Search/Queue release and its exact in-place upgrade boundary from
+  public Server `0.10.2` / Phone `0.6.0`.
+- Settings no longer shows the redundant language description, System-default explanation, or
+  About-card description. About no longer shows the prose third-party-location and independence
+  notices; the repository and third-party-notice actions remain available.
+- One clean debug pipeline completed successfully for both modules: all **100** actionable Gradle
+  tasks executed; Server passed **147/147** JVM tests across 29 suites and Phone passed **211/211**
+  across 48 suites, for **358/358** total with zero failures, errors, or skips. Both `lintDebug`
+  tasks and both APK assemblies passed.
+- Lint has zero errors. Server reports only its two version-update advisories. Phone reports 26
+  non-fatal advisories covering known layout/performance/RTL suggestions, three stale resources,
+  one plural suggestion, and a test-only dependency update; no lint rule was disabled.
+- Debug APK badging confirms Server `dev.r4remote.poweramp`, code 14/name 0.11.0, and Phone
+  `dev.r4remote.poweramp.phone`, code 16/name 0.7.0. Both retain min API 26 and target/compile API
+  36, pass 16 KiB-aware ZIP alignment, and verify with APK Signature Scheme v2 under the local
+  Android debug certificate. Their current SHA-256 values are
+  `ebbfc0199bb8e07f52a21711363e7dfc4f3092da868fc11e52ebdc8c7735497f` (Server) and
+  `1d0868639cfd4b24d0fdb78e92a7532bdad46956c48b886e787c056514418988` (Phone).
+- The merged manifests still contain exactly one Server
+  `RemotePlaybackService(connectedDevice)` and one Phone
+  `PhoneConnectionService(connectedDevice|mediaPlayback)`. `git diff --check` passes.
+- This is not yet a publishable release. No external signing properties are configured in the
+  current shell, so release tests/lint, the clean permanently signed APK build, certificate/
+  metadata/hash verification, exact-APK in-place device matrix, release assets, tag, and push remain
+  pending. Debug APK hashes above are diagnostic only and must not enter `SHA256SUMS.txt`.
 
 ## Phone composite-row click routing fix (2026-09-11)
 

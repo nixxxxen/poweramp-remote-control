@@ -1,7 +1,8 @@
 # Poweramp Remote Roadmap
 
-Current release versions are Server `0.10.2` and Phone Client `0.6.0`; API remains backward-
-compatible `v1`. Server is unchanged in the Phone UI release.
+Current public versions are Server `0.10.2` and Phone Client `0.6.0`. The Library/Queue release
+candidate advances them to Server `0.11.0` and Phone Client `0.7.0`; API remains backward-compatible
+`v1`.
 
 Confirmed implementation and verification are tracked in `STATUS.md`. Server and Phone Client use independent application versions; API compatibility is tracked separately.
 
@@ -254,15 +255,15 @@ Initial browsing structure:
 - Playlists;
 - Search.
 
-Server foundation is implemented at the unchanged Server `0.10.2` / API `v1`: bounded
+Server foundation is included in the `0.11.0` release candidate with API `v1` unchanged: bounded
 ContentProvider-backed routes, strict ID/category/query validation, lazy track artwork, explicit
 permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. The Phone
 Library/Search UI now adds the agreed navigation, unlimited server-snapshot continuation with
 bounded HTTP pages, lazy thumbnail cache, container Back stack, stale-search protection, grouped
 Tracks/Artists/Albums continuation, structured Artist/title Search, clear, and private local history
-plus full-snapshot Library track sorting at unchanged Phone `0.6.0`. Versions increase only after
-the whole series is complete. The current Library/Search and sorting device matrices are
-maintainer-confirmed; broader category/permission/OEM coverage remains ongoing.
+plus full-snapshot Library track sorting in the Phone `0.7.0` release candidate. The current
+Library/Search and sorting device matrices are maintainer-confirmed; broader category/permission/
+OEM coverage remains ongoing.
 
 Phone navigation remains Player / Library / Search / Settings in a bottom bar. About is in Settings,
 the top-left main menu is removed, and the existing connection pill is retained. The Queue Stage 1
@@ -303,12 +304,12 @@ Artwork should be loaded lazily rather than transferred for the whole library.
 
 ### Library/Search UI refinements (requested 2026-09-07)
 
-These follow-up requirements are implemented incrementally while retaining the existing
+These follow-up requirements were implemented incrementally while retaining the existing
 service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
-volume. Items 1–6, the currently applicable Library/Search portion of 8, and item 9 are complete at
-unchanged versions. The current-row indicator and content-only tab transitions were confirmed on
-matching-revision Server and Phone debug builds on 2026-09-08.
-Versions advance when the series is ready for release, not for each refinement.
+volume. Items 1–6, the currently applicable Library/Search portion of 8, and item 9 are complete.
+The current-row indicator and content-only tab transitions were confirmed on matching-revision
+Server and Phone debug builds on 2026-09-08.
+The completed series is now assigned to Server `0.11.0` / Phone `0.7.0` for release validation.
 
 1. **Completed — icon-only bottom navigation.** Player, Library, Search, and Settings now use
    recognizable vectors without visible labels, with selected/pressed states, 48 dp minimum touch

@@ -7,14 +7,14 @@ Android player device with Poweramp, plus a separate native Phone Client.
 
 Current application versions are independent:
 
-- Server: `0.10.2` (`versionCode 13`);
-- Phone Client: `0.6.0` (`versionCode 15`);
+- Server: `0.11.0` (`versionCode 14`);
+- Phone Client: `0.7.0` (`versionCode 16`);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
-Both legacy apps previously shipped `versionCode 7`; the Server counter is now `13` and the Phone
-counter is `15`. Future Server and Phone codes must continue to advance separately. The legacy IDs
+Both legacy apps previously shipped `versionCode 7`; the Server counter is now `14` and the Phone
+counter is `16`. Future Server and Phone codes must continue to advance separately. The legacy IDs
 are not the current product or source namespace.
 
 ## Read first
@@ -70,14 +70,13 @@ endpoint replaces a direct endpoint. Wi-Fi Direct connection requests must respe
 permissions, Location Mode requirements, platform group-owner selection, and any system approval
 shown on either device. Never try to bypass or automate those dialogs.
 
-Unreleased Library/Search/Queue work on the current branch adds the Server foundation and first
-Phone Library/Search UI candidate at the same version numbers. `RemotePlaybackService` owns `PowerampLibrarySource` and its unstable
+The Server `0.11.0` / Phone `0.7.0` release candidate adds the Library/Search/Queue foundation and
+Phone UI. `RemotePlaybackService` owns `PowerampLibrarySource` and its unstable
 ContentProvider adapter; HTTP routes are additive and Bearer-only. Search uses `/files` with fixed
 bound selection arguments, not the obsolete `/search?flt` path that crashes the verified Poweramp
 build. The Phone UI consumes these routes only through the existing `PhoneConnectionService` and
-`RemoteClientController`. Basic Server browsing, track play, and positive/empty search are
-device-confirmed; the Phone UI still needs its `STATUS.md` matrix. Do not reintroduce `/search?flt`
-or an automatic query retry.
+`RemoteClientController`. Completed device checks and the remaining exact release matrix are in
+`STATUS.md`. Do not reintroduce `/search?flt` or an automatic query retry.
 
 Version history:
 
@@ -116,6 +115,10 @@ Version history:
   retargetable playback-control motion, smooth locally extrapolated seek presentation, a compact
   connection-status indicator, and fixed artwork-independent metadata-chip families. Server stays
   `0.10.2`; services, transport, pairing, MediaSession, Web UI, and API `v1` are unchanged.
+- Server `0.11.0` / Phone Client `0.7.0` add lazy Library browsing, categorized Global Search,
+  full-list sorting, a shared mini-player, exact current-row identity, read/exact-play Queue UI,
+  and public single/batch Add to Queue. API `v1` remains backward-compatible; Queue removal,
+  clearing, reordering, and Play Next remain unavailable.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
@@ -191,8 +194,7 @@ The following functionality is implemented and working:
 
 ### Intentionally not implemented
 
-- Phone Queue navigation/integration (Library/Search candidate is implemented);
-- Queue mutations;
+- Queue removal, clear, reorder, and Play Next mutations;
 - Lyrics;
 - full multi-player persistence/selection.
 

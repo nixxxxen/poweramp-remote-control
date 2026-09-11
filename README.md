@@ -6,8 +6,8 @@ controls, or a compatible Wear OS controller operates it over a local connection
 
 Current versions:
 
-- Server `0.10.2` (`versionCode 13`)
-- Phone Client `0.6.0` (`versionCode 15`)
+- Server `0.11.0` (`versionCode 14`)
+- Phone Client `0.7.0` (`versionCode 16`)
 - local API `v1`
 
 The Server and Phone Client are separate APKs with independent version numbers.
@@ -40,6 +40,11 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
   gestures;
 - animated playback controls, smooth event-driven seek presentation, a compact LAN/Wi-Fi Direct
   status indicator, and stable muted metadata-chip families;
+- lazy Library browsing for tracks, artists, albums, folders, and playlists, with representative
+  artwork and per-list sorting;
+- categorized global Search with independent Tracks, Artists, and Albums results, typo-tolerant
+  entity matching, structured artist/title queries, and local removable history;
+- Queue viewing and exact-entry playback, plus single or ordered batch Add to Queue from track rows;
 - complete English and Russian Phone UI, scanner, dialogs, accessibility text, and notifications;
 - an authenticated English embedded Web UI for browsers on the local network.
 
@@ -96,15 +101,15 @@ group owner for the current fallback connection to work.
 
 Download the two APKs from the [latest GitHub Release](../../releases/latest):
 
-- `Poweramp-Remote-Server-v0.10.2.apk`
-- `Poweramp-Remote-Phone-v0.6.0.apk`
+- `Poweramp-Remote-Server-v0.11.0.apk`
+- `Poweramp-Remote-Phone-v0.7.0.apk`
 
 The release also provides `SHA256SUMS.txt` plus the project and third-party license notices.
 
-> **Phone UI update:** Server remains `0.10.2`. Install Phone Client `0.6.0` directly over public
-> Phone `0.5.0` without uninstalling. The application ID and permanent release certificate are
-> unchanged, so the saved Server identity and Bearer credential remain in place and re-pairing is
-> not required.
+> **Library and Queue update:** install Server `0.11.0` over public Server `0.10.2` and Phone Client
+> `0.7.0` over public Phone `0.6.0` without uninstalling. Both application IDs and the permanent
+> release certificate are unchanged, so Server identity, API token, saved pairing, and Bearer
+> credential remain in place. Both new APKs are required for the complete feature set.
 
 > **Historical debug-build boundary:** pre-release APKs were signed with Android debug
 > certificates. Release-signed APKs still cannot update those installations. Uninstall both old
@@ -129,9 +134,8 @@ offer or start Wi-Fi Direct fallback; confirm any system dialogs shown on either
 The Phone main screen uses a compact LAN/Wi-Fi Direct connection pill on the right; tapping it opens
 **Player devices**. The menu button on the left opens **Settings** and **About**. Settings selects
 **System default**, **Russian**, or **English** without changing pairing or stopping the connection
-service; About shows exact installed version metadata, licenses, repository links, and the project
-independence notice. System default uses Russian only for a primary Russian system locale and
-English otherwise.
+service; About shows exact installed version metadata, licenses, and repository links. System
+default uses Russian only for a primary Russian system locale and English otherwise.
 
 For browser control, open `http://<SERVER-IP>:8765/` from a device on the same trusted LAN and log
 in with the credential copied through the Server's explicit Web UI credential action.
@@ -150,7 +154,8 @@ re-pair the player if a credential may have been exposed.
 ## Known limitations
 
 - Audio stays on the player device; this project is a controller, not an audio-streaming client.
-- Library, Queue, and Lyrics are not implemented.
+- Queue removal, clearing, reordering, and Play Next are not implemented because the audited public
+  Poweramp API does not document those mutations. Lyrics are not implemented.
 - Persistence currently targets one paired Server; full multi-player selection is not implemented.
 - Wi-Fi Direct depends on platform/OEM support, permissions, Location Mode on older Android, group
   owner selection, and user-approved system prompts.

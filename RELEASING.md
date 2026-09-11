@@ -51,8 +51,8 @@ private key or passwords.
 
 Create exactly these public artifacts:
 
-- `Poweramp-Remote-Server-v0.10.2.apk`
-- `Poweramp-Remote-Phone-v0.6.0.apk`
+- `Poweramp-Remote-Server-v0.11.0.apk`
+- `Poweramp-Remote-Phone-v0.7.0.apk`
 - `SHA256SUMS.txt`
 - `LICENSE`
 - `THIRD_PARTY_NOTICES.md`
@@ -82,31 +82,40 @@ public release. A fresh install is useful additional coverage but does not repla
 Build the exact release-signed APKs from the final release commit with the same permanent signing
 certificate, install those exact files, and record device models and Android versions.
 
-For Server `0.10.2` / Phone Client `0.6.0`, complete every item:
+For Server `0.11.0` / Phone Client `0.7.0`, complete every item:
 
-1. Keep the existing public Server `0.10.2` installed and confirm its identity, API token,
-   browser/API access, and pairing state remain intact.
-2. Install Phone `0.6.0` over public Phone `0.5.0` without uninstalling it.
-3. Confirm that the saved Server identity and Bearer credential remain intact and reconnect without
-   re-pairing.
-4. Check Main, Player devices, Settings, About, dialogs, scanner, foreground notification, and
-   notification actions in **System default**, **Russian**, and **English**.
-5. Exercise dynamic artwork palettes with bright, dark, neutral, missing, and rapidly changing
-   covers; confirm lifecycle restoration and disabled-animation behavior.
-6. Exercise cached and uncached artwork swipes, short/cancelled gestures, rapid Previous/Next, and
-   external track changes without stale artwork or extra commands.
-7. Exercise Play/Pause, Previous/Next, Like/Dislike, Shuffle, smooth progress, manual seek, command
-   failure/timeout, pause/resume, and track changes.
-8. Verify LAN, Wi-Fi Direct, Connecting, and Disconnected indicator states plus stable codec,
-   bit-depth, sample-rate, and bitrate chip families in both languages and compact layouts.
-9. Repeat background/resume, rotation, disconnect/reconnect, screen-off operation, and application/
-   device restarts while preserving pairing, language, playback position, and current presentation.
-10. Repeat QR and manual Bearer pairing, LAN/NSD operation, Wi-Fi Direct fallback, and recovery back
-    to preferred LAN.
-11. Repeat player-device volume, MediaSession, notification/lock-screen, compatible Wear OS, and Web
-    UI controls.
-12. Confirm Library, Queue, Lyrics, audio streaming, and full multi-player selection remain absent
-    rather than partially exposed.
+1. Install Server `0.11.0` over public Server `0.10.2` without uninstalling it. Confirm that Server
+   identity, API token, browser/API access, and pairing state remain intact.
+2. Install Phone `0.7.0` over public Phone `0.6.0` without uninstalling it. Confirm that the saved
+   Server identity and Bearer credential remain intact and reconnect without re-pairing.
+3. Check Player, Library, Search, Queue, Player devices, Settings, About, dialogs, scanner,
+   foreground notification, and notification actions in **System default**, **Russian**, and
+   **English**, including compact screens, rotation, keyboard/insets, Back, and rapid tab changes.
+4. Browse All tracks, Artists, Albums, nested Folders, and Playlists. Confirm complete paging beyond
+   1000 rows, representative/track artwork, exact current-track indicators, container Back state,
+   reload, reconnect/rebind retention, and empty/error/retry states.
+5. Exercise every Library sorting criterion in both directions for applicable list types. Confirm
+   stable full-list ordering, null-last behavior, preference restoration, and unchanged exact
+   Playlist-entry playback.
+6. Exercise Global Search Tracks/Artists/Albums, exact/prefix/substring and typo-tolerant matching,
+   multi-artist relations, `artist - title/album`, independent Show more, history open/remove/clear,
+   keyboard visibility, result navigation/Back restoration, and no artificial row limit.
+7. Exercise Queue empty/multi-page/duplicate states, exact occurrence playback/current indicator,
+   `1/N…N/N`, Previous/Next, automatic exit from Queue, Reload, reconnect/rebind, and return to the
+   retained Player.
+8. Add one track from All tracks, Artist, Album, Folder, Global Search, Playlist, and Queue. Confirm
+   no playback restart, exact Queue refresh/order, duplicate preservation, and old-Server hiding of
+   unsupported controls.
+9. Exercise ordered batch Add to Queue, the 100-item cap, selection order, repeated underlying
+   tracks, selection/Back/pagination/recreation/reconnect, double-submit suppression, and honest
+   partial/provider-failure presentation without automatic retry.
+10. Recheck artwork palettes/transitions/swipes, Play/Pause, Previous/Next, seek, Like/Dislike,
+    Shuffle, player-device volume, metadata chips, LAN/Wi-Fi Direct recovery, background/screen-off
+    operation, MediaSession, notification/lock-screen, compatible Wear OS, and Web UI controls.
+11. Restart both applications and devices; confirm pairing, language, sorting preferences, Search
+    history, playback state, and automatic reconnect survive as designed.
+12. Confirm Queue removal/clear/reorder/Play Next, Scoped Search, Lyrics, audio streaming, and full
+    multi-player selection remain absent rather than partially exposed.
 
 Only the exact release-signed APKs intended for upload count as validated. Any failure remains a
 release blocker until understood, fixed or explicitly documented, and re-tested. Do not call the
