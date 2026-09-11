@@ -260,9 +260,9 @@ permission state/action, and structured `OPEN_TO_PLAY` targets are implemented. 
 Library/Search UI now adds the agreed navigation, unlimited server-snapshot continuation with
 bounded HTTP pages, lazy thumbnail cache, container Back stack, stale-search protection, grouped
 Tracks/Artists/Albums continuation, structured Artist/title Search, clear, and private local history
-at unchanged Phone `0.6.0`. Versions increase only after the whole series is complete. The current
-Library/Search device matrix is maintainer-confirmed; broader category/permission/OEM coverage
-remains ongoing.
+plus full-snapshot Library track sorting at unchanged Phone `0.6.0`. Versions increase only after
+the whole series is complete. The current Library/Search and sorting device matrices are
+maintainer-confirmed; broader category/permission/OEM coverage remains ongoing.
 
 Phone navigation is now Player / Library / Search / Settings in a bottom bar. About is in Settings,
 the top-left main menu is removed, and the existing connection pill is retained. A later Queue task
@@ -279,8 +279,8 @@ the list visible without automatic retries, and visible artwork survives RAM evi
 The former 1000-row Server window is removed without inventing an undocumented SQL offset/keyset:
 one documented base-URI Cursor is consumed and closed into a bounded-TTL/LRU server-owned snapshot,
 then `1…100`-row pages continue to its actual end. One session has stable ordering and no skips or
-duplicates; library edits appear only after Reload. Sorting below must still operate before
-snapshot pagination, not only on an already loaded Phone page. Scoped Search is no longer part of
+duplicates; library edits appear only after Reload. Completed sorting operates before snapshot
+pagination, never only on an already loaded Phone page. Scoped Search is no longer part of
 the next release scope.
 
 Search executes in Poweramp through `/files` with a fixed parameterized title/file-name/artist/album
@@ -305,7 +305,7 @@ Artwork should be loaded lazily rather than transferred for the whole library.
 
 These follow-up requirements are implemented incrementally while retaining the existing
 service-owned playback/connection runtime, safe insets, and the non-scrolling Player with visible
-volume. Items 1–6 and the currently applicable Library/Search portion of 8 are complete at
+volume. Items 1–6, the currently applicable Library/Search portion of 8, and item 9 are complete at
 unchanged versions. The current-row indicator and content-only tab transitions were confirmed on
 matching-revision Server and Phone debug builds on 2026-09-08.
 Versions advance when the series is ready for release, not for each refinement.
@@ -370,18 +370,19 @@ Versions advance when the series is ready for release, not for each refinement.
    representative category covers, and their placeholders share an 8 dp outline clip, square
    proportions, and `centerCrop`, without bitmap reprocessing per bind. Mini-player artwork remains
    part of its separate future task.
-9. **Per-list sorting.** Add sort selection for track lists, including within containers: title,
-   album, artist, duration, and, only if publicly available and verified, date added and play count.
-   Verify field semantics, units and provider ordering support before exposing each option; do not
-   infer date added from an ID or invent play counts. Sort the entire scoped result before paging,
-   use a stable tie-breaker, and bind page tokens to scope/query/sort/direction. Remember the chosen
-   sort per relevant view, reset paging when it changes, and retain a provider-default order option.
-   Sorting only an already downloaded page must not be presented as sorting the whole library.
+9. **Completed — per-list sorting.** All existing Library track-list routes support Poweramp order,
+   title, album, artist, duration, date added, and play count in both directions. The public/API and
+   installed-build audit verified `folder_files.duration` in milliseconds,
+   `folder_files.created_at` as first-seen epoch seconds, and `folder_files.played_times` as the
+   stable Poweramp play count; no ID/date or category/count heuristic is used. Server sorts the
+   complete immutable result before paging, keeps nulls last, uses deterministic Unicode-aware
+   tie-breakers, and binds each token to container/filter/sort/direction. Phone exposes two 48 dp
+   toolbar actions only on track lists, follows advertised capabilities, remembers one choice per
+   bounded logical view type, and invalidates the old request generation when the choice changes.
+   Playlist sorting is presentation-only and retains exact entry play targets and Poweramp's saved
+   follow-on order. Global Search, Queue, services, API `v1`, and versions are unchanged.
 
-Sorting requires a focused public Poweramp API/device check: the current Server contract exposes
-provider-default ordering, not the additional options below. Unsupported criteria should remain
-unavailable with honest UI rather than fabricated values. Deferred Scoped Search requires its own
-separate audit if it is resumed after release.
+Deferred Scoped Search requires its own separate audit if it is resumed after release.
 
 ## Queue
 

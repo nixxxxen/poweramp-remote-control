@@ -112,6 +112,10 @@ final class LibraryItem {
     final String artist;
     final String album;
     final Long durationMilliseconds;
+    /** Public folder_files.created_at: first-seen time in epoch seconds. */
+    final Long dateAddedEpochSeconds;
+    /** Public folder_files.played_times: Poweramp's stable internal play count. */
+    final Long playCount;
     final Integer trackCount;
     final String artworkPath;
     final PlayTarget playTarget;
@@ -137,7 +141,7 @@ final class LibraryItem {
     ) {
         this(
                 type, id, entryId, parentId, title, artist, album,
-                durationMilliseconds, trackCount, artworkPath, playTarget, current,
+                durationMilliseconds, null, null, trackCount, artworkPath, playTarget, current,
                 null, null
         );
     }
@@ -158,6 +162,31 @@ final class LibraryItem {
             Boolean artistUnsplit,
             BrowseTarget browseTarget
     ) {
+        this(
+                type, id, entryId, parentId, title, artist, album,
+                durationMilliseconds, null, null, trackCount, artworkPath, playTarget, current,
+                artistUnsplit, browseTarget
+        );
+    }
+
+    LibraryItem(
+            Type type,
+            long id,
+            Long entryId,
+            Long parentId,
+            String title,
+            String artist,
+            String album,
+            Long durationMilliseconds,
+            Long dateAddedEpochSeconds,
+            Long playCount,
+            Integer trackCount,
+            String artworkPath,
+            PlayTarget playTarget,
+            Boolean current,
+            Boolean artistUnsplit,
+            BrowseTarget browseTarget
+    ) {
         this.type = Objects.requireNonNull(type);
         if (id <= 0L || entryId != null && entryId <= 0L
                 || parentId != null && parentId < 0L) {
@@ -170,6 +199,8 @@ final class LibraryItem {
         this.artist = cleanText(artist);
         this.album = cleanText(album);
         this.durationMilliseconds = nonNegative(durationMilliseconds);
+        this.dateAddedEpochSeconds = nonNegative(dateAddedEpochSeconds);
+        this.playCount = nonNegative(playCount);
         this.trackCount = nonNegative(trackCount);
         this.artworkPath = artworkPath;
         this.playTarget = playTarget;
@@ -182,7 +213,7 @@ final class LibraryItem {
         if (type != Type.ARTIST) throw new IllegalStateException("Artist item required");
         return new LibraryItem(
                 type, id, entryId, parentId, title, artist, album,
-                null, trackCount, artworkPath, playTarget, current, artistUnsplit,
+                null, null, null, trackCount, artworkPath, playTarget, current, artistUnsplit,
                 BrowseTarget.artistMembership(id)
         );
     }

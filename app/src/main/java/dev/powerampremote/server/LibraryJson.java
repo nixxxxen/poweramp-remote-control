@@ -39,6 +39,27 @@ final class LibraryJson {
             pagination.put("continuationModel", "server_snapshot");
             root.put("pagination", pagination);
 
+            JSONObject trackSorting = new JSONObject();
+            JSONArray sortCriteria = new JSONArray();
+            Iterable<LibrarySort.Criterion> availableCriteria =
+                    state.status == LibraryAccessState.Status.AVAILABLE
+                            ? LibrarySort.SUPPORTED_CRITERIA
+                            : java.util.Collections.singletonList(
+                                    LibrarySort.Criterion.DEFAULT
+                            );
+            for (LibrarySort.Criterion criterion : availableCriteria) {
+                sortCriteria.put(criterion.wireName);
+            }
+            trackSorting.put("criteria", sortCriteria);
+            JSONArray sortDirections = new JSONArray();
+            sortDirections.put(LibrarySort.Direction.ASCENDING.wireName);
+            sortDirections.put(LibrarySort.Direction.DESCENDING.wireName);
+            trackSorting.put("directions", sortDirections);
+            trackSorting.put("dateAddedField", "folder_files.created_at");
+            trackSorting.put("dateAddedUnit", "epoch_seconds");
+            trackSorting.put("playCountField", "folder_files.played_times");
+            root.put("trackSorting", trackSorting);
+
             JSONObject queue = new JSONObject();
             queue.put("read", true);
             queue.put("playExisting", true);
@@ -160,6 +181,8 @@ final class LibraryJson {
         object.put("artist", nullable(item.artist));
         object.put("album", nullable(item.album));
         object.put("durationMilliseconds", nullable(item.durationMilliseconds));
+        object.put("dateAddedEpochSeconds", nullable(item.dateAddedEpochSeconds));
+        object.put("playCount", nullable(item.playCount));
         object.put("trackCount", nullable(item.trackCount));
         object.put("artwork", nullable(item.artworkPath));
         object.put("play", item.playTarget == null

@@ -46,6 +46,8 @@ final class PowerampLibraryContract {
     static final String COLUMN_ARTIST = "artist";
     static final String COLUMN_ALBUM = "album";
     static final String COLUMN_DURATION_MILLISECONDS = "duration_ms";
+    static final String COLUMN_DATE_ADDED_EPOCH_SECONDS = "date_added_epoch_seconds";
+    static final String COLUMN_PLAY_COUNT = "play_count";
     static final String COLUMN_TRACK_COUNT = "track_count";
     static final String COLUMN_ARTIST_IS_UNSPLIT = "artist_is_unsplit";
 
@@ -79,7 +81,9 @@ final class PowerampLibraryContract {
             "title_tag AS " + COLUMN_TITLE,
             "artist AS " + COLUMN_ARTIST,
             "album AS " + COLUMN_ALBUM,
-            "folder_files.duration AS " + COLUMN_DURATION_MILLISECONDS
+            "folder_files.duration AS " + COLUMN_DURATION_MILLISECONDS,
+            "folder_files.created_at AS " + COLUMN_DATE_ADDED_EPOCH_SECONDS,
+            "folder_files.played_times AS " + COLUMN_PLAY_COUNT
     };
     private static final String SEARCH_SELECTION =
             "(title_tag LIKE ? ESCAPE '!'"
@@ -99,7 +103,9 @@ final class PowerampLibraryContract {
             "title_tag AS " + COLUMN_TITLE,
             "artist AS " + COLUMN_ARTIST,
             "album AS " + COLUMN_ALBUM,
-            "folder_files.duration AS " + COLUMN_DURATION_MILLISECONDS
+            "folder_files.duration AS " + COLUMN_DURATION_MILLISECONDS,
+            "folder_files.created_at AS " + COLUMN_DATE_ADDED_EPOCH_SECONDS,
+            "folder_files.played_times AS " + COLUMN_PLAY_COUNT
     };
     private static final String[] QUEUE_ENTRY_PROJECTION = {
             "folder_files._id AS " + COLUMN_TRACK_ID,
@@ -162,6 +168,7 @@ final class PowerampLibraryContract {
         final String filter;
         final RowKind rowKind;
         final Long containerId;
+        final LibrarySort sort;
         private final String selection;
         private final String[] selectionArgs;
 
@@ -174,11 +181,28 @@ final class PowerampLibraryContract {
                 String selection,
                 String[] selectionArgs
         ) {
+            this(
+                    category, path, filter, rowKind, containerId,
+                    selection, selectionArgs, LibrarySort.POWERAMP
+            );
+        }
+
+        private Query(
+                String category,
+                String path,
+                String filter,
+                RowKind rowKind,
+                Long containerId,
+                String selection,
+                String[] selectionArgs,
+                LibrarySort sort
+        ) {
             this.category = Objects.requireNonNull(category);
             this.path = Objects.requireNonNull(path);
             this.filter = filter;
             this.rowKind = Objects.requireNonNull(rowKind);
             this.containerId = containerId;
+            this.sort = Objects.requireNonNull(sort);
             this.selection = selection;
             this.selectionArgs = selectionArgs == null ? null : selectionArgs.clone();
         }
@@ -239,7 +263,22 @@ final class PowerampLibraryContract {
         }
 
         String paginationKey() {
-            return category + '\n' + path + '\n' + (filter == null ? "" : filter);
+            return category + '\n' + path + '\n' + (filter == null ? "" : filter)
+                    + '\n' + sort.key();
+        }
+
+        boolean supportsTrackSorting() {
+            return rowKind == RowKind.TRACK || rowKind == RowKind.PLAYLIST_ENTRY;
+        }
+
+        Query withSort(LibrarySort selectedSort) {
+            if (!supportsTrackSorting()) {
+                throw new IllegalArgumentException("Sorting requires a Library track list");
+            }
+            return new Query(
+                    category, path, filter, rowKind, containerId,
+                    selection, selectionArgs, selectedSort
+            );
         }
     }
 

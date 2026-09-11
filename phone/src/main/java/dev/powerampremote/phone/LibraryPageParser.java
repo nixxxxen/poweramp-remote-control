@@ -55,6 +55,10 @@ final class LibraryPageParser {
         String artist = nullableBoundedText(object, "artist");
         String album = nullableBoundedText(object, "album");
         Long duration = nullableNonNegativeLong(object, "durationMilliseconds");
+        Long dateAdded = optionalNullableNonNegativeLong(
+                object, "dateAddedEpochSeconds"
+        );
+        Long playCount = optionalNullableNonNegativeLong(object, "playCount");
         Integer trackCount = nullableNonNegativeInt(object, "trackCount");
         String artwork = nullableString(object, "artwork");
         if (artwork != null && !ARTWORK.matcher(artwork).matches()) {
@@ -71,7 +75,8 @@ final class LibraryPageParser {
         Boolean current = object.isNull("current") ? null : object.getBoolean("current");
         return new LibraryItem(
                 type, id, entryId, parentId, title, artist, album,
-                duration, trackCount, artwork, playTarget, browseTarget, current
+                duration, dateAdded, playCount, trackCount, artwork,
+                playTarget, browseTarget, current
         );
     }
 
@@ -109,6 +114,14 @@ final class LibraryPageParser {
         Long value = integerLong(object, key, true);
         if (value != null && value < 0L) throw new JSONException("Invalid non-negative integer");
         return value;
+    }
+
+    private static Long optionalNullableNonNegativeLong(
+            JSONObject object,
+            String key
+    ) throws JSONException {
+        if (!object.has(key)) return null;
+        return nullableNonNegativeLong(object, key);
     }
 
     private static Integer nullableNonNegativeInt(JSONObject object, String key) throws JSONException {

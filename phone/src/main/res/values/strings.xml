@@ -49,6 +49,32 @@
     <string name="library_unknown_item">Untitled item</string>
     <string name="library_duration">%1$s</string>
     <string name="library_current_track">Current track</string>
+    <string name="library_sort_choose">Choose track sorting</string>
+    <string name="library_sort_by">Sort by: %1$s</string>
+    <string name="library_sort_dialog_title">Sort tracks by</string>
+    <string name="library_sort_default">Poweramp order</string>
+    <string name="library_sort_title">Title</string>
+    <string name="library_sort_album">Album</string>
+    <string name="library_sort_artist">Artist</string>
+    <string name="library_sort_duration">Duration</string>
+    <string name="library_sort_date_added">Date added</string>
+    <string name="library_sort_play_count">Play count</string>
+    <string name="library_sort_direction">Sort direction: %1$s</string>
+    <string name="library_sort_direction_poweramp">Poweramp controls the order</string>
+    <string name="library_sort_a_to_z">A to Z</string>
+    <string name="library_sort_z_to_a">Z to A</string>
+    <string name="library_sort_shortest">Shortest first</string>
+    <string name="library_sort_longest">Longest first</string>
+    <string name="library_sort_newest">Newest first</string>
+    <string name="library_sort_oldest">Oldest first</string>
+    <string name="library_sort_most_played">Most played first</string>
+    <string name="library_sort_least_played">Least played first</string>
+    <string name="library_date_added">Added %1$s</string>
+
+    <plurals name="library_play_count">
+        <item quantity="one">%d play</item>
+        <item quantity="other">%d plays</item>
+    </plurals>
     <string name="mini_player_open_description">%1$s by %2$s. Open Player</string>
     <string name="mini_player_controls_unavailable">Playback controls unavailable while disconnected</string>
     <string name="mini_player_action_unavailable">%1$s unavailable while disconnected</string>

@@ -762,14 +762,27 @@ final class RemoteApiServer implements AutoCloseable {
         final PowerampLibraryContract.Query providerQuery;
         final LibraryApiQuery apiQuery;
         try {
-            providerQuery = libraryQueryForPath(request.path, request.rawQuery);
-            if (providerQuery == null) {
+            PowerampLibraryContract.Query baseProviderQuery = libraryQueryForPath(
+                    request.path, request.rawQuery
+            );
+            if (baseProviderQuery == null) {
                 writeJsonError(output, 404, "Not Found", "not_found");
                 return;
             }
             apiQuery = SEARCH_PATH.equals(request.path)
                     ? LibraryApiQuery.search(request.rawQuery)
                     : LibraryApiQuery.page(request.rawQuery);
+            if (apiQuery.sortSpecified) {
+                if (!baseProviderQuery.supportsTrackSorting()
+                        || SEARCH_PATH.equals(request.path)
+                        || QUEUE_PATH.equals(request.path)) {
+                    throw new IllegalArgumentException(
+                            "Sorting is supported only for Library track lists"
+                    );
+                }
+                baseProviderQuery = baseProviderQuery.withSort(apiQuery.sort);
+            }
+            providerQuery = baseProviderQuery;
         } catch (IllegalArgumentException exception) {
             writeJsonError(output, 400, "Bad Request", "invalid_library_request");
             return;

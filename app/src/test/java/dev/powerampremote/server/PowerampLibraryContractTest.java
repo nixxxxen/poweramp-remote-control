@@ -146,6 +146,42 @@ public final class PowerampLibraryContractTest {
         assertFalse(PowerampLibraryContract.isAllowedProviderUri(
                 "content://com.maxmpz.audioplayer.data/search?flt=needle&lim=17"
         ));
+        java.util.List<String> projection = java.util.Arrays.asList(
+                PowerampLibraryContract.allTracks().projection()
+        );
+        assertTrue(projection.contains(
+                "folder_files.created_at AS date_added_epoch_seconds"
+        ));
+        assertTrue(projection.contains("folder_files.played_times AS play_count"));
+    }
+
+    @Test
+    public void paginationIdentityIncludesCompleteSortSelection() {
+        PowerampLibraryContract.Query ascending = PowerampLibraryContract.allTracks()
+                .withSort(new LibrarySort(
+                        LibrarySort.Criterion.TITLE,
+                        LibrarySort.Direction.ASCENDING
+                ));
+        PowerampLibraryContract.Query descending = PowerampLibraryContract.allTracks()
+                .withSort(new LibrarySort(
+                        LibrarySort.Criterion.TITLE,
+                        LibrarySort.Direction.DESCENDING
+                ));
+        assertFalse(ascending.paginationKey().equals(descending.paginationKey()));
+        assertFalse(ascending.paginationKey().equals(
+                PowerampLibraryContract.albumTracks(1L).withSort(
+                        new LibrarySort(
+                                LibrarySort.Criterion.TITLE,
+                                LibrarySort.Direction.ASCENDING
+                        )
+                ).paginationKey()
+        ));
+        expectInvalid(() -> PowerampLibraryContract.artists().withSort(
+                new LibrarySort(
+                        LibrarySort.Criterion.TITLE,
+                        LibrarySort.Direction.ASCENDING
+                )
+        ));
     }
 
     @Test

@@ -20,9 +20,13 @@ public final class LibraryJsonTest {
                 null,
                 "Album",
                 123_456L,
+                1_788_319_633L,
+                17L,
                 null,
                 "/api/v1/library/artwork/tracks/41",
                 LibraryItem.PlayTarget.playlistEntry(7L, 99L),
+                null,
+                null,
                 null
         );
         PowerampLibrarySource.Page page = new PowerampLibrarySource.Page(
@@ -41,6 +45,8 @@ public final class LibraryJsonTest {
         assertTrue(serialized.isNull("artist"));
         assertTrue(serialized.isNull("trackCount"));
         assertEquals("A \"quoted\" title", serialized.getString("title"));
+        assertEquals(1_788_319_633L, serialized.getLong("dateAddedEpochSeconds"));
+        assertEquals(17L, serialized.getLong("playCount"));
         assertEquals(7L, serialized.getJSONObject("play").getLong("playlistId"));
         assertEquals(99L, serialized.getJSONObject("play").getLong("entryId"));
         assertTrue(serialized.isNull("current"));
@@ -73,6 +79,17 @@ public final class LibraryJsonTest {
         assertTrue(pagination.isNull("maximumContinuationRows"));
         assertEquals("server_snapshot", pagination.getString("continuationModel"));
         assertFalse(pagination.getBoolean("providerOffsetSupported"));
+        assertEquals(1, root.getJSONObject("trackSorting")
+                .getJSONArray("criteria").length());
+
+        JSONObject available = new JSONObject(LibraryJson.capabilities(
+                new LibraryAccessState(LibraryAccessState.Status.AVAILABLE, 3L)
+        ));
+        JSONObject sorting = available.getJSONObject("trackSorting");
+        assertEquals(7, sorting.getJSONArray("criteria").length());
+        assertEquals("folder_files.created_at", sorting.getString("dateAddedField"));
+        assertEquals("epoch_seconds", sorting.getString("dateAddedUnit"));
+        assertEquals("folder_files.played_times", sorting.getString("playCountField"));
     }
 
     @Test

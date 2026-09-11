@@ -44,6 +44,34 @@
     <string name="library_unknown_item">Без названия</string>
     <string name="library_duration">%1$s</string>
     <string name="library_current_track">Текущий трек</string>
+    <string name="library_sort_choose">Выбрать сортировку треков</string>
+    <string name="library_sort_by">Сортировка: %1$s</string>
+    <string name="library_sort_dialog_title">Сортировать треки по</string>
+    <string name="library_sort_default">Порядок Poweramp</string>
+    <string name="library_sort_title">Названию</string>
+    <string name="library_sort_album">Альбому</string>
+    <string name="library_sort_artist">Исполнителю</string>
+    <string name="library_sort_duration">Длительности</string>
+    <string name="library_sort_date_added">Дате добавления</string>
+    <string name="library_sort_play_count">Количеству воспроизведений</string>
+    <string name="library_sort_direction">Направление сортировки: %1$s</string>
+    <string name="library_sort_direction_poweramp">Порядком управляет Poweramp</string>
+    <string name="library_sort_a_to_z">А → Я</string>
+    <string name="library_sort_z_to_a">Я → А</string>
+    <string name="library_sort_shortest">Сначала короткие</string>
+    <string name="library_sort_longest">Сначала длинные</string>
+    <string name="library_sort_newest">Сначала новые</string>
+    <string name="library_sort_oldest">Сначала старые</string>
+    <string name="library_sort_most_played">Сначала часто воспроизводимые</string>
+    <string name="library_sort_least_played">Сначала редко воспроизводимые</string>
+    <string name="library_date_added">Добавлено: %1$s</string>
+
+    <plurals name="library_play_count">
+        <item quantity="one">%d воспроизведение</item>
+        <item quantity="few">%d воспроизведения</item>
+        <item quantity="many">%d воспроизведений</item>
+        <item quantity="other">%d воспроизведения</item>
+    </plurals>
     <string name="mini_player_open_description">%1$s, исполнитель: %2$s. Открыть Плеер</string>
     <string name="mini_player_controls_unavailable">Управление воспроизведением недоступно без соединения</string>
     <string name="mini_player_action_unavailable">Действие «%1$s» недоступно без соединения</string>

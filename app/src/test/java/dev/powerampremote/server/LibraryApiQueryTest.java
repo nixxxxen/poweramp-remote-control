@@ -22,6 +22,12 @@ public final class LibraryApiQueryTest {
         assertEquals(100, page.limit);
         assertEquals(TOKEN, page.pageToken);
 
+        LibraryApiQuery sorted = LibraryApiQuery.page(
+                "limit=100&sort=date_added&direction=desc"
+        );
+        assertEquals(LibrarySort.Criterion.DATE_ADDED, sorted.sort.criterion);
+        assertEquals(LibrarySort.Direction.DESCENDING, sorted.sort.direction);
+
         String query = URLEncoder.encode("Björk live", StandardCharsets.UTF_8.name());
         LibraryApiQuery search = LibraryApiQuery.search("q=" + query + "&limit=3");
         assertEquals("Björk live", search.searchQuery);
@@ -45,7 +51,11 @@ public final class LibraryApiQueryTest {
                 "pageToken=short",
                 "limit=2&limit=3",
                 "offset=1",
-                "q=private"
+                "q=private",
+                "sort=title",
+                "direction=asc",
+                "sort=unknown&direction=asc",
+                "sort=title&direction=sideways"
         };
         for (String query : rejectedPages) {
             expectInvalid(() -> LibraryApiQuery.page(query));
@@ -65,6 +75,7 @@ public final class LibraryApiQueryTest {
         }
         expectInvalid(() -> LibraryApiQuery.categorizedSearch("q=x&section=queue"));
         expectInvalid(() -> LibraryApiQuery.search("q=x&section=tracks"));
+        expectInvalid(() -> LibraryApiQuery.search("q=x&sort=title&direction=asc"));
     }
 
     @Test

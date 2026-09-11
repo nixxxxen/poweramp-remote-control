@@ -101,6 +101,14 @@ offers an explicit list or section reload instead of silently resetting to page 
 Search have no fixed total-row ceiling; every HTTP page remains lazy and bounded to `1…100` rows.
 Global Search executes its typed provider selections independently of already loaded Phone/Library
 pages.
+Track-list Library levels additionally expose two compact 48 dp toolbar actions when the connected
+Server advertises sorting: one chooses the criterion and one toggles its human-readable direction.
+The Phone keeps one private selection for each bounded logical view type (All tracks, Artist,
+Album, Folder, Playlist, and the reserved Other track-container type), never one key per provider
+ID. A changed selection invalidates the in-flight generation, clears only that level's page chain,
+starts a new first-page request, and moves that list to the top. These preferences survive Activity
+recreation, reconnect, and rebind without entering `PairingStore` or Search history. An older Server
+without `trackSorting` continues in Poweramp order and shows no sorting actions.
 `PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
 `SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
@@ -352,7 +360,7 @@ credential, not the browser-session cookie; the embedded Web UI has no Library i
 | `POST` | `/api/v1/control` | Validate and enqueue one command; success is `202` |
 | WebSocket `GET` | `/api/v1/events` | Initial state, then complete event-driven snapshots |
 | `GET` | `/api/v1/artwork` | Current JPEG artwork when available |
-| `GET` | `/api/v1/library` | Access state, routes, limits, and queue capabilities |
+| `GET` | `/api/v1/library` | Access state, routes, limits, track-sorting, and queue capabilities |
 | `GET` | `/api/v1/library/tracks` | Paged All tracks rows |
 | `GET` | `/api/v1/library/artists` | Paged Artists rows |
 | `GET` | `/api/v1/library/artists/{id}/tracks` | Paged tracks for one artist |
@@ -409,19 +417,19 @@ Provider projections are an explicit subset of public `TableDefs` columns:
 
 | Rows | Requested Poweramp columns |
 |---|---|
-| tracks and search | `folder_files._id`, `folder_files.name`, `title_tag`, `artist`, `album`, `folder_files.duration` |
+| tracks and search | `folder_files._id`, `folder_files.name`, `title_tag`, `artist`, `album`, `folder_files.duration`, `folder_files.created_at`, `folder_files.played_times` |
 | artists | `artists._id`, `artist`, `artists.num_files`, `artists.duration`, `artists.is_unsplit` |
 | albums | `albums._id`, `album`, `albums.num_files`, `albums.duration` |
 | plain folders | `folders._id`, `folders.name`, `folders.parent_id`, `folders.num_files`, `folders.duration` |
 | hierarchy folders | the same identity/name/parent plus `folders.hier_num_files`, `folders.hier_duration` |
 | playlists | `playlists._id`, `playlists.playlist`, `playlists.num_files`, `playlists.duration` |
 | playlist entries | track columns above plus `playlist_entries._id` |
-| queue entries | track columns above plus `queue._id` |
+| queue entries | ID/name/title/artist/album/duration track columns plus `queue._id`; sorting metadata is not requested because Queue is out of scope |
 
 Aliases used after the query are Server-local names, not assumed provider columns. Browsing sends
 no selection or selection arguments; search uses the fixed parameterized selection described below.
-Neither sends a sort expression. In particular, the adapter does not request private filesystem
-paths, queue `sort`, timestamps, or undocumented metadata. It acquires an unstable
+Neither sends a provider sort expression. In particular, the adapter does not request private
+filesystem paths, queue `sort`, or undocumented metadata. It acquires an unstable
 `ContentProviderClient` for one attempt and closes the Cursor before the client. Provider death
 therefore does not establish a stable dependency that lets Android kill Server with Poweramp;
 `DeadObjectException`/`RemoteException` become a controlled unavailable response without retry.
@@ -455,6 +463,49 @@ clients but is `false`; actual continuation is represented by `nextPageToken`. C
 `maximumContinuationRows: null`, `providerOffsetSupported: false`, and
 `continuationModel: "server_snapshot"`.
 
+The sorting field audit uses the same pinned public `TableDefs.kt`. `Files.DURATION` is an
+`INTEGER` duration in milliseconds. `Files.CREATED_AT` is the first-seen time in integer epoch
+seconds and is therefore the supported date-added source; `Files.FILE_CREATED_AT` is filesystem
+mtime in seconds and is deliberately not substituted. `Files.PLAYED_TIMES` is Poweramp's internal
+integer play count and is the supported play-count source. The newer
+`Files.TOTAL_PLAYED_TIMES` (since build 989) includes plays started while a count-based category or
+sort is open, so it has different semantics and is not silently substituted for the stable
+Poweramp count. Public `recently_added` and `most_played` category constants were supporting
+evidence, not a replacement for per-row numeric fields.
+
+The actual public cursor was also queried read-only on installed Poweramp build `1025004`
+(`build-1025-bundle-play`). `_id`, `title_tag`, `name`, `artist`, `album`, `duration`, `created_at`,
+`played_times`, and `total_played_times` all resolved as numeric/text columns on `/files`; the same
+selected `created_at` and `played_times` columns resolved for Artist, Album, hierarchy-Folder, and
+Playlist track cursors. `recently_added` exposed `created_at`, and `most_played` exposed the
+descending `played_times` values. The public declarations do not promise non-null row values, so
+Server retains exact non-negative integers when present and emits `null` for absent/null/invalid
+values; Phone never derives either value from an ID or loaded-page position.
+
+Library track-list routes additively accept a paired selection:
+`sort=default|title|album|artist|duration|date_added|play_count` and
+`direction=asc|desc`. Omitting both keeps the old request and provider order byte-for-byte; sending
+only one, an unknown value, or sending sorting to a container list, Search, or Queue is rejected.
+`GET /api/v1/library` advertises only `default` unless the provider probe is currently available;
+an available verified provider advertises the complete criteria and both directions. Thus an old
+Server or unavailable provider cannot cause Phone to present an unsupported choice.
+
+For a non-default sort the Server first consumes the complete provider Cursor into the immutable
+model snapshot described above, then sorts that full snapshot, and only then creates bounded HTTP
+pages. Missing text/numeric values stay at the end in both directions. Text keys use
+`Locale.ROOT` case folding, Unicode decomposition with combining-mark removal, trimmed/collapsed
+whitespace, then deterministic original-text comparison. Equal primary values use fixed title,
+album, artist, duration, date, and play-count comparisons followed by the unique playlist-entry ID
+where applicable and final `folder_files._id`. The paging identity includes route category,
+container ID/path, any existing filter, criterion, and direction; a token from another selection is
+invalid, so pages cannot be mixed or independently sorted.
+
+Playlist sorting changes only the immutable display snapshot. Each row retains its public
+`playlist_entries._id`, and tapping it still sends the exact documented
+`/playlists/{playlistId}/files/{entryId}` target; Poweramp therefore starts that selected occurrence
+and owns subsequent playback in the saved playlist order. Global Search relevance/grouping and
+Queue provider order are unchanged.
+
 Page JSON is:
 
 ```json
@@ -469,13 +520,15 @@ Page JSON is:
 ```
 
 Each item has stable nullable fields `type`, `id`, `entryId`, `parentId`, `title`, `artist`, `album`,
-`durationMilliseconds`, `trackCount`, `artwork`, `play`, and `current`. `id` is the underlying
+`durationMilliseconds`, `dateAddedEpochSeconds`, `playCount`, `trackCount`, `artwork`, `play`, and
+`current`. `id` is the underlying
 Poweramp track/category ID. Playlist and queue rows additionally preserve their distinct public
 `playlist_entries._id` or `queue._id` as `entryId`; duplicate uses of one track therefore stay
 distinct. `parentId` identifies the requested containing category for track/playlist-entry rows and
 the documented parent folder for folder rows; a folder parent may be root `0`. Duration comes only
-from documented millisecond columns; counts only from `num_files`/`hier_num_files`. Missing, null,
-invalid, or unexpectedly
+from documented millisecond columns; container counts only from `num_files`/`hier_num_files`.
+Date added and play count preserve the verified raw numeric track fields and appear in localized
+Phone track-row details. Missing, null, invalid, or unexpectedly
 absent optional columns become JSON `null`; a row without its required positive ID is omitted and
 unexpected columns are ignored. Text is bounded to 1000 UTF-16 code units. No filesystem path,
 source URL, raw provider URI, or database-only value is exposed.
@@ -857,6 +910,12 @@ large lists beyond the former 1000-row boundary, independently continued Search 
 structured queries, clear/history/IME behavior, repeated fuzzy speedup, Back/query/scroll/insets,
 and unchanged playback UI. Server uses only those provider relations and never parses Artist display
 strings.
+
+The maintainer subsequently confirmed the complete Library sorting matrix on the matching Server
+and Phone debug builds: every advertised criterion/direction, raw date/play-count presentation,
+continuation beyond 1000, Artist/Album/Folder/Playlist scopes, switching during continuation,
+Back/recreation/reconnect/rebind persistence, exact Playlist-entry launch with Poweramp follow-on
+order, and unchanged Global Search all behave as specified.
 
 The ContentProvider foundation still needs broader device/OEM coverage: first grant/deny/retry and
 process-not-running behavior; remaining category projections/order; hierarchy root/children;

@@ -12,6 +12,8 @@ final class LibraryItem {
     final String artist;
     final String album;
     final Long durationMilliseconds;
+    final Long dateAddedEpochSeconds;
+    final Long playCount;
     final Integer trackCount;
     final String artworkPath;
     final LibraryPlayTarget playTarget;
@@ -34,7 +36,7 @@ final class LibraryItem {
     ) {
         this(
                 type, id, entryId, parentId, title, artist, album,
-                durationMilliseconds, trackCount, artworkPath, playTarget, null, current
+                durationMilliseconds, null, null, trackCount, artworkPath, playTarget, null, current
         );
     }
 
@@ -53,6 +55,30 @@ final class LibraryItem {
             LibraryBrowseTarget browseTarget,
             Boolean current
     ) {
+        this(
+                type, id, entryId, parentId, title, artist, album,
+                durationMilliseconds, null, null, trackCount, artworkPath,
+                playTarget, browseTarget, current
+        );
+    }
+
+    LibraryItem(
+            String type,
+            long id,
+            Long entryId,
+            Long parentId,
+            String title,
+            String artist,
+            String album,
+            Long durationMilliseconds,
+            Long dateAddedEpochSeconds,
+            Long playCount,
+            Integer trackCount,
+            String artworkPath,
+            LibraryPlayTarget playTarget,
+            LibraryBrowseTarget browseTarget,
+            Boolean current
+    ) {
         this.type = type;
         this.id = id;
         this.underlyingId = underlyingId(type, id);
@@ -62,6 +88,8 @@ final class LibraryItem {
         this.artist = artist;
         this.album = album;
         this.durationMilliseconds = durationMilliseconds;
+        this.dateAddedEpochSeconds = dateAddedEpochSeconds;
+        this.playCount = playCount;
         this.trackCount = trackCount;
         this.artworkPath = artworkPath;
         this.playTarget = playTarget;

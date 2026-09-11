@@ -14,11 +14,91 @@ identity fields required by the Phone current-row indicator. An installed APK wi
 number can predate those source changes and must not be treated as an equivalent build.
 At unchanged Phone `0.6.0`, the Library/Search UI now consumes unlimited server-snapshot paging;
 Queue UI remains absent, and Search has independently pageable typed Tracks / Artists / Albums,
-structured Artist/title queries, clear, and private local history. API stays backward-compatible
-`v1`, and the Web UI is unchanged. The one Server service, one
+structured Artist/title queries, clear, and private local history. Library track lists add
+capability-gated whole-snapshot sorting with a Phone selection remembered per logical view. API
+stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
 full multi-player persistence remain absent.
+
+## Completed Library track sorting (2026-09-11)
+
+- API `v1` additively accepts paired `sort` / `direction` parameters on actual Library track-list
+  routes only. Criteria are Poweramp order, title, album, artist, duration, date added, and play
+  count; both ascending and descending directions are supported. Requests without both parameters
+  are unchanged. Container lists, historical/grouped Search, and Queue reject sorting, so their
+  ordering semantics cannot be changed accidentally. `GET /api/v1/library` advertises the complete
+  set only after an available provider probe; older Servers without `trackSorting` leave Phone in
+  Poweramp order with no sort controls.
+- The official source audit remains pinned to `maxmpz/powerampapi`
+  `60cac5a24348bde03e0619c0ab891bd752750b92`. Public `TableDefs.Files` declares
+  `folder_files.duration` as integer milliseconds, `folder_files.created_at` as the integer-second
+  first-seen time, and `folder_files.played_times` as Poweramp's internal integer play count.
+  `file_created_at` is filesystem mtime, not date added, and is not used.
+  `total_played_times` exists since build 989 but includes count-category/sort playback and is not
+  substituted for the stable `played_times` criterion. No value is inferred from an ID, category,
+  loaded page, or formatted string.
+- A read-only device audit on installed Poweramp `1025004` / `build-1025-bundle-play` confirmed
+  actual cursor projection of `_id`, title/name, artist, album, `duration`, `created_at`,
+  `played_times`, and `total_played_times`. The selected `created_at` and `played_times` fields also
+  resolve on public Artist, Album, hierarchy-Folder, and Playlist track cursors; sample rows are
+  integer-valued. Server preserves exact non-negative raw values as nullable
+  `dateAddedEpochSeconds` and `playCount`; Phone displays a localized date and exact pluralized play
+  count in track rows. A genuinely absent/null/invalid value stays absent and sorts last in either
+  direction.
+- Server consumes one provider Cursor to its actual end, closes it/client, sorts that complete
+  immutable model snapshot, and then serves existing `1…100` row pages. String order is
+  deterministic across case/diacritics/Unicode through `Locale.ROOT` folding, decomposition, mark
+  removal, and stable original-text/metadata/unique-ID tie-breakers. Numeric fields compare as
+  numbers. Snapshot identity now includes category/path/container/filter, criterion, and direction;
+  a token cannot continue under another selection and a list beyond 1000 retains no gaps or
+  duplicates. Existing five-minute TTL, eight-session LRU, final-page/cancellation/failure/shutdown
+  resource release, and Reload snapshot semantics are unchanged.
+- Phone shows two compact 48 dp toolbar buttons only for a track-list level: a localized criterion
+  chooser with the active radio selection and a separate direction toggle whose icon,
+  accessibility description, and tooltip name the effective order. A change invalidates the
+  current request/sort generations, clears only that level's old pages, requests page one, and
+  moves the list to the top; late old pages are rejected. Private `library_track_sort` preferences
+  contain only two fixed keys per bounded logical view (All tracks, Artist, Album, Folder,
+  Playlist, reserved Other), never a key per provider ID, and survive Back/reopen, recreation,
+  reconnect, and rebind without touching pairing or Search history.
+- Playlist sorting changes only the presentation snapshot. Every row retains its exact public
+  `playlist_entries._id`; tapping it still starts `/playlists/{playlistId}/files/{entryId}`, after
+  which Poweramp owns the real saved playlist sequence. Global Search relevance/grouping,
+  Search-origin restoration, Queue, Player, Settings, services, transports, pairing, MediaSession,
+  artwork caches, and versions are unchanged.
+- Targeted automated verification passed **73/73** with zero failures/errors (**50 Server**, **23
+  Phone**) for strict query parsing, all supported comparator criteria/directions, null-last
+  behavior, case/Unicode/diacritic ordering, stable ID
+  ties, full-snapshot sorting before continuation beyond 1000, sort-bound token rejection, raw
+  field JSON/parsing, capability fallback, bounded preference persistence, stale-generation
+  rejection, route validation, existing paging contracts, categorized Search parsing/
+  presentation, Search-origin restoration, and English/Russian resource parity.
+  `:app:assembleDebug`, `:phone:assembleDebug`, and final `git diff --check` pass. Lint, clean,
+  release, and full suites were intentionally outside this task.
+
+### Maintainer-confirmed Library sorting device matrix
+
+- [x] Compare every advertised criterion in both directions on a small known track list.
+- [x] Compare displayed/sorted date added and play count directly with Poweramp.
+- [x] Traverse a sorted All tracks list beyond 1000 and confirm stable order without gaps/duplicates.
+- [x] Sort tracks inside an Artist, Album, Folder, and Playlist.
+- [x] Change criterion/direction while a continuation page is loading; confirm only the new chain
+  appears and the list returns to the top.
+- [x] Verify Back/reopen, configuration recreation, reconnect, and service rebind preserve the
+  bounded per-view selection.
+- [x] From a sorted Playlist tap a known duplicate/entry and confirm that exact occurrence starts,
+  then subsequent playback follows Poweramp's saved playlist order.
+- [x] Confirm Global Search relevance/grouping/continuation is unchanged and has no sort actions.
+
+The maintainer tested both matching debug builds on devices and reports every item above working as
+expected.
+
+Remaining real limitations: live Poweramp edits are still observed only through a new Reload
+snapshot; expired/LRU-evicted continuation tokens still require Reload; official field nullability
+is not guaranteed even though the verified library returned numeric values; broader Poweramp
+build/OEM cursor behavior beyond the confirmed devices remains to be checked. Scoped Search stays
+deferred until after the next release, and Queue remains a separate future task.
 
 ## Completed Global Search and unlimited Library pagination (2026-09-10)
 

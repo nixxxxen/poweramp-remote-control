@@ -15,6 +15,7 @@ final class RemoteApiClient {
     static final String ARTWORK_PATH = "/api/v1/artwork";
     static final String PAIRING_PATH = "/api/v1/pair";
     static final String LIBRARY_PLAY_PATH = "/api/v1/library/play";
+    static final String LIBRARY_PATH = "/api/v1/library";
 
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 5_000;
     private static final int READ_TIMEOUT_MILLISECONDS = 10_000;
@@ -99,6 +100,25 @@ final class RemoteApiClient {
             return LibraryPageParser.parse(new String(response.body, StandardCharsets.UTF_8));
         } catch (IllegalArgumentException exception) {
             throw new IOException("Invalid library response", exception);
+        }
+    }
+
+    LibrarySortCapabilities getLibraryCapabilities(
+            DiscoveredServer server,
+            String token
+    ) throws IOException {
+        Response response = request(
+                server, token, "GET", LIBRARY_PATH, null, MAX_JSON_BYTES
+        );
+        if (response.statusCode != HttpURLConnection.HTTP_OK) {
+            throw new HttpStatusException(response.statusCode);
+        }
+        try {
+            return LibrarySortCapabilities.parse(
+                    new String(response.body, StandardCharsets.UTF_8)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Invalid Library capabilities", exception);
         }
     }
 

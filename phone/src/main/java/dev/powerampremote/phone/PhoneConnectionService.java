@@ -169,6 +169,20 @@ public final class PhoneConnectionService extends MediaSessionService
             controller.requestLibraryPage(request, pageToken, callback);
         }
 
+        void requestLibraryCapabilities(
+                RemoteClientController.LibraryCapabilitiesCallback callback
+        ) {
+            if (controller == null) {
+                callback.onResult(
+                        -1,
+                        null,
+                        RemoteClientController.LibraryFailure.DISCONNECTED
+                );
+                return;
+            }
+            controller.requestLibraryCapabilities(callback);
+        }
+
         void requestCategorizedSearch(
                 CategorizedSearchRequest request,
                 RemoteClientController.CategorizedSearchCallback callback

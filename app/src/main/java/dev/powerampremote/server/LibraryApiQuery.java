@@ -18,17 +18,23 @@ final class LibraryApiQuery {
     final String pageToken;
     final String searchQuery;
     final String searchSection;
+    final LibrarySort sort;
+    final boolean sortSpecified;
 
     private LibraryApiQuery(
             int limit,
             String pageToken,
             String searchQuery,
-            String searchSection
+            String searchSection,
+            LibrarySort sort,
+            boolean sortSpecified
     ) {
         this.limit = limit;
         this.pageToken = pageToken;
         this.searchQuery = searchQuery;
         this.searchSection = searchSection;
+        this.sort = sort;
+        this.sortSpecified = sortSpecified;
     }
 
     static LibraryApiQuery page(String rawQuery) {
@@ -58,7 +64,9 @@ final class LibraryApiQuery {
         for (String key : parameters.keySet()) {
             if (!"limit".equals(key) && !"pageToken".equals(key)
                     && !(search && "q".equals(key))
-                    && !(categorized && "section".equals(key))) {
+                    && !(categorized && "section".equals(key))
+                    && !(!search && "sort".equals(key))
+                    && !(!search && "direction".equals(key))) {
                 throw new IllegalArgumentException("Unexpected query parameter");
             }
         }
@@ -92,7 +100,13 @@ final class LibraryApiQuery {
             throw new IllegalArgumentException("Unexpected Search section");
         }
         if (section != null) CategorizedSearch.SectionType.fromWireName(section);
-        return new LibraryApiQuery(limit, pageToken, query, section);
+        String sortValue = parameters.get("sort");
+        String directionValue = parameters.get("direction");
+        boolean sortSpecified = sortValue != null || directionValue != null;
+        LibrarySort sort = LibrarySort.parse(sortValue, directionValue);
+        return new LibraryApiQuery(
+                limit, pageToken, query, section, sort, sortSpecified
+        );
     }
 
     private static Map<String, String> parseParameters(String rawQuery) {
@@ -156,5 +170,7 @@ final class LibraryApiQuery {
         pageToken = null;
         searchQuery = null;
         searchSection = null;
+        sort = LibrarySort.POWERAMP;
+        sortSpecified = false;
     }
 }

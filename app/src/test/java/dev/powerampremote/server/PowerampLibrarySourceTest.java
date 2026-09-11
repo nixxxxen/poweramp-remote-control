@@ -53,6 +53,8 @@ public final class PowerampLibrarySourceTest {
                 "artist", "Artist",
                 "album", "Album",
                 "duration_ms", 10_001L,
+                "date_added_epoch_seconds", 1_788_319_633L,
+                "play_count", 17L,
                 "unexpected", "ignored"
         )));
         LibraryItem track = only(source.query(
@@ -61,6 +63,8 @@ public final class PowerampLibrarySourceTest {
         assertEquals(LibraryItem.Type.TRACK, track.type);
         assertEquals("fallback.flac", track.title);
         assertEquals(10_001L, track.durationMilliseconds.longValue());
+        assertEquals(1_788_319_633L, track.dateAddedEpochSeconds.longValue());
+        assertEquals(17L, track.playCount.longValue());
         assertEquals("/api/v1/library/artwork/tracks/1", track.artworkPath);
 
         provider.rows.put("artists", Collections.singletonList(row(
@@ -205,6 +209,57 @@ public final class PowerampLibrarySourceTest {
         assertEquals(1, provider.closedRows.get());
         assertEquals(Collections.singletonList(0), provider.requestedLimits);
         assertEquals("content://com.maxmpz.audioplayer.data/files", provider.lastProviderUri);
+    }
+
+    @Test
+    public void sortsCompleteSnapshotBeforePagingAndRejectsChangedSortContinuation()
+            throws Exception {
+        List<Map<String, Object>> tracks = new ArrayList<>();
+        for (long id = 1_001L; id >= 1L; id--) {
+            tracks.add(row(
+                    "track_id", id,
+                    "title", String.format(java.util.Locale.ROOT, "Track %04d", id)
+            ));
+        }
+        provider.rows.put("tracks", tracks);
+        PowerampLibraryContract.Query ascending = PowerampLibraryContract.allTracks()
+                .withSort(new LibrarySort(
+                        LibrarySort.Criterion.TITLE,
+                        LibrarySort.Direction.ASCENDING
+                ));
+        PowerampLibraryContract.Query descending = PowerampLibraryContract.allTracks()
+                .withSort(new LibrarySort(
+                        LibrarySort.Criterion.TITLE,
+                        LibrarySort.Direction.DESCENDING
+                ));
+
+        String token = null;
+        ArrayList<Long> delivered = new ArrayList<>();
+        do {
+            PowerampLibrarySource.Page page = source.query(
+                    ascending, 100, token, null, cancellation()
+            ).page;
+            for (LibraryItem item : page.items) delivered.add(item.id);
+            if (token == null) {
+                assertEquals(1L, page.items.get(0).id);
+                assertNotNull(page.nextPageToken);
+                expectInvalidToken(() -> source.query(
+                        descending,
+                        100,
+                        page.nextPageToken,
+                        null,
+                        cancellation()
+                ));
+            }
+            token = page.nextPageToken;
+        } while (token != null);
+
+        assertEquals(1_001, delivered.size());
+        for (int index = 0; index < delivered.size(); index++) {
+            assertEquals(index + 1L, delivered.get(index).longValue());
+        }
+        assertEquals(1, provider.closedRows.get());
+        assertEquals(Collections.singletonList(0), provider.requestedLimits);
     }
 
     @Test

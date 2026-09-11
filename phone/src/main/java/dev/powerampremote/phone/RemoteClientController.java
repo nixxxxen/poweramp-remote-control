@@ -80,6 +80,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         void onResult(int connectionGeneration, LibraryPage page, LibraryFailure failure);
     }
 
+    interface LibraryCapabilitiesCallback {
+        void onResult(
+                int connectionGeneration,
+                LibrarySortCapabilities capabilities,
+                LibraryFailure failure
+        );
+    }
+
     interface CategorizedSearchCallback {
         void onResult(
                 int connectionGeneration,
@@ -446,6 +454,38 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 LibraryFailure resultFailure = failure;
                 mainHandler.post(() -> callback.onResult(
                         generation, resultPage, resultFailure
+                ));
+            });
+        } catch (RejectedExecutionException exception) {
+            callback.onResult(generation, null, LibraryFailure.SERVER_ERROR);
+        }
+    }
+
+    void requestLibraryCapabilities(LibraryCapabilitiesCallback callback) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
+            callback.onResult(generation, null, LibraryFailure.DISCONNECTED);
+            return;
+        }
+        try {
+            libraryExecutor.execute(() -> {
+                LibrarySortCapabilities capabilities = null;
+                LibraryFailure failure = null;
+                try {
+                    capabilities = apiClient.getLibraryCapabilities(
+                            currentEndpoint, currentCredentials.token
+                    );
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    failure = libraryFailure(exception.statusCode);
+                } catch (IOException | RuntimeException exception) {
+                    failure = LibraryFailure.SERVER_ERROR;
+                }
+                LibrarySortCapabilities deliveredCapabilities = capabilities;
+                LibraryFailure deliveredFailure = failure;
+                mainHandler.post(() -> callback.onResult(
+                        generation, deliveredCapabilities, deliveredFailure
                 ));
             });
         } catch (RejectedExecutionException exception) {

@@ -49,4 +49,30 @@ public final class LibraryRequestTest {
                 ).path()
         );
     }
+
+    @Test
+    public void trackSortIsAdditiveAndBoundToEveryContinuationRequest() {
+        LibraryRequest original = LibraryRequest.playlistTracks(8L);
+        assertEquals(
+                "/api/v1/library/playlists/8/tracks?limit=25",
+                original.path(null)
+        );
+        assertEquals(LibrarySortView.PLAYLIST, original.sortView);
+
+        LibraryRequest sorted = original.withSort(new LibrarySort(
+                LibrarySort.Criterion.PLAY_COUNT,
+                LibrarySort.Direction.DESCENDING
+        ));
+        assertEquals(
+                "/api/v1/library/playlists/8/tracks?limit=25"
+                        + "&sort=play_count&direction=desc"
+                        + "&pageToken=abcdefghijklmnopqrstuvwx",
+                sorted.path("abcdefghijklmnopqrstuvwx")
+        );
+        assertEquals(LibrarySortView.ALL_TRACKS, LibraryRequest.tracks().sortView);
+        assertEquals(LibrarySortView.ARTIST, LibraryRequest.artistTracks(1L).sortView);
+        assertEquals(LibrarySortView.ALBUM, LibraryRequest.albumTracks(1L).sortView);
+        assertEquals(LibrarySortView.FOLDER, LibraryRequest.folderTracks(1L).sortView);
+        assertFalse(LibraryRequest.search("query").isTrackList());
+    }
 }

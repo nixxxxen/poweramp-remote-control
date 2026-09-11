@@ -43,6 +43,26 @@
                 android:textColor="@color/text_primary"
                 android:textSize="23sp"
                 android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/library_sort_criterion"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/library_sort_choose"
+                android:padding="12dp"
+                android:src="@drawable/ic_sort"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/library_sort_direction"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/library_sort_direction_poweramp"
+                android:padding="12dp"
+                android:src="@drawable/ic_sort_ascending"
+                android:visibility="gone" />
         </LinearLayout>
 
         <FrameLayout

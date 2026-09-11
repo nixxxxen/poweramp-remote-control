@@ -248,6 +248,7 @@ final class PowerampLibrarySource implements AutoCloseable {
                 if (cancellation.isCancelled()) {
                     return Result.failure(LibraryAccessState.Status.PROVIDER_ERROR);
                 }
+                snapshot = LibraryTrackSortPolicy.sorted(snapshot, query.sort);
                 page = pagingSessions.firstPage(query.paginationKey(), snapshot, limit, null);
             } else {
                 page = pagingSessions.nextPage(pageToken, query.paginationKey(), limit);
@@ -943,10 +944,14 @@ final class PowerampLibrarySource implements AutoCloseable {
                 rows.textValue(PowerampLibraryContract.COLUMN_ARTIST),
                 rows.textValue(PowerampLibraryContract.COLUMN_ALBUM),
                 rows.longValue(PowerampLibraryContract.COLUMN_DURATION_MILLISECONDS),
+                rows.longValue(PowerampLibraryContract.COLUMN_DATE_ADDED_EPOCH_SECONDS),
+                rows.longValue(PowerampLibraryContract.COLUMN_PLAY_COUNT),
                 null,
                 PowerampLibraryContract.artworkApiPath(trackId),
                 playTarget,
-                current
+                current,
+                null,
+                null
         );
     }
 

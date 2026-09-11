@@ -1,5 +1,6 @@
 package dev.powerampremote.phone;
 
+import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -32,6 +33,7 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.EnumMap;
 import java.util.List;
 
@@ -122,11 +124,12 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
 
     private static final class Level {
         final String title;
-        final LibraryRequest request;
+        LibraryRequest request;
         final List<BrowseRow> localRows;
         final String representativeType;
         final long representativeId;
         final LibraryPager pager = new LibraryPager();
+        final LibrarySortRequestState sortState = new LibrarySortRequestState();
         int firstVisible;
         int topOffset;
         boolean loading;
@@ -148,6 +151,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             this.localRows = localRows;
             this.representativeType = representativeType;
             this.representativeId = representativeId;
+            if (request != null) sortState.change(request.sort);
         }
 
         boolean local() {
@@ -164,6 +168,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             searchSectionLoads = new EnumMap<>(CategorizedSearchResult.SectionType.class);
 
     private TextView titleView;
+    private ImageButton sortCriterion;
+    private ImageButton sortDirection;
     private View searchContainer;
     private EditText searchInput;
     private ImageButton searchClear;
@@ -190,11 +196,17 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private int searchFirstVisible;
     private int searchTopOffset;
     private int thumbnailPlaceholderPadding;
+    private java.text.DateFormat dateAddedFormat;
     private Runnable debounceRunnable;
     private Object renderedSource;
     private int artworkBindingLifecycle;
     private LibraryItem pendingSearchContainer;
     private SearchHistoryStore searchHistoryStore;
+    private LibrarySortStore librarySortStore;
+    private LibrarySortCapabilities librarySortCapabilities =
+            LibrarySortCapabilities.defaultOnly();
+    private long libraryCapabilitiesSerial;
+    private int libraryCapabilitiesGeneration = Integer.MIN_VALUE;
     private List<String> searchHistory = new ArrayList<>();
     private boolean imeVisible;
     private String lastSuccessfulQueryKey;
@@ -242,6 +254,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         View root = findViewById(R.id.library_screen_root);
         SafeDrawingInsets.apply(root);
         titleView = findViewById(R.id.library_screen_title);
+        sortCriterion = findViewById(R.id.library_sort_criterion);
+        sortDirection = findViewById(R.id.library_sort_direction);
         searchContainer = findViewById(R.id.library_search_container);
         searchInput = findViewById(R.id.library_search_input);
         searchClear = findViewById(R.id.library_search_clear);
@@ -253,10 +267,12 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         thumbnailPlaceholderPadding = Math.round(
                 10f * getResources().getDisplayMetrics().density
         );
+        dateAddedFormat = android.text.format.DateFormat.getMediumDateFormat(this);
         adapter = new BrowseAdapter();
         listView.setAdapter(adapter);
         libraryStack.add(libraryRoot());
         searchHistoryStore = new SearchHistoryStore(this);
+        librarySortStore = new LibrarySortStore(this);
         searchHistory = searchHistoryStore.load();
         for (CategorizedSearchResult.SectionType type
                 : CategorizedSearchResult.SectionType.values()) {
@@ -343,6 +359,14 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             haptic(view);
             clearSearchInput();
         });
+        sortCriterion.setOnClickListener(view -> {
+            haptic(view);
+            showSortCriterionDialog();
+        });
+        sortDirection.setOnClickListener(view -> {
+            haptic(view);
+            toggleSortDirection();
+        });
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() { navigateBack(); }
         });
@@ -384,6 +408,8 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         artworkBindingLifecycle++;
         cancelDebounce();
         libraryRequestSerial++;
+        libraryCapabilitiesSerial++;
+        libraryCapabilitiesGeneration = Integer.MIN_VALUE;
         searchGate.invalidate();
         searchSectionGeneration++;
         searchLoading = false;
@@ -628,7 +654,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void pushNetwork(String title, LibraryRequest request) {
-        push(new Level(title, request, null));
+        push(new Level(title, requestWithStoredSort(request), null));
     }
 
     private void pushNetwork(
@@ -638,8 +664,22 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             long representativeId
     ) {
         push(new Level(
-                title, request, null, representativeType, representativeId
+                title,
+                requestWithStoredSort(request),
+                null,
+                representativeType,
+                representativeId
         ));
+    }
+
+    private LibraryRequest requestWithStoredSort(LibraryRequest request) {
+        if (request == null || !request.isTrackList() || librarySortStore == null) {
+            return request;
+        }
+        LibrarySort stored = librarySortCapabilities.supportedOrDefault(
+                librarySortStore.load(request.sortView)
+        );
+        return request.withSort(stored);
     }
 
     private void push(Level level) {
@@ -649,6 +689,147 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         libraryRequestSerial++;
         render();
         if (!level.local()) loadLibraryPage(level, false);
+    }
+
+    private void showSortCriterionDialog() {
+        if (!sortingVisible()) return;
+        Level level = currentLevel();
+        ArrayList<LibrarySort.Criterion> criteria = new ArrayList<>();
+        ArrayList<String> labels = new ArrayList<>();
+        int checked = -1;
+        for (LibrarySort.Criterion criterion : LibrarySort.Criterion.values()) {
+            if (!librarySortCapabilities.supports(criterion)) continue;
+            if (criterion == level.request.sort.criterion) checked = criteria.size();
+            criteria.add(criterion);
+            labels.add(getString(sortCriterionLabel(criterion)));
+        }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.library_sort_dialog_title)
+                .setSingleChoiceItems(
+                        labels.toArray(new String[0]),
+                        checked,
+                        null
+                )
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
+                (parent, view, position, id) -> {
+                    if (position >= 0 && position < criteria.size()) {
+                        applySort(level, LibrarySort.forCriterion(criteria.get(position)), true);
+                    }
+                    dialog.dismiss();
+                }
+        ));
+        dialog.show();
+    }
+
+    private void toggleSortDirection() {
+        if (!sortingVisible()) return;
+        Level level = currentLevel();
+        LibrarySort selected = level.request.sort;
+        if (selected.isPowerampOrder()) return;
+        applySort(
+                level,
+                new LibrarySort(selected.criterion, selected.direction.opposite()),
+                true
+        );
+    }
+
+    private void applySort(Level level, LibrarySort selected, boolean persist) {
+        if (level == null || level.local() || !level.request.isTrackList()) return;
+        LibrarySort supported = librarySortCapabilities.supportedOrDefault(selected);
+        if (!level.sortState.change(supported)) return;
+        if (persist && librarySortStore != null) {
+            librarySortStore.save(level.request.sortView, supported);
+        }
+        libraryRequestSerial++;
+        level.loading = false;
+        level.failure = null;
+        level.request = level.request.withSort(supported);
+        level.pager.reset();
+        level.firstVisible = 0;
+        level.topOffset = 0;
+        renderedSource = null;
+        if (selectedTab == BottomNavigation.Tab.LIBRARY && level == currentLevel()) {
+            render();
+            listView.setSelection(0);
+            if (connected()) loadLibraryPage(level, false);
+        }
+    }
+
+    private boolean sortingVisible() {
+        if (selectedTab != BottomNavigation.Tab.LIBRARY
+                || !librarySortCapabilities.hasSelectableSort()) return false;
+        Level level = currentLevel();
+        return !level.local() && level.request.isTrackList();
+    }
+
+    private void requestLibrarySortCapabilities() {
+        if (controller == null || !connected()) return;
+        int generation = controller.libraryConnectionGeneration();
+        if (libraryCapabilitiesGeneration == generation) return;
+        libraryCapabilitiesGeneration = generation;
+        long serial = ++libraryCapabilitiesSerial;
+        controller.requestLibraryCapabilities((resultGeneration, capabilities, failure) -> {
+            if (!started || controller == null || serial != libraryCapabilitiesSerial
+                    || resultGeneration != generation
+                    || resultGeneration != controller.libraryConnectionGeneration()) return;
+            if (failure != null || capabilities == null) return;
+            librarySortCapabilities = capabilities;
+            Level level = currentLevel();
+            if (selectedTab == BottomNavigation.Tab.LIBRARY
+                    && !level.local() && level.request.isTrackList()) {
+                LibrarySort stored = librarySortCapabilities.supportedOrDefault(
+                        librarySortStore.load(level.request.sortView)
+                );
+                applySort(level, stored, false);
+            }
+            render();
+        });
+    }
+
+    private int sortCriterionLabel(LibrarySort.Criterion criterion) {
+        switch (criterion) {
+            case TITLE:
+                return R.string.library_sort_title;
+            case ALBUM:
+                return R.string.library_sort_album;
+            case ARTIST:
+                return R.string.library_sort_artist;
+            case DURATION:
+                return R.string.library_sort_duration;
+            case DATE_ADDED:
+                return R.string.library_sort_date_added;
+            case PLAY_COUNT:
+                return R.string.library_sort_play_count;
+            case DEFAULT:
+            default:
+                return R.string.library_sort_default;
+        }
+    }
+
+    private int sortDirectionLabel(LibrarySort sort) {
+        if (sort == null || sort.isPowerampOrder()) {
+            return R.string.library_sort_direction_poweramp;
+        }
+        switch (sort.criterion) {
+            case DURATION:
+                return sort.direction == LibrarySort.Direction.ASCENDING
+                        ? R.string.library_sort_shortest : R.string.library_sort_longest;
+            case DATE_ADDED:
+                return sort.direction == LibrarySort.Direction.ASCENDING
+                        ? R.string.library_sort_oldest : R.string.library_sort_newest;
+            case PLAY_COUNT:
+                return sort.direction == LibrarySort.Direction.ASCENDING
+                        ? R.string.library_sort_least_played
+                        : R.string.library_sort_most_played;
+            case TITLE:
+            case ALBUM:
+            case ARTIST:
+            default:
+                return sort.direction == LibrarySort.Direction.ASCENDING
+                        ? R.string.library_sort_a_to_z : R.string.library_sort_z_to_a;
+        }
     }
 
     private void navigateBack() {
@@ -758,13 +939,17 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             renderedSource = null;
         }
         String requestedToken = append ? level.pager.nextPageToken() : null;
+        LibraryRequest requestedRequest = level.request;
+        LibrarySortRequestState.Stamp sortStamp = level.sortState.begin();
         level.loading = true;
         level.failure = null;
         long serial = ++libraryRequestSerial;
         int generation = controller.libraryConnectionGeneration();
         render();
-        controller.requestLibraryPage(level.request, requestedToken, (resultGeneration, page, failure) -> {
+        controller.requestLibraryPage(requestedRequest, requestedToken, (resultGeneration, page, failure) -> {
             if (!started || serial != libraryRequestSerial || level != currentLevel()
+                    || level.request != requestedRequest
+                    || !level.sortState.accepts(sortStamp)
                     || controller == null
                     || resultGeneration != controller.libraryConnectionGeneration()
                     || resultGeneration != generation) {
@@ -910,6 +1095,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         );
         titleView.setText(selectedTab == BottomNavigation.Tab.SEARCH
                 ? getString(R.string.nav_search) : currentLevel().title);
+        updateSortControls();
         searchContainer.setVisibility(
                 selectedTab == BottomNavigation.Tab.SEARCH ? View.VISIBLE : View.GONE
         );
@@ -936,6 +1122,32 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 restoreListPosition(level.firstVisible, level.topOffset);
             }
         }
+    }
+
+    private void updateSortControls() {
+        boolean visible = sortingVisible();
+        sortCriterion.setVisibility(visible ? View.VISIBLE : View.GONE);
+        sortDirection.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (!visible) return;
+        LibrarySort sort = currentLevel().request.sort;
+        String criterion = getString(sortCriterionLabel(sort.criterion));
+        String criterionDescription = getString(R.string.library_sort_by, criterion);
+        sortCriterion.setContentDescription(criterionDescription);
+        sortCriterion.setTooltipText(criterionDescription);
+
+        boolean directional = !sort.isPowerampOrder();
+        sortDirection.setEnabled(directional);
+        sortDirection.setAlpha(directional ? 1f : 0.38f);
+        sortDirection.setImageResource(
+                sort.direction == LibrarySort.Direction.DESCENDING
+                        ? R.drawable.ic_sort_descending : R.drawable.ic_sort_ascending
+        );
+        String direction = getString(sortDirectionLabel(sort));
+        String directionDescription = directional
+                ? getString(R.string.library_sort_direction, direction)
+                : direction;
+        sortDirection.setContentDescription(directionDescription);
+        sortDirection.setTooltipText(directionDescription);
     }
 
     private void renderLibrary() {
@@ -1101,6 +1313,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         searchLoading = false;
         for (Level level : libraryStack) level.loading = false;
         if (serverChanged) {
+            librarySortCapabilities = LibrarySortCapabilities.defaultOnly();
+            libraryCapabilitiesGeneration = Integer.MIN_VALUE;
+            libraryCapabilitiesSerial++;
             libraryStack.clear();
             libraryStack.add(libraryRoot());
             searchResult = null;
@@ -1196,6 +1411,11 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 ? getString(R.string.library_unknown_item) : item.title;
     }
 
+    private String formatDateAdded(long epochSeconds) {
+        if (epochSeconds < 0L || epochSeconds > Long.MAX_VALUE / 1_000L) return null;
+        return dateAddedFormat.format(new Date(epochSeconds * 1_000L));
+    }
+
     private int searchHeaderLabel(CategorizedSearchResult.SectionType section) {
         switch (section) {
             case TRACKS:
@@ -1267,6 +1487,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             invalidateRequests(serverChanged);
             adapter.notifyDataSetChanged();
         }
+        if (connected()) requestLibrarySortCapabilities();
         if (connected() && (!wasConnected || generationChanged)) {
             // Same-Server reconnect is not a new browse session. Keep loaded pages and offsets.
             if (searchFailure == RemoteClientController.LibraryFailure.DISCONNECTED) {
@@ -1481,7 +1702,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             addDistinct(subtitle, item.artist);
             addDistinct(subtitle, item.album);
             setOptional(holder.subtitle, join(subtitle));
-            ArrayList<String> detail = new ArrayList<>(2);
+            boolean track = "track".equals(item.type)
+                    || "playlist_entry".equals(item.type)
+                    || "queue_entry".equals(item.type);
+            ArrayList<String> detail = new ArrayList<>(4);
             if (item.trackCount != null) {
                 detail.add(getResources().getQuantityString(
                         R.plurals.library_track_count, item.trackCount, item.trackCount
@@ -1491,10 +1715,17 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 long seconds = item.durationMilliseconds / 1_000L;
                 detail.add(TimeFormatter.formatSeconds((int) Math.min(seconds, Integer.MAX_VALUE)));
             }
+            if (track && item.dateAddedEpochSeconds != null) {
+                String date = formatDateAdded(item.dateAddedEpochSeconds);
+                if (date != null) detail.add(getString(R.string.library_date_added, date));
+            }
+            if (track && item.playCount != null) {
+                int quantity = (int) Math.min(item.playCount, Integer.MAX_VALUE);
+                detail.add(getResources().getQuantityString(
+                        R.plurals.library_play_count, quantity, item.playCount
+                ));
+            }
             setOptional(holder.detail, join(detail));
-            boolean track = "track".equals(item.type)
-                    || "playlist_entry".equals(item.type)
-                    || "queue_entry".equals(item.type);
             String representativeType = item.representativeType();
             boolean representative = RepresentativeArtworkKey.isSupportedType(
                     representativeType

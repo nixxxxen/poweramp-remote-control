@@ -257,6 +257,8 @@ public final class RemoteApiServerTest {
         assertTrue(capabilities.contains("\"remove\":false"));
         assertTrue(capabilities.contains("\"reorder\":false"));
         assertTrue(capabilities.contains("\"playNext\":false"));
+        assertTrue(capabilities.contains("\"date_added\""));
+        assertTrue(capabilities.contains("\"play_count\""));
 
         String tracks = http(
                 "GET",
@@ -268,6 +270,14 @@ public final class RemoteApiServerTest {
         assertStatus(tracks, 200);
         assertTrue(tracks.contains("\"title\":\"Library Track\""));
         assertTrue(tracks.contains("\"artwork\":\"/api/v1/library/artwork/tracks/2\""));
+        assertStatus(http(
+                "GET",
+                RemoteApiServer.LIBRARY_TRACKS_PATH
+                        + "?limit=1&sort=title&direction=desc",
+                TOKEN,
+                null,
+                null
+        ), 200);
 
         String search = http(
                 "GET",
@@ -375,6 +385,12 @@ public final class RemoteApiServerTest {
                 RemoteApiServer.LIBRARY_TRACKS_PATH + "?limit=0",
                 RemoteApiServer.LIBRARY_TRACKS_PATH + "?offset=1",
                 RemoteApiServer.LIBRARY_TRACKS_PATH + "?pageToken=bad",
+                RemoteApiServer.LIBRARY_TRACKS_PATH + "?sort=title",
+                RemoteApiServer.LIBRARY_TRACKS_PATH + "?direction=asc",
+                RemoteApiServer.LIBRARY_TRACKS_PATH + "?sort=unknown&direction=asc",
+                RemoteApiServer.LIBRARY_ARTISTS_PATH + "?sort=title&direction=asc",
+                RemoteApiServer.SEARCH_PATH + "?q=x&sort=title&direction=asc",
+                RemoteApiServer.QUEUE_PATH + "?sort=title&direction=asc",
                 RemoteApiServer.SEARCH_PATH,
                 RemoteApiServer.SEARCH_PATH + "?q=%GG",
                 RemoteApiServer.LIBRARY_ALBUMS_PATH + "/0/tracks",

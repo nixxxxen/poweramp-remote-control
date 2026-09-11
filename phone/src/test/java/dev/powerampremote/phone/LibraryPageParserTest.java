@@ -19,7 +19,9 @@ public final class LibraryPageParserTest {
                 + "\"items\":[{\"type\":\"track\",\"id\":41,"
                 + "\"entryId\":null,\"parentId\":null,\"title\":\"Song\","
                 + "\"artist\":\"Artist\",\"album\":\"Album\","
-                + "\"durationMilliseconds\":123000,\"trackCount\":null,"
+                + "\"durationMilliseconds\":123000,"
+                + "\"dateAddedEpochSeconds\":1788319633,\"playCount\":17,"
+                + "\"trackCount\":null,"
                 + "\"artwork\":\"/api/v1/library/artwork/tracks/41\","
                 + "\"play\":{\"type\":\"track\",\"id\":41},\"current\":null}],"
                 + "\"nextPageToken\":\"" + TOKEN + "\",\"truncated\":false}");
@@ -31,6 +33,8 @@ public final class LibraryPageParserTest {
         assertEquals("Song", item.title);
         assertEquals("Artist", item.artist);
         assertEquals(Long.valueOf(123000L), item.durationMilliseconds);
+        assertEquals(Long.valueOf(1_788_319_633L), item.dateAddedEpochSeconds);
+        assertEquals(Long.valueOf(17L), item.playCount);
         assertNull(item.entryId);
         JSONObject play = new JSONObject(item.playTarget.toJson());
         assertEquals("track", play.getString("type"));
@@ -55,6 +59,8 @@ public final class LibraryPageParserTest {
         assertNull(item.album);
         assertNull(item.artworkPath);
         assertEquals(Integer.valueOf(7), item.trackCount);
+        assertNull(item.dateAddedEpochSeconds);
+        assertNull(item.playCount);
     }
 
     @Test
