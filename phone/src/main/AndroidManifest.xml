@@ -73,6 +73,10 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name="dev.powerampremote.phone.QueueActivity"
+            android:exported="false" />
+
+        <activity
             android:name="dev.powerampremote.phone.AboutActivity"
             android:exported="false" />
 

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/queue_screen_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/queue_content"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingLeft="12dp"
+        android:paddingTop="8dp"
+        android:paddingRight="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/queue_back_button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/control_button_background"
+                android:contentDescription="@string/back"
+                android:foreground="?android:attr/selectableItemBackgroundBorderless"
+                android:minHeight="48dp"
+                android:minWidth="48dp"
+                android:padding="12dp"
+                android:src="@drawable/ic_back" />
+
+            <TextView
+                android:id="@+id/queue_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/queue_title"
+                android:textColor="@color/text_primary"
+                android:textSize="23sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/queue_reload_button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/queue_reload_description"
+                android:minHeight="48dp"
+                android:minWidth="48dp"
+                android:padding="12dp"
+                android:src="@drawable/ic_reload" />
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/queue_list"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:cacheColorHint="@android:color/transparent"
+            android:clipToPadding="false"
+            android:divider="@android:color/transparent"
+            android:dividerHeight="4dp"
+            android:paddingBottom="8dp"
+            android:scrollbars="vertical" />
+
+        <ProgressBar
+            android:id="@+id/queue_progress"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_gravity="center_horizontal"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/queue_status_message"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:accessibilityLiveRegion="polite"
+            android:gravity="center"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/queue_action_button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/action_button_background"
+            android:minHeight="48dp"
+            android:textAllCaps="false"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <include layout="@layout/mini_player" />
+
+    <include layout="@layout/bottom_navigation" />
+</LinearLayout>

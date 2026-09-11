@@ -36,6 +36,7 @@ final class BottomNavigation {
     private static final class Binding {
         Tab selected;
         View content;
+        boolean auxiliary;
         boolean transitionRunning;
         long generation;
     }
@@ -51,6 +52,7 @@ final class BottomNavigation {
         }
         binding.selected = selected;
         binding.content = content;
+        binding.auxiliary = false;
 
         ImageButton player = activity.findViewById(R.id.nav_player);
         ImageButton library = activity.findViewById(R.id.nav_library);
@@ -65,6 +67,34 @@ final class BottomNavigation {
         search.setOnClickListener(view -> select(activity, view, Tab.SEARCH));
         settings.setOnClickListener(view -> select(activity, view, Tab.SETTINGS));
         consumePendingEnter(activity, binding);
+    }
+
+    /** Binds the standard four tabs while an auxiliary screen belongs to one tab. */
+    static void bindAuxiliary(Activity activity, Tab owner, View content) {
+        if (content == null || owner == null) {
+            throw new IllegalArgumentException("Auxiliary navigation requires an owner and content");
+        }
+        Binding binding = BINDINGS.get(activity);
+        if (binding == null) {
+            binding = new Binding();
+            BINDINGS.put(activity, binding);
+        }
+        binding.selected = owner;
+        binding.content = content;
+        binding.auxiliary = true;
+
+        ImageButton player = activity.findViewById(R.id.nav_player);
+        ImageButton library = activity.findViewById(R.id.nav_library);
+        ImageButton search = activity.findViewById(R.id.nav_search);
+        ImageButton settings = activity.findViewById(R.id.nav_settings);
+        style(player, owner == Tab.PLAYER);
+        style(library, owner == Tab.LIBRARY);
+        style(search, owner == Tab.SEARCH);
+        style(settings, owner == Tab.SETTINGS);
+        player.setOnClickListener(view -> select(activity, view, Tab.PLAYER));
+        library.setOnClickListener(view -> select(activity, view, Tab.LIBRARY));
+        search.setOnClickListener(view -> select(activity, view, Tab.SEARCH));
+        settings.setOnClickListener(view -> select(activity, view, Tab.SETTINGS));
     }
 
     static boolean open(Activity activity, Tab tab) {
@@ -90,16 +120,25 @@ final class BottomNavigation {
 
     private static void select(Activity activity, View source, Tab tab) {
         Binding binding = BINDINGS.get(activity);
-        if (binding != null
-                && (binding.transitionRunning || binding.selected == tab)) {
+        if (binding != null && binding.transitionRunning) {
             return;
         }
+        if (binding != null && binding.auxiliary) {
+            source.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            leaveAuxiliary(activity, binding, tab);
+            return;
+        }
+        if (binding != null && binding.selected == tab) return;
         source.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
         request(activity, tab);
     }
 
     private static boolean request(Activity activity, Tab tab) {
         Binding binding = BINDINGS.get(activity);
+        if (binding != null && binding.auxiliary) {
+            leaveAuxiliary(activity, binding, tab);
+            return true;
+        }
         if (binding == null || binding.content == null) {
             navigateNow(activity, tab, inferredTab(activity));
             return true;
@@ -149,6 +188,12 @@ final class BottomNavigation {
                     }
                 });
         return true;
+    }
+
+    private static void leaveAuxiliary(Activity activity, Binding binding, Tab tab) {
+        Tab owner = binding.selected;
+        if (tab != owner) navigateNow(activity, tab, owner);
+        activity.finish();
     }
 
     @SuppressWarnings("deprecation")

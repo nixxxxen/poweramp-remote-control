@@ -28,7 +28,20 @@
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="40dp">
+        android:layout_height="48dp">
+
+        <ImageButton
+            android:id="@+id/queue_button"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="start|center_vertical"
+            android:background="@drawable/control_button_background"
+            android:contentDescription="@string/queue_open_description"
+            android:foreground="?android:attr/selectableItemBackgroundBorderless"
+            android:minHeight="48dp"
+            android:minWidth="48dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_queue" />
 
         <Button
             android:id="@+id/player_devices_button"

@@ -13,13 +13,73 @@ The repository builds two native Android applications. At the unchanged Server r
 identity fields required by the Phone current-row indicator. An installed APK with the same version
 number can predate those source changes and must not be treated as an equivalent build.
 At unchanged Phone `0.6.0`, the Library/Search UI now consumes unlimited server-snapshot paging;
-Queue UI remains absent, and Search has independently pageable typed Tracks / Artists / Albums,
+the completed read-only Queue Stage 1 UI consumes the existing Queue route, and Search has
+independently pageable typed Tracks / Artists / Albums,
 structured Artist/title queries, clear, and private local history. Library track lists add
 capability-gated whole-snapshot sorting with a Phone selection remembered per logical view. API
 stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
 volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
-full multi-player persistence remain absent.
+full multi-player persistence remain absent. The complete Queue Stage 1 physical-device matrix is
+maintainer-confirmed.
+
+## Completed Queue Stage 1 read-only UI (2026-09-11)
+
+- A targeted audit on R4 with installed Poweramp `1025004` / `build-1025-bundle-play` confirmed the
+  public identity contract before Phone UI work began. The test Queue had four occurrences in exact
+  provider/API order: underlying `folder_files._id` values `6890, 6909, 6890, 6914` and distinct
+  positive `queue._id` / API `entryId` values `1, 2, 3, 4`. Two `limit=2` pages returned offsets
+  `0` and `2`, preserving all entries without a gap or deduplication.
+- `POST /api/v1/library/play` for duplicate entry `3` produced playback category Queue (`800`),
+  `trackId=3`, and `trackRealId=6890`; selecting duplicate entry `1` produced `trackId=1` with the
+  same underlying ID. Only entry `3` was `current=true` in the fresh Server page. With shuffle off,
+  Next from entry `3` advanced to entry `4` / underlying `6914`, confirming that the selected
+  occurrence and subsequent sequence remain owned by Poweramp. Empty and multi-page Queue states
+  were subsequently confirmed through the complete Phone device matrix below.
+- Phone adds a compact 48 dp Queue button in the Player toolbar's free left slot, opposite the
+  connection pill. It opens a separate auxiliary `QueueActivity`: Back returns to the retained
+  Player; the standard Player / Library / Search / Settings navigation remains four items and the
+  Player item remains selected. No Activity adds a connection runtime or Poweramp integration path.
+- Queue has its own `LibraryPager`, request generation, failures, and scroll state. It calls only
+  `/api/v1/queue?limit=25` through the bound `PhoneConnectionService` and
+  `RemoteClientController`, follows opaque tokens to the actual end, never sorts or deduplicates,
+  and never retries a failed continuation automatically. Loaded rows remain visible while
+  disconnected; same-Server reconnect/rebind retains them. Reload invalidates the old generation,
+  clears only this Queue snapshot, requests page one, and returns the list to the top.
+- Rows reuse rounded Library thumbnails and the memory/disk cache, show title, artist, album, and
+  numeric-duration formatting, and retain separate `entryId` and `underlyingId`. The indicator
+  ignores page `current` and updates from service-replayed snapshots only when category is Queue,
+  `trackId == entryId`, and `trackRealId == underlyingId`. Tap submits the exact Server-supplied
+  `queue_entry` target without optimistic current/reorder/removal changes; confirmation remains the
+  ordinary playback snapshot. The shared mini-player, safe insets, localized loading/empty/
+  disconnected/permission/provider/expiry/retry states, and English/Russian accessibility strings
+  are reused.
+- Targeted JVM checks passed **91/91** with no failures/errors across Queue response parsing,
+  duplicate identity retention, exact play-target JSON, strict current matching, continuation past
+  1000 in provider order, stale reload/connection/token rejection, empty/error/reconnect
+  presentation policy, resource parity, existing Library paging/artwork caches, mini-player and tab
+  transition policies, plus Server Queue/JSON/API/snapshot regressions. `:app:assembleDebug` and
+  `:phone:assembleDebug` pass; matching debug APKs were installed with `-r` on the available R4 and
+  the Queue API was reconfirmed afterward. Lint, clean, release, and full suites were intentionally
+  not run. Final `git diff --check` passes.
+
+### Maintainer-confirmed Queue Stage 1 Phone device matrix
+
+- [x] Open Queue from Player and return through Back without restarting playback/service state.
+- [x] Compare row order with Poweramp; verify an empty Queue and a Queue longer than one HTTP page.
+- [x] Confirm two occurrences of one track remain separate and each tap starts that exact entry.
+- [x] Confirm only the exact current occurrence is marked, including an external track change.
+- [x] Exercise Play/Pause in the shared mini-player and Reload without local row mutation.
+- [x] Exercise disconnect/reconnect and service rebind with already loaded rows retained.
+- [x] Navigate to all four existing bottom tabs and confirm no Queue tab, sorting, or mutation UI.
+
+The maintainer tested matching Server and Phone debug builds and reports every item above working as
+specified. One separate presentation issue was observed on the main Player: for an 18-entry Queue,
+Poweramp reports the first item as raw `posInList=0`, so Phone shows `Queue 0/18` through `17/18`.
+After that, Poweramp continues with tracks outside the Queue. This confirms zero-based Queue position
+on the tested build but does not establish the index base for every other Poweramp source category;
+the current raw API value is therefore documented rather than silently adjusted in this Stage 1
+commit.
 
 ## Completed Library track sorting (2026-09-11)
 
@@ -98,7 +158,8 @@ Remaining real limitations: live Poweramp edits are still observed only through 
 snapshot; expired/LRU-evicted continuation tokens still require Reload; official field nullability
 is not guaranteed even though the verified library returned numeric values; broader Poweramp
 build/OEM cursor behavior beyond the confirmed devices remains to be checked. Scoped Search stays
-deferred until after the next release, and Queue remains a separate future task.
+deferred until after the next release; Queue Stage 1 now awaits only its explicit Phone device
+matrix, while Stage 2 remains separate future scope.
 
 ## Completed Global Search and unlimited Library pagination (2026-09-10)
 
@@ -487,9 +548,8 @@ recorded below; the final release task rebuilds and verifies the exact permanent
 - Every play request is structured ID JSON, revalidated against the exact provider item, converted
   to one allowlisted Poweramp URI, and dispatched through the existing `PowerampClient`. Queue order
   is retained. `current=true` requires exact Queue category plus playback `track.id == queue._id`;
-  without that Queue snapshot the nullable field stays `null`. Duplicate-current matching remains a
-  real-device check because the public `Track.ID` wording is less explicit for Queue than for a
-  playlist entry.
+  without that Queue snapshot the nullable field stays `null`. This was the pre-UI foundation
+  uncertainty and is now device-confirmed in the Queue Stage 1 record above.
 - Library artwork is a lazy Bearer-protected proxy for documented `aa/files/{trackId}`, reusing the
   existing bounded decoding/encoding policy: closed streams, 720 px decode target, 5 MiB JPEG cap,
   and no more than two concurrent loads.
@@ -545,8 +605,9 @@ recorded below; the final release task rebuilds and verifies the exact permanent
 - The Server base is ready for the separately scoped Phone navigation and Library/Search task.
   This does not certify the entire device matrix: remaining categories, permission recovery,
   Unicode/artist/album search, live large-library pagination, arbitrary artwork, and exact duplicate
-  playlist/Queue selection still need device checks. Verify the Queue-specific matrix before its
-  Phone UI. No Queue mutations, new Phone UI, version bump, or transport changes are included.
+  playlist/Queue selection still needed device checks at this historical checkpoint. Queue identity
+  and selection were later confirmed before the read-only Phone candidate above. This foundation
+  itself included no Queue mutations, Phone UI, version bump, or transport changes.
 
 ### Automated coverage
 
@@ -1701,17 +1762,18 @@ and hardening work should additionally exercise more vendors, Android versions, 
   selection and mandatory approval; the applications do not bypass either.
 - Force-stop, explicit notification Stop, or reboot ends the corresponding runtime until launch.
 - Exact public semantics of Poweramp bitrate units and list index base remain unverified.
-- Phone Library/Search UI and its unlimited snapshot/section continuation are implemented and
-  maintainer-confirmed on the current device setup; Queue UI is not. An existing snapshot does not
-  change under concurrent library edits, and expired/evicted tokens require explicit Reload.
+- Phone Library/Search UI and its unlimited snapshot/section continuation plus Queue Stage 1 are
+  implemented and maintainer-confirmed on the current device setup. Existing Library/Queue
+  snapshots do not change under concurrent provider edits, and expired/evicted tokens require
+  explicit Reload.
 - Queue Add/Remove/Reorder/Play Next remain disabled. Add has an official sample for later audit;
   the other mutations have no confirmed public contract. Lyrics remains out of scope.
 
 ## Next scope
 
-Extend Library/Search coverage to other Poweramp builds/OEMs and complete remaining category,
-permission, old-Server, and artwork edge cases. Then verify Queue duplicates/current-entry
-selection before its Phone UI.
+Prepare and verify the Library/Search/Queue release. Broader Library/Search/Queue coverage on other
+Poweramp builds/OEMs and remaining category, permission, old-Server, and artwork edge cases continue
+as compatibility work rather than blocking the confirmed current-device release path.
 Do not change the one-service connection architecture. Multi-player foundation and pairing hardening follow that
 series as ordered in [`ROADMAP.md`](ROADMAP.md). Queue mutations, Lyrics, multi-player persistence,
 and pairing/transport security still require separate scope and public-contract verification.

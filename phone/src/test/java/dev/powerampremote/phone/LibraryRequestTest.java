@@ -36,6 +36,11 @@ public final class LibraryRequestTest {
                 LibraryRequest.subfolders(0L).path(null)
         );
         assertEquals(
+                "/api/v1/queue?limit=25",
+                LibraryRequest.queue().path(null)
+        );
+        assertFalse(LibraryRequest.queue().isTrackList());
+        assertEquals(
                 "/api/v1/search/grouped?q=A%26B+%2B+%D1%82%D1%80%D0%B5%D0%BA&limit=25",
                 CategorizedSearchRequest.create("A&B + трек").path()
         );

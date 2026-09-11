@@ -66,6 +66,13 @@ final class LibraryPageParser {
         }
         LibraryPlayTarget playTarget = object.isNull("play")
                 ? null : LibraryPlayTarget.parse(object.getJSONObject("play"));
+        if ("queue_entry".equals(type)) {
+            if (entryId == null) throw new JSONException("Queue entry ID is required");
+            if (playTarget != null && (!"queue_entry".equals(playTarget.type)
+                    || !entryId.equals(playTarget.entryId))) {
+                throw new JSONException("Queue play target does not match entry");
+            }
+        }
         LibraryBrowseTarget browseTarget = !object.has("browse") || object.isNull("browse")
                 ? null : LibraryBrowseTarget.parse(object.getJSONObject("browse"));
         if (browseTarget != null

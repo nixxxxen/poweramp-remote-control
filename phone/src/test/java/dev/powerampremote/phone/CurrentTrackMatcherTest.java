@@ -47,6 +47,10 @@ public final class CurrentTrackMatcherTest {
     @Test
     public void missingIdAndMetadataOnlyMatchNeverMarkTrack() {
         LibraryItem metadataMatch = track("track", 41L, null, "Track");
+        LibraryItem staleQueueFlag = new LibraryItem(
+                "queue_entry", 41L, 502L, null, "Track", "Artist", "Album",
+                180_000L, null, null, null, true
+        );
 
         assertFalse(CurrentTrackMatcher.matches(
                 state(null, null, RemoteSourceCategory.FILES, "Track"), metadataMatch
@@ -56,6 +60,10 @@ public final class CurrentTrackMatcherTest {
         ));
         assertFalse(CurrentTrackMatcher.matches(
                 state(73L, 99L, RemoteSourceCategory.FILES, "Track"), metadataMatch
+        ));
+        assertTrue(staleQueueFlag.current);
+        assertFalse(CurrentTrackMatcher.matches(
+                state(501L, 41L, RemoteSourceCategory.QUEUE, "Track"), staleQueueFlag
         ));
     }
 
@@ -69,6 +77,9 @@ public final class CurrentTrackMatcherTest {
         assertTrue(CurrentTrackMatcher.matches(state, exactEntry));
         assertFalse(CurrentTrackMatcher.matches(
                 state(502L, 41L, RemoteSourceCategory.PLAYLISTS, "Track"), exactEntry
+        ));
+        assertFalse(CurrentTrackMatcher.matches(
+                state(502L, 42L, RemoteSourceCategory.QUEUE, "Track"), exactEntry
         ));
     }
 

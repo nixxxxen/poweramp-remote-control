@@ -9,6 +9,24 @@
     <string name="nav_search">Поиск</string>
     <string name="nav_settings">Настройки</string>
 
+    <string name="queue_title">Очередь</string>
+    <string name="queue_open_description">Открыть очередь</string>
+    <string name="queue_reload_description">Обновить очередь</string>
+    <string name="queue_loading">Загрузка очереди…</string>
+    <string name="queue_empty">Очередь пуста</string>
+    <string name="queue_disconnected">Подключитесь к Серверу, чтобы открыть очередь.</string>
+    <string name="queue_permission_required">Доступ к библиотеке Poweramp не выдан. Запросите его на устройстве с Сервером.</string>
+    <string name="queue_unsupported">Этот Сервер пока не поддерживает очередь.</string>
+    <string name="queue_provider_unavailable">Очередь Poweramp временно недоступна.</string>
+    <string name="queue_page_expired">Ссылка на страницу очереди устарела. Загруженные записи сохранены; обновите очередь, чтобы начать заново.</string>
+    <string name="queue_error">Не удалось загрузить очередь.</string>
+    <string name="queue_incomplete">Сервер завершил очередь раньше её фактического конца.</string>
+    <string name="queue_retry">Повторить</string>
+    <string name="queue_more">Загрузить ещё</string>
+    <string name="queue_reload">Обновить очередь</string>
+    <string name="queue_play_error">Не удалось запустить эту запись очереди.</string>
+    <string name="queue_current_entry">Текущая запись очереди</string>
+
     <string name="library_all_tracks">Все треки</string>
     <string name="library_artists">Исполнители</string>
     <string name="library_albums">Альбомы</string>

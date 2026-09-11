@@ -14,6 +14,24 @@
     <string name="nav_search">Search</string>
     <string name="nav_settings">Settings</string>
 
+    <string name="queue_title">Queue</string>
+    <string name="queue_open_description">Open Queue</string>
+    <string name="queue_reload_description">Reload Queue</string>
+    <string name="queue_loading">Loading Queue…</string>
+    <string name="queue_empty">The Queue is empty</string>
+    <string name="queue_disconnected">Connect to the Server to view the Queue.</string>
+    <string name="queue_permission_required">Poweramp library access is not granted. Request it on the Server device.</string>
+    <string name="queue_unsupported">This Server does not support Queue yet.</string>
+    <string name="queue_provider_unavailable">The Poweramp Queue is temporarily unavailable.</string>
+    <string name="queue_page_expired">This Queue page link expired. Loaded entries are kept; reload to start again.</string>
+    <string name="queue_error">Could not load the Queue.</string>
+    <string name="queue_incomplete">This Server ended the Queue before its actual end.</string>
+    <string name="queue_retry">Retry</string>
+    <string name="queue_more">Load more</string>
+    <string name="queue_reload">Reload Queue</string>
+    <string name="queue_play_error">Could not start this Queue entry.</string>
+    <string name="queue_current_entry">Current Queue entry</string>
+
     <string name="library_all_tracks">All tracks</string>
     <string name="library_artists">Artists</string>
     <string name="library_albums">Albums</string>

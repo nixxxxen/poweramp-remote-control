@@ -37,6 +37,7 @@ final class LibraryRequest {
     static LibraryRequest artists() { return fixed("/api/v1/library/artists"); }
     static LibraryRequest albums() { return fixed("/api/v1/library/albums"); }
     static LibraryRequest playlists() { return fixed("/api/v1/library/playlists"); }
+    static LibraryRequest queue() { return fixed("/api/v1/queue"); }
 
     static LibraryRequest artistTracks(long id) {
         return trackContainer(

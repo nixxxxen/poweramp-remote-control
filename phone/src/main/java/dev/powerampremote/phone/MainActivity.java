@@ -76,6 +76,7 @@ public final class MainActivity extends LocaleAwareActivity
     private SeekBar volumeSeek;
     private TextView volumeValue;
     private Button playerDevicesButton;
+    private ImageButton queueButton;
     private ImageButton previousButton;
     private MotionImageButton playPauseButton;
     private ImageButton nextButton;
@@ -314,6 +315,7 @@ public final class MainActivity extends LocaleAwareActivity
         volumeSeek = findViewById(R.id.volume_seek);
         volumeValue = findViewById(R.id.volume_value);
         playerDevicesButton = findViewById(R.id.player_devices_button);
+        queueButton = findViewById(R.id.queue_button);
         previousButton = findViewById(R.id.previous_button);
         playPauseButton = findViewById(R.id.play_pause_button);
         nextButton = findViewById(R.id.next_button);
@@ -369,6 +371,10 @@ public final class MainActivity extends LocaleAwareActivity
         playerDevicesButton.setOnClickListener(view -> {
             haptic(view);
             openPlayerDevices();
+        });
+        queueButton.setOnClickListener(view -> {
+            haptic(view);
+            startActivity(new Intent(this, QueueActivity.class));
         });
         previousButton.setOnClickListener(view -> {
             haptic(view);

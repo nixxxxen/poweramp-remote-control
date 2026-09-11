@@ -64,9 +64,33 @@ public final class LibraryPageParserTest {
     }
 
     @Test
+    public void queueDuplicatesPreserveEntryAndUnderlyingIdentitiesAndPlayTargets()
+            throws Exception {
+        LibraryPage page = LibraryPageParser.parse("{"
+                + "\"category\":\"queue\",\"limit\":25,\"offset\":0,\"items\":["
+                + queueItemJson(41L, 501L, "Same") + ","
+                + queueItemJson(41L, 502L, "Same")
+                + "],\"nextPageToken\":null,\"truncated\":false}");
+
+        assertEquals(2, page.items.size());
+        assertEquals(41L, page.items.get(0).id);
+        assertEquals(41L, page.items.get(1).id);
+        assertEquals(Long.valueOf(41L), page.items.get(0).underlyingId);
+        assertEquals(Long.valueOf(501L), page.items.get(0).entryId);
+        assertEquals(Long.valueOf(502L), page.items.get(1).entryId);
+        JSONObject secondTarget = new JSONObject(page.items.get(1).playTarget.toJson());
+        assertEquals("queue_entry", secondTarget.getString("type"));
+        assertEquals(502L, secondTarget.getLong("entryId"));
+    }
+
+    @Test
     public void rejectsUntrustedArtworkAndMalformedPageToken() {
         assertInvalid(pageWith("\"artwork\":\"http://example.test/a.jpg\"", "null"));
         assertInvalid(pageWith("\"artwork\":null", "\"short\""));
+        assertInvalid("{\"category\":\"queue\",\"limit\":25,\"offset\":0,"
+                + "\"items\":[" + queueItemJson(41L, 501L, "Same")
+                        .replace("\"entryId\":501}", "\"entryId\":502}")
+                + "],\"nextPageToken\":null,\"truncated\":false}");
     }
 
     @Test
@@ -135,6 +159,38 @@ public final class LibraryPageParserTest {
         assertFalse(pager.canLoadMore());
     }
 
+    @Test
+    public void queueContinuationPassesOneThousandWithoutDeduplicatingProviderOrder() {
+        LibraryPager pager = new LibraryPager();
+        int total = 1_001;
+        for (int offset = 0; offset < total; offset += 25) {
+            String requested = pager.nextPageToken();
+            int count = Math.min(25, total - offset);
+            StringBuilder items = new StringBuilder();
+            for (int index = 0; index < count; index++) {
+                if (index != 0) items.append(',');
+                long entryId = offset + index + 1L;
+                long underlyingId = entryId % 3L + 1L;
+                items.append(queueItemJson(underlyingId, entryId, "Queue track"));
+            }
+            int nextOffset = offset + count;
+            boolean last = nextOffset == total;
+            String next = String.format(java.util.Locale.ROOT, "%024d", nextOffset);
+            pager.accept(requested, LibraryPageParser.parse("{\"category\":\"queue\","
+                    + "\"limit\":25,\"offset\":" + offset + ",\"items\":[" + items + "],"
+                    + "\"nextPageToken\":" + (last ? "null" : "\"" + next + "\"")
+                    + ",\"truncated\":false}"));
+        }
+
+        assertEquals(total, pager.items().size());
+        for (int index = 0; index < total; index++) {
+            assertEquals(Long.valueOf(index + 1L), pager.items().get(index).entryId);
+            assertEquals((index + 1L) % 3L + 1L, pager.items().get(index).id);
+        }
+        assertFalse(pager.canLoadMore());
+        assertFalse(pager.truncated());
+    }
+
     private static String pageWith(String artwork, String token) {
         return "{\"category\":\"tracks\",\"limit\":25,\"offset\":0,"
                 + "\"items\":[{\"type\":\"track\",\"id\":41,"
@@ -143,6 +199,17 @@ public final class LibraryPageParserTest {
                 + "\"trackCount\":null," + artwork + ","
                 + "\"play\":{\"type\":\"track\",\"id\":41},\"current\":null}],"
                 + "\"nextPageToken\":" + token + ",\"truncated\":false}";
+    }
+
+    private static String queueItemJson(long underlyingId, long entryId, String title) {
+        return "{\"type\":\"queue_entry\",\"id\":" + underlyingId
+                + ",\"entryId\":" + entryId
+                + ",\"parentId\":null,\"title\":\"" + title + "\","
+                + "\"artist\":\"Artist\",\"album\":\"Album\","
+                + "\"durationMilliseconds\":180000,\"trackCount\":null,"
+                + "\"artwork\":\"/api/v1/library/artwork/tracks/" + underlyingId + "\","
+                + "\"play\":{\"type\":\"queue_entry\",\"entryId\":" + entryId + "},"
+                + "\"current\":null}";
     }
 
     private static void assertInvalid(String json) {

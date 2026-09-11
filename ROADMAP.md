@@ -264,10 +264,10 @@ plus full-snapshot Library track sorting at unchanged Phone `0.6.0`. Versions in
 the whole series is complete. The current Library/Search and sorting device matrices are
 maintainer-confirmed; broader category/permission/OEM coverage remains ongoing.
 
-Phone navigation is now Player / Library / Search / Settings in a bottom bar. About is in Settings,
-the top-left main menu is removed, and the existing connection pill is retained. A later Queue task
-can add its Player entry after the Queue device matrix. Navigation preserves playback and the
-existing service-owned runtime.
+Phone navigation remains Player / Library / Search / Settings in a bottom bar. About is in Settings,
+the top-left main menu is removed, and the existing connection pill is retained. The Queue Stage 1
+candidate adds a compact Player-toolbar action rather than a fifth tab; its auxiliary screen returns
+to the retained Player and uses the existing service-owned runtime.
 
 Phone loads only the currently requested page and caches recent presentation data locally for
 responsive navigation. Server may retain only a bounded short-lived immutable result snapshot
@@ -397,9 +397,18 @@ Implement Queue in stages.
 
 Preserve Poweramp queue entry IDs because the same track may appear more than once.
 
-Server Stage 1 is implemented with `read=true` and `playExisting=true`; exact provider ordering,
-duplicate IDs, current-entry matching, and selection still require the recorded real-device matrix
-before Phone Queue UI begins.
+Stage 1 is **completed and device-confirmed** with Server capabilities `read=true` and
+`playExisting=true`. The Poweramp build 1025
+device audit confirms provider/API order, positive distinct Queue entry IDs for duplicate underlying
+tracks, exact Queue `trackId` plus `trackRealId`, exact existing-entry selection, native follow-on
+order, and multi-page continuation. The separate read-only Phone Queue UI is implemented
+through the existing service/controller with lazy opaque-token paging, shared thumbnails and
+mini-player, strict live matching, Reload, and recoverable states. It adds no sorting or mutation
+controls. The maintainer confirmed its complete Phone matrix, including empty and multi-page queues,
+duplicates, exact current-entry selection, external changes, Reload, reconnect/rebind, Back, and all
+four existing tabs. The tested build exposes Queue `posInList` as zero-based; the separate main-
+Player `0/N` presentation issue remains recorded without generalizing that index base to every
+Poweramp category.
 
 ### Stage 2 — investigate mutations
 

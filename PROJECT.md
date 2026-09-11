@@ -81,6 +81,12 @@ stack depth, switches the same Activity to Library with the existing content-onl
 pushes the normal Library container request. Back trims only that temporary container and restores
 the exact Search presentation; existing Library levels/pages stay resident and no Activity or
 connection runtime is added.
+The Player toolbar also has a 48 dp Queue action in its free left slot, opposite the connection
+pill. It opens the separate auxiliary `QueueActivity`, which keeps Player selected in the unchanged
+four-item bottom navigation and finishes back to the retained Player Activity. Queue binds to the
+same `PhoneConnectionService`, reuses the shared mini-player and Library thumbnail caches, and owns
+only its read-only page chain, scroll position, failures, and request generation. It never enters
+the Library/Search stack, sorting preferences, or Search history.
 Library and Search track rows also consume the service-replayed complete playback snapshot. The
 Phone model exposes `underlyingId` only for the API's `track`, `playlist_entry`, and `queue_entry`
 wire types; under the current Library contract that value is the row's documented underlying
@@ -385,7 +391,7 @@ There is no CORS API, polling endpoint, URL credential, or WebSocket command cha
 
 This is the Server foundation for the Library/Queue series. It adds no Web UI, second service/
 Poweramp connection, library WebSocket stream, or persistent copy of Poweramp data. An initial
-Library/Search request reads its provider result through the adapter owned by
+Library/Search/Queue request reads its provider result through the adapter owned by
 `RemotePlaybackService`; Phone still receives only the requested bounded page. All returned cursors
 and artwork streams close on success, failure, or cancellation.
 
@@ -424,7 +430,7 @@ Provider projections are an explicit subset of public `TableDefs` columns:
 | hierarchy folders | the same identity/name/parent plus `folders.hier_num_files`, `folders.hier_duration` |
 | playlists | `playlists._id`, `playlists.playlist`, `playlists.num_files`, `playlists.duration` |
 | playlist entries | track columns above plus `playlist_entries._id` |
-| queue entries | ID/name/title/artist/album/duration track columns plus `queue._id`; sorting metadata is not requested because Queue is out of scope |
+| queue entries | ID/name/title/artist/album/duration track columns plus `queue._id`; sorting metadata is omitted because Queue always preserves Poweramp order |
 
 Aliases used after the query are Server-local names, not assumed provider columns. Browsing sends
 no selection or selection arguments; search uses the fixed parameterized selection described below.
@@ -661,12 +667,22 @@ the documented URI itself, then sends command `20` (`OPEN_TO_PLAY`) through the 
 `content://` data. `202` means the target reached the active command path; playback confirmation
 still arrives through normal Poweramp events.
 
-Queue Cursor order is retained without an invented sort expression. When the playback snapshot
-reports category `QUEUE` and a positive public `track.id`, a row is `current=true` only for an exact
-match with that row's `queue._id`; `folder_files._id` is insufficient because duplicates are legal.
-Without such a Queue snapshot, every row has `current=null`, not a guessed `false`. The combination
-of the documented category/current-track ID and Queue entry-ID contracts supports this mapping, but
-its behavior with duplicate entries remains an explicit real-device check. Capabilities are:
+Queue Cursor order is retained without an invented sort expression. Every wire row keeps
+`id = folder_files._id` separately from `entryId = queue._id`; Queue pages and Phone presentation
+never deduplicate on the underlying ID. When the playback snapshot reports category `QUEUE`, Phone
+marks a row only when both `trackId == entryId` and `trackRealId == id`. It deliberately ignores the
+page's older nullable `current` field as a live source of truth. An older Server that omits the
+additive playback identity fields still supplies a usable list and play targets, but Phone shows no
+guessed current indicator.
+
+This identity was confirmed read-only on installed Poweramp build `1025004`
+(`build-1025-bundle-play`) after preparing four entries through the official public Queue-insert
+sample path. Provider/API order was underlying IDs `6890, 6909, 6890, 6914` with distinct positive
+Queue entry IDs `1, 2, 3, 4`. Selecting entry `3` through `/api/v1/library/play` produced playback
+category `800`, `trackId=3`, and `trackRealId=6890`; selecting the other duplicate produced
+`trackId=1` with the same real ID. With shuffle off, Next from entry `3` advanced to entry `4`, so
+Poweramp—not Phone—continued the real Queue order. A `limit=2` traversal returned offsets `0` and
+`2` with all four occurrences exactly once. Capabilities remain:
 
 ```json
 {
@@ -684,7 +700,20 @@ fields into `queue`, then sending `ACTION_RELOAD_DATA`. That is evidence for a s
 task, not authorization to expose it now. The audited public repository has no corresponding
 documented Remove, Reorder, or Play Next contract. Its MediaSession documentation also excludes
 `AddQueueItem` and `RemoveQueueItem`. No mutation is implemented here, and no internal database,
-hidden intent, Accessibility/UI automation, or unsupported MediaSession queue operation is used.
+hidden intent, Accessibility/UI automation, or unsupported MediaSession queue operation is used by
+the product. The public insert/reload path above was used only to prepare the explicit device test;
+it is not reachable from Server or Phone UI.
+
+Phone Queue requests use `/api/v1/queue?limit=25` and the existing opaque page token through
+`PhoneConnectionService`/`RemoteClientController`. Reload invalidates the active request generation,
+starts a new Server snapshot at page one, and moves the list to the top. Continuation failures never
+retry automatically; loaded rows remain visible during a temporary disconnect or recoverable
+failure, and same-Server reconnect/rebind retains them. A different Server clears the page chain.
+Tapping an entry sends only its Server-supplied structured `queue_entry` target and creates no
+optimistic current/reorder/removal state; the existing playback WebSocket snapshot confirms the
+selection. Queue rows reuse rounded artwork, title/artist/album/duration typography, the shared
+mini-player, safe insets, and localized loading/empty/permission/provider/retry presentation. Queue
+has no sorting or mutation controls.
 
 ### Poweramp data permission
 
@@ -895,8 +924,9 @@ remains future work.
 
 ## Known uncertainties and real-device requirements
 
-The exact Poweramp `bitRate` unit and `posInList` index base still require device verification;
-API v1 intentionally preserves both. Wi-Fi Direct behavior also varies by vendor: the Server must
+The exact Poweramp `bitRate` unit and the `posInList` index base outside Queue still require device
+verification; Queue is confirmed zero-based on Poweramp build 1025. API v1 intentionally preserves
+the raw values. Wi-Fi Direct behavior also varies by vendor: the Server must
 be selected as group owner for the current IPv4 client path, system approval may be required after
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
@@ -919,11 +949,15 @@ order, and unchanged Global Search all behave as specified.
 
 The ContentProvider foundation still needs broader device/OEM coverage: first grant/deny/retry and
 process-not-running behavior; remaining category projections/order; hierarchy root/children;
-duplicate playlist/queue entry IDs; queue-current matching and `OPEN_TO_PLAY`; album-art access for
-arbitrary tracks; and derived representative covers across artists, albums, playlists, and direct
-folder tracks. Extra category metadata remains intentionally absent, not failed track metadata.
-Live library edits do not mutate an existing paging snapshot: users must Reload to start a fresh
-view. Queue-specific behavior must still be checked before exposing Queue UI.
+duplicate playlist entry IDs; album-art access for arbitrary tracks; and derived representative
+covers across artists, albums, playlists, and direct folder tracks. Queue provider order, duplicate
+entry IDs, exact current matching, `OPEN_TO_PLAY`, empty/multi-page presentation, and the complete
+Phone Stage 1 matrix are confirmed on the current device setup. Extra category metadata remains
+intentionally absent, not failed track metadata.
+Live library or Queue edits do not mutate an existing paging snapshot: users must Reload to start a
+fresh view. On the tested Poweramp build the Queue playback snapshot exposes zero-based
+`posInList`; Phone currently preserves that raw value, while the index base for other source
+categories remains unverified.
 
 Exact completed automation, the earlier Server `0.10.2` / Phone `0.5.0` in-place release matrix,
 and the maintainer-confirmed Phone `0.6.0` UI validation are recorded in `STATUS.md`. Broader
