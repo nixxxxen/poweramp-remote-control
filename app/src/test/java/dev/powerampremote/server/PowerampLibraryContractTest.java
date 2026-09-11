@@ -267,6 +267,9 @@ public final class PowerampLibraryContractTest {
         assertTrue(java.util.Arrays.asList(
                 PowerampLibraryContract.categorizedArtists("artist").projection()
         ).contains("artists.is_unsplit AS artist_is_unsplit"));
+        assertEquals("content://com.maxmpz.audioplayer.data/queue",
+                PowerampLibraryContract.queueMutationUri());
+        assertEquals("MAX(sort)", PowerampLibraryContract.QUEUE_MAX_SORT_EXPRESSION);
     }
 
     private static void expectInvalid(Runnable runnable) {

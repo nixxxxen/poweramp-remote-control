@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/library_item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?android:attr/selectableItemBackground"
+    android:background="@drawable/library_row_selection_background"
+    android:foreground="?android:attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:minHeight="68dp"
     android:orientation="horizontal"
@@ -70,4 +72,15 @@
         android:src="@drawable/ic_play"
         android:tint="@color/accent"
         android:visibility="invisible" />
+
+    <ImageButton
+        android:id="@+id/library_item_menu"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/track_actions_description"
+        android:focusable="false"
+        android:padding="12dp"
+        android:src="@drawable/ic_more_vert"
+        android:visibility="gone" />
 </LinearLayout>

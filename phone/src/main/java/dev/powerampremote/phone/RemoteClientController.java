@@ -24,6 +24,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Coordinates discovery transports, pairing, event streaming, controls, and reconnect. */
 final class RemoteClientController implements NsdDiscoveryClient.Listener,
@@ -98,6 +100,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     interface LibraryActionCallback {
         void onResult(int connectionGeneration, LibraryFailure failure);
+    }
+
+    interface QueueAddCallback {
+        void onResult(
+                int connectionGeneration,
+                QueueAddResult result,
+                LibraryFailure failure
+        );
     }
 
     interface LibraryArtworkCallback {
@@ -242,6 +252,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private boolean pairingExchangeInFlight;
     private boolean manualPairingSawRejectedToken;
     private int connectionGeneration;
+    private final AtomicLong queueContentGeneration = new AtomicLong();
+    private final AtomicBoolean queueAddInFlight = new AtomicBoolean();
     private int operationGeneration;
     private int reconnectFailures;
     private int artworkGeneration;
@@ -421,6 +433,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         return connectionGeneration;
     }
 
+    long queueContentGeneration() {
+        return queueContentGeneration.get();
+    }
+
     void requestLibraryPage(
             LibraryRequest request,
             String pageToken,
@@ -557,6 +573,45 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             });
         } catch (RejectedExecutionException exception) {
             callback.onResult(generation, LibraryFailure.SERVER_ERROR);
+        }
+    }
+
+    void addToQueue(QueueAddRequest request, QueueAddCallback callback) {
+        PairingCredentials currentCredentials = credentials;
+        DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
+        if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
+            callback.onResult(generation, null, LibraryFailure.DISCONNECTED);
+            return;
+        }
+        if (!queueAddInFlight.compareAndSet(false, true)) {
+            callback.onResult(generation, null, LibraryFailure.SERVER_ERROR);
+            return;
+        }
+        try {
+            libraryExecutor.execute(() -> {
+                QueueAddResult result = null;
+                LibraryFailure failure = null;
+                try {
+                    result = apiClient.addToQueue(
+                            currentEndpoint, currentCredentials.token, request
+                    );
+                    if (result.addedCount > 0) queueContentGeneration.incrementAndGet();
+                } catch (RemoteApiClient.HttpStatusException exception) {
+                    failure = libraryFailure(exception.statusCode);
+                } catch (IOException | RuntimeException exception) {
+                    failure = LibraryFailure.SERVER_ERROR;
+                }
+                QueueAddResult deliveredResult = result;
+                LibraryFailure deliveredFailure = failure;
+                queueAddInFlight.set(false);
+                mainHandler.post(() -> callback.onResult(
+                        generation, deliveredResult, deliveredFailure
+                ));
+            });
+        } catch (RejectedExecutionException exception) {
+            queueAddInFlight.set(false);
+            callback.onResult(generation, null, LibraryFailure.SERVER_ERROR);
         }
     }
 

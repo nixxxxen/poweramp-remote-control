@@ -19,9 +19,109 @@ structured Artist/title queries, clear, and private local history. Library track
 capability-gated whole-snapshot sorting with a Phone selection remembered per logical view. API
 stays backward-compatible `v1`, and the Web UI is unchanged. The one Server service, one
 Poweramp command path, one Phone service, LAN/NSD, Wi-Fi Direct, pairing/reconnect, MediaSession,
-volume, and every previous API route remain in place. Queue mutations, Lyrics, a new transport, and
-full multi-player persistence remain absent. The complete Queue Stage 1 physical-device matrix is
-maintainer-confirmed.
+volume, and every previous API route remain in place. The public Add-to-Queue mutation and bounded
+batch UI are implemented as the final pre-release candidate; Remove, Clear, Reorder, Play Next,
+Lyrics, a new transport, and full multi-player persistence remain absent. The complete Queue Stage
+1 physical-device matrix is maintainer-confirmed; the new mutation Phone matrix remains release
+validation and is not marked complete below.
+
+## Phone composite-row click routing fix (2026-09-11)
+
+- The device-reported regression was Phone-only: `library_list_item` and the Search-history row
+  gained clickable child buttons, while their primary actions still depended on
+  `ListView.OnItemClickListener`; the child controls prevented that parent callback from becoming a
+  reliable dispatch path. Network, Server, `OPEN_TO_PLAY`, and the Queue mutation contract were not
+  involved.
+- Library/Search, history, and Queue rows now bind an explicit primary root click on every
+  `getView()` pass. The `⋮` and history remove buttons retain separate child handlers; primary tap,
+  selection tap, long press, menu, and removal are mutually exclusive. The obsolete ListView-level
+  click/long-click paths were removed, and recycled rows reset listener, enabled/clickable,
+  activated/selected, visibility, and accessibility state.
+- The focused Phone checks pass **28/28** across click routing/selection, Search history, Library
+  request/play identity, and exact Queue entry matching/request gates. `:phone:assembleDebug` and
+  `git diff --check` pass; Server tests and Server APK were intentionally not run for this
+  client-only correction.
+- The maintainer subsequently confirmed the corrected build on device: ordinary Library track
+  playback and Search-history row actions work again while the history remove button remains
+  independent. The composite-row click regression is closed.
+
+## Add to Queue and batch selection candidate (2026-09-11)
+
+- The implementation follows the official pinned Poweramp example only: Server queries raw
+  `MAX(sort)`, inserts exactly `folder_file_id` plus sequential `sort` values into the public Queue
+  URI, then sends one explicit `ACTION_RELOAD_DATA` with the Server package and table `queue` after
+  at least one successful insert. It never opens Poweramp UI and does not use MediaSession queue
+  mutations, private database access, arbitrary client values, or automatic request retry.
+- The device audit found a build-1025 projection quirk before any product insert: public Queue rows
+  exposed `sort=0…9`, `MAX(queue.sort)` returned `NULL`, and the official raw projection
+  `MAX(sort)` returned `9`. Server uses that confirmed raw form. A real ordered batch then appended
+  track `6890`, the same track `6890` again, and Queue entry `2` / underlying track `6909` as new
+  public entries `11, 12, 13` with `sort=10, 11, 12`. The API reported `3/3 complete`; the two
+  duplicate tracks remained separate, and a new Queue snapshot matched the provider order. A
+  separate playlist target `playlistId=15, entryId=276` resolved to underlying track `3215` and
+  appended as Queue entry `14`, `sort=13`. The before/after playback snapshot remained stopped on
+  track `894` from All Tracks, proving append itself did not restart playback.
+- Bearer-only `POST /api/v1/queue/add` accepts one ordered array of 1…100 strict `track`,
+  `playlist_entry`, or `queue_entry` identities. Every target is revalidated first through its exact
+  public URI and resolved on Server to `folder_files._id`; the full batch must validate before the
+  first insert. Duplicate underlying tracks and different occurrences are not deduplicated.
+  Queue mutations run serially on the existing service-owned Library worker, so concurrent requests
+  cannot reuse a maximum sort value. Cursor/client/editor resources close on success, cancellation,
+  provider failure, and service shutdown.
+- Poweramp does not provide transactional semantics for a series of inserts. The response therefore
+  carries `requestedCount`, actual `addedCount`, `complete`, and a safe first failure index/status.
+  A successful prefix causes exactly one reload broadcast and invalidates only Queue paging
+  snapshots; zero successful inserts cause neither. Phone blocks concurrent delivery and does not
+  automatically retry a network failure that could otherwise duplicate an append.
+- `GET /api/v1/library` advertises `queueCapabilities.add=true` only after an available provider
+  probe; read/play remain true and remove/reorder/playNext remain false. Old Servers or missing add
+  capability keep Library/Search/Queue read/play behavior and expose no mutation controls.
+- Track-capable Library, Global Search, playlist, and Queue rows have a capability-gated 48 dp `⋮`
+  action containing only **Add to Queue**. Long press starts a separate Library/Search or Queue
+  selection over already loaded rows, preserves exact playlist/Queue occurrence identity and user
+  selection order, caps a batch at 100, survives Activity recreation, and remains stable while more
+  pages load. Back exits selection first. Navigation, a new Search query, Reload/sort change,
+  Server change, or full success clears the applicable selection; full failure keeps it, while a
+  partial result removes only the successfully inserted prefix and reports `X of Y`. The existing
+  Phone service retains one bounded operation identity/result across Activity recreation; it never
+  converts that replay into a second HTTP request.
+- Phone never modifies Queue rows optimistically. Any `addedCount > 0` increments service-owned
+  Queue content generation: an active Queue reloads immediately and a retained Queue screen reloads
+  on its next bind/open, discarding old continuation tokens. Playback current-row identity remains
+  driven only by the authoritative WebSocket snapshot.
+- The main Player position fix is presentation-only. For Queue category only, confirmed raw
+  `posInList=0…N-1` displays as `1…N`; API v1, `RemoteState`, and WebSocket JSON remain raw. Null,
+  negative, incomplete, out-of-range, and non-Queue positions do not receive an offset, and the next
+  non-Queue snapshot removes Queue-specific presentation.
+- Targeted JVM checks pass **156/156** for the Queue add request/result, revalidation,
+  ordered duplicates, sequential sort allocation, concurrent serialization, single/no reload,
+  partial results, Queue snapshot invalidation, capabilities/old-Server fallback, Phone request and
+  exact selection identity, position presentation, paging/thumbnail caches, relevant
+  Library/Search/mini-player/navigation regressions, and English/Russian resource parity.
+  `:app:assembleDebug` and `:phone:assembleDebug` pass. The provider-audit Server and then-current
+  Phone candidate were installed with `-r` on the R4; after the final lifecycle guard rebuild the
+  R4 was no longer visible to ADB, so that exact final Phone APK was not reinstalled. Lint, clean,
+  release, and full suites were intentionally not run.
+
+### Remaining Add-to-Queue release device matrix
+
+- [x] Server capability, real single/batch track append, duplicate preservation, exact Queue-entry
+  revalidation, playlist-entry revalidation, provider/API order, fresh Queue snapshot, and no
+  playback restart on Poweramp build 1025.
+- [ ] Phone single add from All Tracks, Artist, Album, Folder, Global Search, Playlist, and Queue.
+- [ ] Phone batch order, repeated underlying tracks, selection/Back/pagination/recreation/reconnect,
+  double-tap suppression, and partial/provider-failure presentation.
+- [ ] Active/retained Queue snapshot refresh without mixed tokens; empty and already-active Queue.
+- [ ] Old-Server control hiding on a separately installed older Server revision.
+- [ ] Player Queue `1/N…N/N`, Previous/Next, automatic exit from Queue, and unchanged exact current
+  duplicate indicator/selection.
+
+Only the R4 was ADB-accessible during the provider audit, and it was no longer listed at the final
+reinstall attempt. Its installed Phone build had no saved pairing and could not discover the Server
+running on the same physical device through the normal LAN/NSD path; the product deliberately
+received no alternate endpoint or second connection path. Consequently the unchecked Phone items
+above remain honest release validation rather than inferred success, and Add to Queue is not yet
+labeled device-complete.
 
 ## Completed Queue Stage 1 read-only UI (2026-09-11)
 
@@ -78,8 +178,8 @@ specified. One separate presentation issue was observed on the main Player: for 
 Poweramp reports the first item as raw `posInList=0`, so Phone shows `Queue 0/18` through `17/18`.
 After that, Poweramp continues with tracks outside the Queue. This confirms zero-based Queue position
 on the tested build but does not establish the index base for every other Poweramp source category;
-the current raw API value is therefore documented rather than silently adjusted in this Stage 1
-commit.
+the raw API value was therefore preserved. The subsequent Add-to-Queue candidate above resolves
+only the Phone Queue presentation to `1/18…18/18` without changing that wire contract.
 
 ## Completed Library track sorting (2026-09-11)
 
@@ -524,9 +624,10 @@ recorded below; the final release task rebuilds and verifies the exact permanent
   The documented `hd`/`dl` parameters are left at provider defaults, and Server never requests a
   download.
 - The official example contains an Add-to-Queue implementation using public queue inserts plus
-  `ACTION_RELOAD_DATA`, but this stage intentionally does not expose it. No documented public
+  `ACTION_RELOAD_DATA`; this historical foundation checkpoint intentionally did not expose it. No documented public
   Remove, Reorder, or Play Next contract was found. The official MediaSession notes explicitly say
-  `AddQueueItem` and `RemoveQueueItem` are unsupported. Mutation capabilities all remain `false`.
+  `AddQueueItem` and `RemoveQueueItem` are unsupported. Its mutation capabilities were all `false`;
+  the separately scoped candidate above now enables only the audited public Add operation.
 
 ### Service-owned source and additive API v1
 
@@ -1761,13 +1862,16 @@ and hardening work should additionally exercise more vendors, Android versions, 
 - The direct IPv4 path still requires the player device to become P2P group owner. Android controls
   selection and mandatory approval; the applications do not bypass either.
 - Force-stop, explicit notification Stop, or reboot ends the corresponding runtime until launch.
-- Exact public semantics of Poweramp bitrate units and list index base remain unverified.
+- Exact public semantics of Poweramp bitrate units and list index base outside Queue remain
+  unverified. Queue alone is confirmed zero-based on build 1025 and adjusted only in Phone
+  presentation.
 - Phone Library/Search UI and its unlimited snapshot/section continuation plus Queue Stage 1 are
   implemented and maintainer-confirmed on the current device setup. Existing Library/Queue
   snapshots do not change under concurrent provider edits, and expired/evicted tokens require
   explicit Reload.
-- Queue Add/Remove/Reorder/Play Next remain disabled. Add has an official sample for later audit;
-  the other mutations have no confirmed public contract. Lyrics remains out of scope.
+- Add to Queue is implemented and Server-device-confirmed, but its remaining Phone matrix above is
+  release validation. Remove, Clear, Reorder, and Play Next remain disabled because no confirmed
+  public contract was found. Lyrics remains out of scope.
 
 ## Next scope
 
@@ -1775,5 +1879,6 @@ Prepare and verify the Library/Search/Queue release. Broader Library/Search/Queu
 Poweramp builds/OEMs and remaining category, permission, old-Server, and artwork edge cases continue
 as compatibility work rather than blocking the confirmed current-device release path.
 Do not change the one-service connection architecture. Multi-player foundation and pairing hardening follow that
-series as ordered in [`ROADMAP.md`](ROADMAP.md). Queue mutations, Lyrics, multi-player persistence,
-and pairing/transport security still require separate scope and public-contract verification.
+series as ordered in [`ROADMAP.md`](ROADMAP.md). Remaining Queue mutations, Lyrics, multi-player
+persistence, and pairing/transport security still require separate scope and public-contract
+verification.

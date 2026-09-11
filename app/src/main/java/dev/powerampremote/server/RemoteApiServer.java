@@ -66,6 +66,7 @@ final class RemoteApiServer implements AutoCloseable {
     static final String SEARCH_PATH = "/api/v1/search";
     static final String CATEGORIZED_SEARCH_PATH = SEARCH_PATH + "/grouped";
     static final String QUEUE_PATH = "/api/v1/queue";
+    static final String QUEUE_ADD_PATH = QUEUE_PATH + "/add";
 
     private static final String WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final int HTTP_TIMEOUT_MILLISECONDS = 10_000;
@@ -90,6 +91,13 @@ final class RemoteApiServer implements AutoCloseable {
 
     interface LibraryPlaySubmitter {
         boolean submit(LibraryItem.PlayTarget target);
+    }
+
+    interface QueueAddSubmitter {
+        QueueAddResult submit(
+                QueueAddRequest request,
+                LibraryCancellation cancellation
+        );
     }
 
     interface LibraryArtworkLoader {
@@ -211,6 +219,7 @@ final class RemoteApiServer implements AutoCloseable {
     private final PowerampLibrarySource librarySource;
     private final LibraryPlaySubmitter libraryPlaySubmitter;
     private final LibraryArtworkLoader libraryArtworkLoader;
+    private final QueueAddSubmitter queueAddSubmitter;
     private final Set<Socket> connections = ConcurrentHashMap.newKeySet();
     private final Set<WebSocketConnection> webSockets = ConcurrentHashMap.newKeySet();
     private final Set<LibraryCancellation> libraryRequests = ConcurrentHashMap.newKeySet();
@@ -262,6 +271,7 @@ final class RemoteApiServer implements AutoCloseable {
                 null,
                 null,
                 null,
+                null,
                 null
         );
     }
@@ -291,6 +301,7 @@ final class RemoteApiServer implements AutoCloseable {
                 playerDeviceName,
                 null,
                 null,
+                null,
                 null
         );
     }
@@ -308,7 +319,8 @@ final class RemoteApiServer implements AutoCloseable {
             String playerDeviceName,
             PowerampLibrarySource librarySource,
             LibraryPlaySubmitter libraryPlaySubmitter,
-            LibraryArtworkLoader libraryArtworkLoader
+            LibraryArtworkLoader libraryArtworkLoader,
+            QueueAddSubmitter queueAddSubmitter
     ) {
         this.port = port;
         this.token = token;
@@ -324,6 +336,7 @@ final class RemoteApiServer implements AutoCloseable {
         this.librarySource = librarySource;
         this.libraryPlaySubmitter = libraryPlaySubmitter;
         this.libraryArtworkLoader = libraryArtworkLoader;
+        this.queueAddSubmitter = queueAddSubmitter;
     }
 
     void start() {
@@ -711,6 +724,10 @@ final class RemoteApiServer implements AutoCloseable {
             playLibraryItem(request, output);
             return;
         }
+        if (QUEUE_ADD_PATH.equals(request.path)) {
+            addQueueItems(request, output);
+            return;
+        }
         if (request.path.startsWith(LIBRARY_ARTWORK_PATH + "/")) {
             serveLibraryArtwork(request, output);
             return;
@@ -909,6 +926,59 @@ final class RemoteApiServer implements AutoCloseable {
         );
     }
 
+    private void addQueueItems(HttpRequest request, OutputStream output) throws IOException {
+        if (!"POST".equals(request.method)) {
+            writeMethodNotAllowed(output, "POST");
+            return;
+        }
+        try {
+            LibraryApiQuery.requireEmpty(request.rawQuery);
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_queue_add_request");
+            return;
+        }
+        if (!"application/json".equals(mediaType(request))) {
+            writeJsonError(output, 415, "Unsupported Media Type", "json_required");
+            return;
+        }
+        final QueueAddRequest addRequest;
+        try {
+            addRequest = QueueAddRequest.parse(
+                    new String(request.body, StandardCharsets.UTF_8)
+            );
+        } catch (IllegalArgumentException exception) {
+            writeJsonError(output, 400, "Bad Request", "invalid_queue_add_request");
+            return;
+        }
+        if (queueAddSubmitter == null) {
+            writeJsonError(output, 503, "Service Unavailable", "client_inactive");
+            return;
+        }
+
+        LibraryCancellation cancellation = beginLibraryRequest();
+        try {
+            QueueAddResult result = queueAddSubmitter.submit(addRequest, cancellation);
+            int status;
+            String reason;
+            if (result.complete || result.addedCount > 0) {
+                status = 200;
+                reason = "OK";
+            } else if (result.failure == QueueAddResult.Failure.ITEM_NOT_FOUND) {
+                status = 404;
+                reason = "Not Found";
+            } else if (result.failure == QueueAddResult.Failure.PERMISSION_REQUIRED) {
+                status = 403;
+                reason = "Forbidden";
+            } else {
+                status = 503;
+                reason = "Service Unavailable";
+            }
+            writeJson(output, status, reason, LibraryJson.queueAddResult(result));
+        } finally {
+            endLibraryRequest(cancellation);
+        }
+    }
+
     private static PowerampLibraryContract.Query libraryQueryForPath(
             String path,
             String rawQuery
@@ -1092,7 +1162,8 @@ final class RemoteApiServer implements AutoCloseable {
                 || path.startsWith(LIBRARY_PATH + "/")
                 || SEARCH_PATH.equals(path)
                 || CATEGORIZED_SEARCH_PATH.equals(path)
-                || QUEUE_PATH.equals(path);
+                || QUEUE_PATH.equals(path)
+                || QUEUE_ADD_PATH.equals(path);
     }
 
     private RequestAuthorization authorize(HttpRequest request) {

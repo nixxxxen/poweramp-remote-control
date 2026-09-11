@@ -22,15 +22,18 @@ public final class LibrarySortPolicyTest {
         );
         assertFalse(oldServer.hasSelectableSort());
         assertTrue(oldServer.supports(LibrarySort.Criterion.DEFAULT));
+        assertFalse(oldServer.supportsQueueAdd());
 
         LibrarySortCapabilities current = LibrarySortCapabilities.parse(
                 "{\"trackSorting\":{\"criteria\":[\"default\",\"title\","
-                        + "\"date_added\",\"future\"],\"directions\":[\"asc\",\"desc\"]}}"
+                        + "\"date_added\",\"future\"],\"directions\":[\"asc\",\"desc\"]},"
+                        + "\"queueCapabilities\":{\"add\":true}}"
         );
         assertTrue(current.hasSelectableSort());
         assertTrue(current.supports(LibrarySort.Criterion.TITLE));
         assertTrue(current.supports(LibrarySort.Criterion.DATE_ADDED));
         assertFalse(current.supports(LibrarySort.Criterion.PLAY_COUNT));
+        assertTrue(current.supportsQueueAdd());
         assertEquals(
                 LibrarySort.POWERAMP,
                 current.supportedOrDefault(new LibrarySort(

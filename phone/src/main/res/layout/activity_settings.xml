@@ -66,14 +66,6 @@
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:text="@string/app_language_description"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
             <RadioGroup
                 android:id="@+id/language_group"
                 android:layout_width="match_parent"
@@ -109,13 +101,6 @@
                     android:textSize="15sp" />
             </RadioGroup>
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/language_system_behavior"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -133,14 +118,6 @@
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
                 android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:text="@string/settings_about_description"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
 
             <Button
                 android:id="@+id/open_about_button"

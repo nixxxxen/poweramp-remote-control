@@ -22,6 +22,8 @@ final class PowerampContract {
     static final String ACTION_API_COMMAND = "com.maxmpz.audioplayer.API_COMMAND";
     static final String ACTION_ASK_FOR_DATA_PERMISSION =
             "com.maxmpz.audioplayer.ACTION_ASK_FOR_DATA_PERMISSION";
+    static final String ACTION_RELOAD_DATA =
+            "com.maxmpz.audioplayer.ACTION_RELOAD_DATA";
     static final String ACTION_TRACK_CHANGED = "com.maxmpz.audioplayer.TRACK_CHANGED";
     static final String ACTION_STATUS_CHANGED = "com.maxmpz.audioplayer.STATUS_CHANGED";
     static final String ACTION_TRACK_POSITION_SYNC = "com.maxmpz.audioplayer.TPOS_SYNC";
@@ -30,6 +32,7 @@ final class PowerampContract {
 
     static final String EXTRA_COMMAND = "cmd";
     static final String EXTRA_PACKAGE = "pak";
+    static final String EXTRA_TABLE = "table";
     static final String EXTRA_TRACK = "track";
     static final String EXTRA_STATE = "state";
     static final String EXTRA_RATING = "rating";

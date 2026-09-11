@@ -17,6 +17,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.ProgressBar;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,6 +29,9 @@ import java.util.List;
 /** Read-only Queue presentation backed only by the existing Phone connection service. */
 public final class QueueActivity extends LocaleAwareActivity
         implements PhoneConnectionService.Listener {
+    private static final String STATE_SELECTION = "queue_track_selection";
+    private static final String STATE_QUEUE_ADD_OPERATION = "queue_add_operation";
+    private static final String STATE_QUEUE_ADD_SELECTION = "queue_add_selection";
     private final LibraryPager pager = new LibraryPager();
     private final QueueRequestGate requestGate = new QueueRequestGate();
 
@@ -36,6 +40,10 @@ public final class QueueActivity extends LocaleAwareActivity
     private TextView statusMessage;
     private Button actionButton;
     private ImageButton reloadButton;
+    private TextView titleView;
+    private TextView selectionCount;
+    private ImageButton selectionAdd;
+    private ImageButton selectionClose;
     private QueueAdapter adapter;
     private MiniPlayerController miniPlayer;
     private PhoneConnectionService.LocalBinder controller;
@@ -51,6 +59,14 @@ public final class QueueActivity extends LocaleAwareActivity
     private int firstVisible;
     private int topOffset;
     private long playRequestSerial;
+    private final TrackSelection selection = new TrackSelection();
+    private LibrarySortCapabilities capabilities = LibrarySortCapabilities.defaultOnly();
+    private int capabilitiesGeneration = Integer.MIN_VALUE;
+    private long capabilitiesSerial;
+    private long queueAddOperationId;
+    private boolean queueAddFromSelection;
+    private boolean queueAddInFlight;
+    private long loadedQueueContentGeneration = -1L;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -63,8 +79,10 @@ public final class QueueActivity extends LocaleAwareActivity
             controller = (PhoneConnectionService.LocalBinder) service;
             adapter.setConfirmedState(null);
             controller.addListener(QueueActivity.this);
+            synchronizeQueueAddOperation();
             miniPlayer.attach(controller);
             adapter.notifyDataSetChanged();
+            render();
         }
 
         @Override
@@ -75,6 +93,7 @@ public final class QueueActivity extends LocaleAwareActivity
             requestGate.invalidate();
             loading = false;
             playRequestSerial++;
+            queueAddInFlight = false;
             render();
         }
 
@@ -95,23 +114,54 @@ public final class QueueActivity extends LocaleAwareActivity
         statusMessage = findViewById(R.id.queue_status_message);
         actionButton = findViewById(R.id.queue_action_button);
         reloadButton = findViewById(R.id.queue_reload_button);
+        titleView = findViewById(R.id.queue_title);
+        selectionCount = findViewById(R.id.queue_selection_count);
+        selectionAdd = findViewById(R.id.queue_selection_add);
+        selectionClose = findViewById(R.id.queue_selection_close);
         miniPlayer = new MiniPlayerController(this);
         adapter = new QueueAdapter();
         listView.setAdapter(adapter);
+        if (savedInstanceState != null) {
+            queueAddOperationId = savedInstanceState.getLong(
+                    STATE_QUEUE_ADD_OPERATION, 0L
+            );
+            queueAddFromSelection = savedInstanceState.getBoolean(
+                    STATE_QUEUE_ADD_SELECTION, false
+            );
+            queueAddInFlight = queueAddOperationId != 0L;
+            ArrayList<String> savedSelection = savedInstanceState.getStringArrayList(
+                    STATE_SELECTION
+            );
+            if (savedSelection != null) {
+                for (String json : savedSelection) {
+                    try {
+                        selection.toggle(LibraryPlayTarget.parse(
+                                new org.json.JSONObject(json)
+                        ));
+                    } catch (Exception ignored) {
+                        selection.clear();
+                        break;
+                    }
+                }
+            }
+        }
 
         findViewById(R.id.queue_back_button).setOnClickListener(view -> {
             haptic(view);
-            finish();
+            if (!selection.isEmpty()) clearSelection();
+            else finish();
         });
         reloadButton.setOnClickListener(view -> {
             haptic(view);
-            reload();
+            reload(true);
         });
-        listView.setOnItemClickListener((parent, view, position, id) -> {
-            LibraryItem item = adapter.getItem(position);
-            if (item == null || item.playTarget == null) return;
+        selectionAdd.setOnClickListener(view -> {
             haptic(view);
-            play(item.playTarget);
+            if (!selection.isEmpty()) addToQueue(selection.targets(), true);
+        });
+        selectionClose.setOnClickListener(view -> {
+            haptic(view);
+            clearSelection();
         });
         listView.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
             @Override
@@ -133,7 +183,10 @@ public final class QueueActivity extends LocaleAwareActivity
             }
         });
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override public void handleOnBackPressed() { finish(); }
+            @Override public void handleOnBackPressed() {
+                if (!selection.isEmpty()) clearSelection();
+                else finish();
+            }
         });
         BottomNavigation.bindAuxiliary(
                 this, BottomNavigation.Tab.PLAYER, findViewById(R.id.queue_content)
@@ -171,6 +224,9 @@ public final class QueueActivity extends LocaleAwareActivity
         requestGate.invalidate();
         loading = false;
         playRequestSerial++;
+        capabilitiesSerial++;
+        capabilitiesGeneration = Integer.MIN_VALUE;
+        queueAddInFlight = false;
         if (controller != null) {
             controller.removeListener(this);
             miniPlayer.detach();
@@ -190,6 +246,16 @@ public final class QueueActivity extends LocaleAwareActivity
         BottomNavigation.release(this);
         requestGate.invalidate();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        ArrayList<String> selected = new ArrayList<>();
+        for (LibraryPlayTarget target : selection.targets()) selected.add(target.toJson());
+        outState.putStringArrayList(STATE_SELECTION, selected);
+        outState.putLong(STATE_QUEUE_ADD_OPERATION, queueAddOperationId);
+        outState.putBoolean(STATE_QUEUE_ADD_SELECTION, queueAddFromSelection);
+        super.onSaveInstanceState(outState);
     }
 
     private void loadMoreIfAvailable() {
@@ -238,6 +304,10 @@ public final class QueueActivity extends LocaleAwareActivity
                                 throw new IllegalArgumentException("Unexpected Queue category");
                             }
                             pager.accept(requestedToken, page);
+                            if (!append && controller != null) {
+                                loadedQueueContentGeneration =
+                                        controller.queueContentGeneration();
+                            }
                         } catch (IllegalArgumentException exception) {
                             failure = RemoteClientController.LibraryFailure.SERVER_ERROR;
                         }
@@ -247,11 +317,13 @@ public final class QueueActivity extends LocaleAwareActivity
         );
     }
 
-    private void reload() {
+    private void reload(boolean clearSelection) {
+        if (clearSelection) clearSelectionWithoutRender();
         requestGate.invalidate();
         loading = false;
         failure = null;
         pager.reset();
+        loadedQueueContentGeneration = -1L;
         firstVisible = 0;
         topOffset = 0;
         artworkBindingLifecycle++;
@@ -278,11 +350,106 @@ public final class QueueActivity extends LocaleAwareActivity
         });
     }
 
+    private boolean canAdd(LibraryItem item) {
+        return item != null && item.playTarget != null
+                && "queue_entry".equals(item.playTarget.type)
+                && capabilities.supportsQueueAdd();
+    }
+
+    private void showTrackActions(View anchor, LibraryItem item) {
+        if (!canAdd(item) || queueAddInFlight) return;
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add(R.string.add_to_queue);
+        menu.setOnMenuItemClickListener(ignored -> {
+            haptic(anchor);
+            addToQueue(java.util.Collections.singletonList(item.playTarget), false);
+            return true;
+        });
+        menu.show();
+    }
+
+    private void toggleSelection(LibraryItem item, View view) {
+        if (!canAdd(item) || queueAddInFlight) return;
+        if (!selection.contains(item.playTarget)
+                && selection.size() >= QueueAddRequest.MAX_ITEMS) {
+            Toast.makeText(this, R.string.selection_limit, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        haptic(view);
+        selection.toggle(item.playTarget);
+        adapter.notifyDataSetChanged();
+        render();
+    }
+
+    private void addToQueue(List<LibraryPlayTarget> targets, boolean fromSelection) {
+        if (queueAddInFlight || controller == null || !connected()
+                || !capabilities.supportsQueueAdd()) return;
+        final QueueAddRequest request;
+        try {
+            request = new QueueAddRequest(targets);
+        } catch (IllegalArgumentException exception) {
+            Toast.makeText(this, R.string.add_to_queue_error, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        queueAddInFlight = true;
+        queueAddFromSelection = fromSelection;
+        queueAddOperationId = controller.addToQueue(request);
+        if (queueAddOperationId <= 0L) {
+            queueAddOperationId = 0L;
+            queueAddFromSelection = false;
+            synchronizeQueueAddOperation();
+            Toast.makeText(this, R.string.add_to_queue_error, Toast.LENGTH_SHORT).show();
+        }
+        render();
+    }
+
+    private void clearSelection() {
+        clearSelectionWithoutRender();
+        adapter.notifyDataSetChanged();
+        render();
+    }
+
+    private void clearSelectionWithoutRender() {
+        if (selection.isEmpty() || queueAddInFlight) return;
+        selection.clear();
+    }
+
+    private void requestCapabilities() {
+        if (controller == null || !connected()) return;
+        int generation = controller.libraryConnectionGeneration();
+        if (capabilitiesGeneration == generation) return;
+        capabilitiesGeneration = generation;
+        long serial = ++capabilitiesSerial;
+        controller.requestLibraryCapabilities((resultGeneration, result, resultFailure) -> {
+            if (!started || controller == null || serial != capabilitiesSerial
+                    || resultGeneration != generation
+                    || resultGeneration != controller.libraryConnectionGeneration()) return;
+            if (resultFailure == null && result != null) {
+                capabilities = result;
+                if (!capabilities.supportsQueueAdd()) selection.clear();
+                adapter.notifyDataSetChanged();
+                render();
+            }
+        });
+    }
+
     private void render() {
         BottomNavigation.bindAuxiliary(
                 this, BottomNavigation.Tab.PLAYER, findViewById(R.id.queue_content)
         );
         adapter.setItems(pager.items());
+        boolean selecting = !selection.isEmpty();
+        titleView.setVisibility(selecting ? View.GONE : View.VISIBLE);
+        reloadButton.setVisibility(selecting ? View.GONE : View.VISIBLE);
+        selectionCount.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        selectionAdd.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        selectionClose.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        selectionCount.setText(getString(R.string.selection_count, selection.size()));
+        boolean mutationEnabled = selecting && connected() && !queueAddInFlight;
+        selectionAdd.setEnabled(mutationEnabled);
+        selectionAdd.setAlpha(mutationEnabled ? 1f : 0.38f);
+        selectionClose.setEnabled(!queueAddInFlight);
+        selectionClose.setAlpha(queueAddInFlight ? 0.38f : 1f);
         QueuePresentationPolicy.Model model = QueuePresentationPolicy.resolve(
                 connected(),
                 pager.initialized(),
@@ -321,7 +488,7 @@ public final class QueueActivity extends LocaleAwareActivity
                 loadPage(true);
                 break;
             case RELOAD:
-                reload();
+                reload(true);
                 break;
             case RETRY:
                 loadPage(pager.initialized());
@@ -423,12 +590,27 @@ public final class QueueActivity extends LocaleAwareActivity
             loading = false;
             playRequestSerial++;
             if (serverChanged) {
+                queueAddOperationId = 0L;
+                queueAddFromSelection = false;
+                queueAddInFlight = false;
+                capabilities = LibrarySortCapabilities.defaultOnly();
+                capabilitiesGeneration = Integer.MIN_VALUE;
+                capabilitiesSerial++;
+                selection.clear();
                 pager.reset();
+                loadedQueueContentGeneration = -1L;
                 failure = null;
                 firstVisible = 0;
                 topOffset = 0;
             }
             adapter.notifyDataSetChanged();
+        }
+        if (connected()) requestCapabilities();
+        if (connected() && pager.initialized() && controller != null
+                && loadedQueueContentGeneration >= 0L
+                && loadedQueueContentGeneration != controller.queueContentGeneration()) {
+            reload(false);
+            return;
         }
         if (connected() && (!wasConnected || generationChanged)) {
             if (failure == RemoteClientController.LibraryFailure.DISCONNECTED) failure = null;
@@ -454,6 +636,70 @@ public final class QueueActivity extends LocaleAwareActivity
     @Override public void onArtworkChanged(Bitmap artwork) { }
     @Override public void onCommandError(boolean authenticationError) { }
     @Override public void onPlaybackSnapshot(PlaybackUiSnapshot snapshot) { }
+
+    @Override
+    public void onQueueAddCompleted(
+            long operationId,
+            int connectionGeneration,
+            QueueAddResult result,
+            RemoteClientController.LibraryFailure addFailure
+    ) {
+        queueAddInFlight = false;
+        boolean ownOperation = operationId == queueAddOperationId;
+        boolean fromSelection = ownOperation && queueAddFromSelection;
+        if (ownOperation) {
+            queueAddOperationId = 0L;
+            queueAddFromSelection = false;
+        }
+        if (!started || controller == null) return;
+        if (ownOperation) {
+            if (addFailure != null || result == null) {
+                Toast.makeText(this, R.string.add_to_queue_error, Toast.LENGTH_SHORT).show();
+            } else if (result.complete) {
+                if (fromSelection) selection.clear();
+                Toast.makeText(this, R.string.add_to_queue_success, Toast.LENGTH_SHORT).show();
+            } else {
+                if (fromSelection && result.addedCount > 0) {
+                    selection.removeFirst(result.addedCount);
+                }
+                Toast.makeText(
+                        this,
+                        result.addedCount > 0
+                                ? getString(
+                                        R.string.add_to_queue_result,
+                                        result.addedCount,
+                                        result.requestedCount
+                                )
+                                : getString(R.string.add_to_queue_error),
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+            adapter.notifyDataSetChanged();
+        }
+        if (result != null && result.addedCount > 0
+                && pager.initialized()
+                && loadedQueueContentGeneration >= 0L
+                && loadedQueueContentGeneration != controller.queueContentGeneration()) {
+            reload(false);
+        } else {
+            render();
+        }
+    }
+
+    private void synchronizeQueueAddOperation() {
+        if (controller == null) {
+            queueAddInFlight = false;
+            return;
+        }
+        PhoneConnectionService.QueueAddOperation operation =
+                controller.queueAddOperation();
+        if (queueAddOperationId != 0L
+                && (operation == null || operation.id != queueAddOperationId)) {
+            queueAddOperationId = 0L;
+            queueAddFromSelection = false;
+        }
+        queueAddInFlight = operation != null && operation.inFlight;
+    }
 
     private static void haptic(View view) {
         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
@@ -508,7 +754,31 @@ public final class QueueActivity extends LocaleAwareActivity
                 holder = (Holder) convertView.getTag();
             }
             LibraryItem item = getItem(position);
-            if (item == null) return convertView;
+            bindPrimaryInteraction(holder, item);
+            if (item == null) {
+                holder.root.setActivated(false);
+                resetMenu(holder.menu);
+                holder.title.setText("");
+                setOptional(holder.subtitle, null);
+                setOptional(holder.detail, null);
+                renderCurrentIndicator(holder, null);
+                holder.artworkGate.bind(null);
+                holder.artwork.setVisibility(View.INVISIBLE);
+                return convertView;
+            }
+            holder.root.setActivated(selection.contains(item.playTarget));
+            boolean menuVisible = selection.isEmpty() && canAdd(item) && !queueAddInFlight;
+            holder.menu.setVisibility(menuVisible ? View.VISIBLE : View.GONE);
+            holder.menu.setEnabled(menuVisible);
+            holder.menu.setClickable(menuVisible);
+            holder.menu.setLongClickable(false);
+            holder.menu.setActivated(false);
+            holder.menu.setSelected(false);
+            holder.menu.setContentDescription(menuVisible
+                    ? getString(R.string.track_actions_description) : null);
+            holder.menu.setOnLongClickListener(null);
+            holder.menu.setOnClickListener(menuVisible
+                    ? view -> showTrackActions(view, item) : null);
             holder.title.setText(displayTitle(item));
             ArrayList<String> subtitle = new ArrayList<>(2);
             addDistinct(subtitle, item.artist);
@@ -525,6 +795,54 @@ public final class QueueActivity extends LocaleAwareActivity
             renderCurrentIndicator(holder, item);
             renderArtwork(holder, item);
             return convertView;
+        }
+
+        private void bindPrimaryInteraction(Holder holder, LibraryItem item) {
+            boolean available = item != null && item.playTarget != null;
+            boolean longEnabled = available && canAdd(item) && !queueAddInFlight;
+            holder.root.setEnabled(available);
+            holder.root.setClickable(available);
+            holder.root.setLongClickable(longEnabled);
+            holder.root.setSelected(false);
+            holder.root.setContentDescription(null);
+            holder.root.setOnClickListener(available ? view -> {
+                TrackRowInteractionPolicy.Action action =
+                        TrackRowInteractionPolicy.tap(
+                                !selection.isEmpty(),
+                                canAdd(item),
+                                !queueAddInFlight
+                        );
+                if (action == TrackRowInteractionPolicy.Action.TOGGLE_SELECTION) {
+                    toggleSelection(item, view);
+                } else if (action == TrackRowInteractionPolicy.Action.OPEN) {
+                    haptic(view);
+                    play(item.playTarget);
+                }
+            } : null);
+            holder.root.setOnLongClickListener(longEnabled ? view -> {
+                TrackRowInteractionPolicy.Action action =
+                        TrackRowInteractionPolicy.longPress(
+                                canAdd(item),
+                                !queueAddInFlight
+                        );
+                if (action != TrackRowInteractionPolicy.Action.TOGGLE_SELECTION) {
+                    return false;
+                }
+                toggleSelection(item, view);
+                return true;
+            } : null);
+        }
+
+        private void resetMenu(ImageButton menu) {
+            menu.setVisibility(View.GONE);
+            menu.setEnabled(false);
+            menu.setClickable(false);
+            menu.setLongClickable(false);
+            menu.setActivated(false);
+            menu.setSelected(false);
+            menu.setContentDescription(null);
+            menu.setOnClickListener(null);
+            menu.setOnLongClickListener(null);
         }
 
         private void renderCurrentIndicator(Holder holder, LibraryItem item) {
@@ -593,6 +911,7 @@ public final class QueueActivity extends LocaleAwareActivity
         final View root;
         final ImageView artwork;
         final ImageView current;
+        final ImageButton menu;
         final TextView title;
         final TextView subtitle;
         final TextView detail;
@@ -602,6 +921,7 @@ public final class QueueActivity extends LocaleAwareActivity
             root = view;
             artwork = view.findViewById(R.id.library_item_artwork);
             current = view.findViewById(R.id.library_item_current);
+            menu = view.findViewById(R.id.library_item_menu);
             title = view.findViewById(R.id.library_item_title);
             subtitle = view.findViewById(R.id.library_item_subtitle);
             detail = view.findViewById(R.id.library_item_detail);

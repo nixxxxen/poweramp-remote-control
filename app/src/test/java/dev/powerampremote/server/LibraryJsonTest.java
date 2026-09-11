@@ -53,7 +53,7 @@ public final class LibraryJsonTest {
     }
 
     @Test
-    public void capabilityJsonKeepsEveryQueueMutationDisabled() throws Exception {
+    public void capabilityJsonEnablesOnlyConfirmedQueueAppendWhenAvailable() throws Exception {
         JSONObject root = new JSONObject(LibraryJson.capabilities(new LibraryAccessState(
                 LibraryAccessState.Status.PERMISSION_REQUIRED,
                 2L
@@ -85,6 +85,9 @@ public final class LibraryJsonTest {
         JSONObject available = new JSONObject(LibraryJson.capabilities(
                 new LibraryAccessState(LibraryAccessState.Status.AVAILABLE, 3L)
         ));
+        assertTrue(available.getJSONObject("queueCapabilities").getBoolean("add"));
+        assertEquals("/api/v1/queue/add",
+                available.getJSONObject("routes").getString("queueAdd"));
         JSONObject sorting = available.getJSONObject("trackSorting");
         assertEquals(7, sorting.getJSONArray("criteria").length());
         assertEquals("folder_files.created_at", sorting.getString("dateAddedField"));

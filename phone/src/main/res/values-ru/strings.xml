@@ -26,6 +26,15 @@
     <string name="queue_reload">Обновить очередь</string>
     <string name="queue_play_error">Не удалось запустить эту запись очереди.</string>
     <string name="queue_current_entry">Текущая запись очереди</string>
+    <string name="track_actions_description">Действия с треком</string>
+    <string name="add_to_queue">Добавить в очередь</string>
+    <string name="add_to_queue_success">Добавлено в очередь</string>
+    <string name="add_to_queue_result">Добавлено в очередь: %1$d из %2$d</string>
+    <string name="add_to_queue_error">Не удалось добавить в очередь</string>
+    <string name="selection_count">Выбрано: %1$d</string>
+    <string name="selection_add_queue_description">Добавить выбранные треки в очередь</string>
+    <string name="selection_close_description">Снять выделение</string>
+    <string name="selection_limit">За один раз можно выбрать не более 100 треков</string>
 
     <string name="library_all_tracks">Все треки</string>
     <string name="library_artists">Исполнители</string>
@@ -93,7 +102,6 @@
     <string name="mini_player_open_description">%1$s, исполнитель: %2$s. Открыть Плеер</string>
     <string name="mini_player_controls_unavailable">Управление воспроизведением недоступно без соединения</string>
     <string name="mini_player_action_unavailable">Действие «%1$s» недоступно без соединения</string>
-    <string name="settings_about_description">Версия, ссылки проекта, лицензии и уведомление о независимости</string>
     <string name="settings_open_about">О Poweramp Remote</string>
 
     <plurals name="library_track_count">
@@ -104,11 +112,9 @@
     </plurals>
 
     <string name="app_language">Язык приложения</string>
-    <string name="app_language_description">Выберите язык экранов клиента для телефона, подсказок сканера и уведомлений.</string>
     <string name="language_system_default">Как в системе</string>
     <string name="language_russian">Русский</string>
     <string name="language_english">Английский</string>
-    <string name="language_system_behavior">В режиме «Как в системе» используется русский, если он является основным языком системы, и английский во всех остальных случаях.</string>
     <string name="language_storage_error">Не удалось сохранить выбор языка.</string>
 
     <string name="about_description">Управляет воспроизведением Poweramp на другом устройстве Android через локальное соединение.</string>
@@ -118,9 +124,7 @@
     <string name="about_repository_label">Публичный репозиторий</string>
     <string name="about_open_repository">Открыть публичный репозиторий</string>
     <string name="about_license">Лицензия: MIT</string>
-    <string name="about_third_party">Уведомления о стороннем программном обеспечении находятся в THIRD_PARTY_NOTICES.md.</string>
     <string name="about_open_third_party">Открыть уведомления о стороннем ПО</string>
-    <string name="about_independence_notice">Это независимый проект, не связанный с Poweramp или Max MP и не одобренный, не спонсируемый и не поддерживаемый ими.</string>
     <string name="about_version_unavailable">Недоступно</string>
     <string name="link_open_error">Нет приложения, способного открыть эту ссылку.</string>
 

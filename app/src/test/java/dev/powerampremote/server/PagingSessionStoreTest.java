@@ -94,6 +94,22 @@ public final class PagingSessionStoreTest {
         ).nextPageToken);
     }
 
+    @Test
+    public void targetedInvalidationClosesOnlyMatchingSnapshots() throws Exception {
+        PagingSessionStore<Integer> store = new PagingSessionStore<>(
+                3, 1_000L, () -> 0L, new SecureRandom()
+        );
+        String queue = store.firstPage("queue\n/provider", List.of(1, 2), 1, null)
+                .nextPageToken;
+        String library = store.firstPage("tracks\n/provider", List.of(3, 4), 1, null)
+                .nextPageToken;
+
+        store.discardMatching(key -> key.startsWith("queue\n"));
+
+        expectInvalid(() -> store.nextPage(queue, "queue\n/provider", 1));
+        assertEquals(List.of(4), store.nextPage(library, "tracks\n/provider", 1).items);
+    }
+
     private interface ThrowingOperation {
         void run() throws Exception;
     }

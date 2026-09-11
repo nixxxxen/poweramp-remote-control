@@ -382,6 +382,7 @@ credential, not the browser-session cookie; the embedded Web UI has no Library i
 | `GET` | `/api/v1/search?q={query}` | Paged server-side Poweramp track search |
 | `GET` | `/api/v1/search/grouped?q={query}` | Independently paged typed Tracks / Artists / Albums search |
 | `GET` | `/api/v1/queue` | Paged current queue in provider order |
+| `POST` | `/api/v1/queue/add` | Revalidate and append one bounded ordered batch through the public Queue provider API |
 | `POST` | `/api/v1/library/play` | Revalidate and enqueue one allowlisted `OPEN_TO_PLAY` target |
 | `GET` | `/api/v1/library/artwork/tracks/{id}` | Lazy authenticated JPEG for track artwork |
 
@@ -434,8 +435,10 @@ Provider projections are an explicit subset of public `TableDefs` columns:
 
 Aliases used after the query are Server-local names, not assumed provider columns. Browsing sends
 no selection or selection arguments; search uses the fixed parameterized selection described below.
-Neither sends a provider sort expression. In particular, the adapter does not request private
-filesystem paths, queue `sort`, or undocumented metadata. It acquires an unstable
+Neither sends a provider sort expression. In particular, browsing does not request private
+filesystem paths, queue `sort` as row metadata, or undocumented metadata. The separate documented
+Queue append operation queries only raw `MAX(sort)` and inserts only raw `folder_file_id` and
+`sort`. The adapter acquires an unstable
 `ContentProviderClient` for one attempt and closes the Cursor before the client. Provider death
 therefore does not establish a stable dependency that lets Android kill Server with Poweramp;
 `DeadObjectException`/`RemoteException` become a controlled unavailable response without retry.
@@ -682,27 +685,42 @@ Queue entry IDs `1, 2, 3, 4`. Selecting entry `3` through `/api/v1/library/play`
 category `800`, `trackId=3`, and `trackRealId=6890`; selecting the other duplicate produced
 `trackId=1` with the same real ID. With shuffle off, Next from entry `3` advanced to entry `4`, so
 Poweramp—not Phone—continued the real Queue order. A `limit=2` traversal returned offsets `0` and
-`2` with all four occurrences exactly once. Capabilities remain:
+`2` with all four occurrences exactly once. With provider access available, capabilities are:
 
 ```json
 {
   "read": true,
   "playExisting": true,
-  "add": false,
+  "add": true,
   "remove": false,
   "reorder": false,
   "playNext": false
 }
 ```
 
-The official example demonstrates Add to Queue by inserting public `folder_file_id` and `sort`
-fields into `queue`, then sending `ACTION_RELOAD_DATA`. That is evidence for a separate mutation
-task, not authorization to expose it now. The audited public repository has no corresponding
-documented Remove, Reorder, or Play Next contract. Its MediaSession documentation also excludes
-`AddQueueItem` and `RemoveQueueItem`. No mutation is implemented here, and no internal database,
-hidden intent, Accessibility/UI automation, or unsupported MediaSession queue operation is used by
-the product. The public insert/reload path above was used only to prepare the explicit device test;
-it is not reachable from Server or Phone UI.
+`POST /api/v1/queue/add` implements the official Add-to-Queue sample and accepts one `items` array
+of 1…100 structured `track`, `playlist_entry`, or `queue_entry` targets. IDs must be positive
+integers; unknown, missing, and extra fields, client URIs, raw provider values, and empty/oversized
+batches are rejected. Server requeries every exact public target first and resolves its underlying
+`folder_files._id`; no insert begins unless the complete batch validates. Duplicate tracks and
+distinct playlist/Queue occurrences are deliberately retained in array order.
+
+The existing service-owned Library worker serializes the complete `MAX(sort)` → insert sequence so
+concurrent requests cannot allocate the same next position. On Poweramp build 1025 the qualified
+projection `MAX(queue.sort)` unexpectedly returns `NULL` even when row `sort` values are present,
+while the official raw projection `MAX(sort)` returns the correct maximum; Server therefore uses
+the device-confirmed raw field name. Each successful insert contains exactly `folder_file_id` and
+the next sequential `sort`. After at least one success Server sends exactly one explicit
+`ACTION_RELOAD_DATA` broadcast with its package and table `queue`, then closes every Cursor/client/
+editor on success, cancellation, provider failure, and service shutdown. It never opens Poweramp
+UI.
+
+Provider batches are not transactional. The response always states `requestedCount`, `addedCount`,
+`complete`, and the safe first failure index/status when applicable; Phone never automatically
+retries a mutation. Any successful prefix invalidates only Server Queue paging snapshots. Remove,
+Clear, Reorder, and Play Next remain absent because the audited public repository documents no
+equivalent contract. MediaSession queue mutations, internal database access, hidden intents, and
+UI automation are not used by the product.
 
 Phone Queue requests use `/api/v1/queue?limit=25` and the existing opaque page token through
 `PhoneConnectionService`/`RemoteClientController`. Reload invalidates the active request generation,
@@ -711,9 +729,21 @@ retry automatically; loaded rows remain visible during a temporary disconnect or
 failure, and same-Server reconnect/rebind retains them. A different Server clears the page chain.
 Tapping an entry sends only its Server-supplied structured `queue_entry` target and creates no
 optimistic current/reorder/removal state; the existing playback WebSocket snapshot confirms the
-selection. Queue rows reuse rounded artwork, title/artist/album/duration typography, the shared
+selection. Capability-gated `⋮` actions on track, playlist-entry, and Queue-entry rows expose only
+**Add to Queue**. Long press starts an ordered maximum-100 selection over already loaded track rows
+in Library, Global Search, or Queue; exact playlist/Queue entry identity keeps duplicate
+occurrences separate. Full success clears selection, full failure retains it, and a partial result
+removes only the successfully inserted prefix while reporting `X of Y`. The UI blocks concurrent
+submission and never appends rows optimistically. The existing Phone service retains one bounded
+operation identity and its last completion so an Activity recreation cannot resend or lose an
+in-flight batch; it does not turn an ambiguous network failure into a retry. A successful append
+marks Queue content dirty; an active or retained Queue screen discards its old tokens and reloads
+page one.
+
+Queue rows reuse rounded artwork, title/artist/album/duration typography, the shared
 mini-player, safe insets, and localized loading/empty/permission/provider/retry presentation. Queue
-has no sorting or mutation controls.
+has no sorting, removal, clearing, reorder, or Play Next controls. Servers that omit
+`queueCapabilities.add` retain all read/play behavior and show no add controls.
 
 ### Poweramp data permission
 
@@ -734,6 +764,9 @@ Data-route failures expose only stable codes `poweramp_data_permission_required`
 Malformed category/ID/query/limit input is `400 invalid_library_request`; a missing revalidated play
 target is `404 library_item_not_found`. An unexpected integration defect is contained as sanitized
 `500 library_internal_error`; its exception message and provider/search URI are never sent or logged.
+Malformed Queue append JSON is `400 invalid_queue_add_request`. A valid append returns its bounded
+result body even for a controlled `403`, `404`, or `503`; internal URIs, exception messages, and
+private metadata are never returned.
 
 The existing Server Activity shows access state. Only an explicit user press on **Request Poweramp
 library access** starts the official explicit Poweramp API Activity. The upstream example notes this
@@ -926,7 +959,10 @@ remains future work.
 
 The exact Poweramp `bitRate` unit and the `posInList` index base outside Queue still require device
 verification; Queue is confirmed zero-based on Poweramp build 1025. API v1 intentionally preserves
-the raw values. Wi-Fi Direct behavior also varies by vendor: the Server must
+the raw values. Phone presentation alone maps a valid Queue `0…N-1` position to `1…N`; null,
+negative, out-of-range, incomplete, and non-Queue values keep the safe existing fallback, and the
+next non-Queue snapshot removes the Queue-specific conversion. Wi-Fi Direct behavior also varies by
+vendor: the Server must
 be selected as group owner for the current IPv4 client path, system approval may be required after
 prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
 
@@ -955,9 +991,11 @@ entry IDs, exact current matching, `OPEN_TO_PLAY`, empty/multi-page presentation
 Phone Stage 1 matrix are confirmed on the current device setup. Extra category metadata remains
 intentionally absent, not failed track metadata.
 Live library or Queue edits do not mutate an existing paging snapshot: users must Reload to start a
-fresh view. On the tested Poweramp build the Queue playback snapshot exposes zero-based
-`posInList`; Phone currently preserves that raw value, while the index base for other source
-categories remains unverified.
+fresh view. A successful mutation made by this Phone is the narrow exception: it marks only Queue
+dirty and starts a fresh Queue snapshot without mixing continuation tokens. On the tested Poweramp
+build the Queue playback snapshot exposes zero-based `posInList`; Phone adds one only in Queue
+presentation, while Server/API state remains raw and the index base for other source categories
+remains unverified.
 
 Exact completed automation, the earlier Server `0.10.2` / Phone `0.5.0` in-place release matrix,
 and the maintainer-confirmed Phone `0.6.0` UI validation are recorded in `STATUS.md`. Broader

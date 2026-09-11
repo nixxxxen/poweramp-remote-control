@@ -31,6 +31,18 @@ interface PowerampLibraryProvider {
         void close();
     }
 
+    /** One public Queue edit client retained only for one serialized add operation. */
+    interface QueueEditor extends AutoCloseable {
+        Long maximumSort() throws ProviderException;
+
+        boolean insert(long folderFileId, long sort) throws ProviderException;
+
+        void reload() throws ProviderException;
+
+        @Override
+        void close();
+    }
+
     boolean isPowerampInstalled();
 
     Rows query(
@@ -38,4 +50,6 @@ interface PowerampLibraryProvider {
             int limit,
             LibraryCancellation cancellation
     ) throws ProviderException;
+
+    QueueEditor openQueueEditor(LibraryCancellation cancellation) throws ProviderException;
 }

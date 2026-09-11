@@ -15,6 +15,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -130,6 +131,10 @@ public final class RemoteApiServerTest {
                 "entry_id", 1L,
                 "title", "Network Track"
         )));
+        libraryProvider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 2L,
+                "title", "Library Track"
+        )));
         librarySource = new PowerampLibrarySource(
                 libraryProvider,
                 state -> { },
@@ -166,7 +171,8 @@ public final class RemoteApiServerTest {
                     submittedLibraryTarget.set(target);
                     return true;
                 },
-                trackId -> null
+                trackId -> null,
+                (request, cancellation) -> librarySource.addToQueue(request, cancellation)
         );
         server.start();
         assertTrue("Server did not start", running.await(3, TimeUnit.SECONDS));
@@ -241,6 +247,13 @@ public final class RemoteApiServerTest {
                 "application/json",
                 "{\"type\":\"queue_entry\",\"entryId\":1}"
         ), 401);
+        assertStatus(http(
+                "POST",
+                RemoteApiServer.QUEUE_ADD_PATH,
+                null,
+                "application/json",
+                "{\"items\":[{\"type\":\"track\",\"id\":2}]}"
+        ), 401);
 
         String capabilities = http(
                 "GET",
@@ -253,7 +266,7 @@ public final class RemoteApiServerTest {
         assertTrue(capabilities.contains("\"status\":\"available\""));
         assertTrue(capabilities.contains("\"read\":true"));
         assertTrue(capabilities.contains("\"playExisting\":true"));
-        assertTrue(capabilities.contains("\"add\":false"));
+        assertTrue(capabilities.contains("\"add\":true"));
         assertTrue(capabilities.contains("\"remove\":false"));
         assertTrue(capabilities.contains("\"reorder\":false"));
         assertTrue(capabilities.contains("\"playNext\":false"));
@@ -360,6 +373,19 @@ public final class RemoteApiServerTest {
                 submittedLibraryTarget.get().type);
         assertEquals(1L, submittedLibraryTarget.get().id);
 
+        JSONObject addResult = new JSONObject(body(http(
+                "POST",
+                RemoteApiServer.QUEUE_ADD_PATH,
+                TOKEN,
+                "application/json",
+                "{\"items\":[{\"type\":\"track\",\"id\":2}]}"
+        )));
+        assertTrue(addResult.getBoolean("complete"));
+        assertEquals(1, addResult.getInt("addedCount"));
+        assertEquals(Collections.singletonList(2L), libraryProvider.insertedTrackIds);
+        assertEquals(Collections.singletonList(11L), libraryProvider.insertedSorts);
+        assertEquals(1, libraryProvider.reloads);
+
         assertStatus(http("GET", RemoteApiServer.STATE_PATH, TOKEN, null, null), 200);
         assertStatus(http(
                 "POST",
@@ -417,6 +443,13 @@ public final class RemoteApiServerTest {
             );
             assertStatus(response, index == invalidPlayBodies.length - 1 ? 404 : 400);
         }
+        assertStatus(http(
+                "POST",
+                RemoteApiServer.QUEUE_ADD_PATH,
+                TOKEN,
+                "application/json",
+                "{\"items\":[{\"type\":\"track\",\"id\":2,\"sort\":4}]}"
+        ), 400);
 
         String cookie = loginCookie();
         assertStatus(http(
@@ -1125,6 +1158,10 @@ public final class RemoteApiServerTest {
         volatile boolean installed = true;
         volatile Failure failure;
         volatile boolean unexpectedFailure;
+        final List<Long> insertedTrackIds = new ArrayList<>();
+        final List<Long> insertedSorts = new ArrayList<>();
+        long maximumSort = 10L;
+        int reloads;
 
         @Override
         public boolean isPowerampInstalled() {
@@ -1150,6 +1187,22 @@ public final class RemoteApiServerTest {
             int end = limit == PowerampLibraryContract.PROVIDER_ALL_ROWS
                     ? available.size() : Math.min(limit, available.size());
             return new TestRows(available.subList(0, end), cancellation);
+        }
+
+        @Override
+        public QueueEditor openQueueEditor(LibraryCancellation cancellation)
+                throws ProviderException {
+            return new QueueEditor() {
+                @Override public Long maximumSort() { return maximumSort; }
+                @Override public boolean insert(long folderFileId, long sort) {
+                    insertedTrackIds.add(folderFileId);
+                    insertedSorts.add(sort);
+                    maximumSort = sort;
+                    return true;
+                }
+                @Override public void reload() { reloads++; }
+                @Override public void close() { }
+            };
         }
     }
 

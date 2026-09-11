@@ -26,6 +26,12 @@ final class PowerampLibraryContract {
     static final String ALBUM_ART_ROOT =
             "content://" + PowerampContract.ALBUM_ART_AUTHORITY;
     static final String PARAM_LIMIT = "lim";
+    static final String QUEUE_TABLE = "queue";
+    static final String QUEUE_FOLDER_FILE_ID = "folder_file_id";
+    static final String QUEUE_SORT = "sort";
+    // The public Queue write example operates on the raw column name. Build 1025 returns
+    // NULL for MAX(queue.sort), while MAX(sort) correctly returns the actual maximum.
+    static final String QUEUE_MAX_SORT_EXPRESSION = "MAX(sort)";
 
     static final int DEFAULT_PAGE_SIZE = 25;
     static final int MAX_PAGE_SIZE = 100;
@@ -551,6 +557,14 @@ final class PowerampLibraryContract {
 
     static Query queue() {
         return query("queue", "/queue", RowKind.QUEUE_ENTRY, null);
+    }
+
+    static String queueMutationUri() {
+        String uri = DATA_ROOT + "/queue";
+        if (!isAllowedProviderUri(uri)) {
+            throw new IllegalStateException("Internal Queue URI rejected");
+        }
+        return uri;
     }
 
     static Query validationQuery(LibraryItem.PlayTarget target) {

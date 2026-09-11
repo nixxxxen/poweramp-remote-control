@@ -686,6 +686,190 @@ public final class PowerampLibrarySourceTest {
         assertEquals("New result", current.page.items.get(0).title);
     }
 
+    @Test
+    public void queueAppendRevalidatesEveryIdentityAndPreservesOrderAndDuplicates() {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        provider.rows.put("play_playlist_entry", Collections.singletonList(row(
+                "track_id", 52L, "entry_id", 99L, "title", "Playlist track"
+        )));
+        provider.rows.put("play_queue_entry", Collections.singletonList(row(
+                "track_id", 63L, "entry_id", 77L, "title", "Queue track"
+        )));
+        QueueAddRequest request = QueueAddRequest.parse("{\"items\":["
+                + "{\"type\":\"track\",\"id\":41},"
+                + "{\"type\":\"playlist_entry\",\"playlistId\":7,\"entryId\":99},"
+                + "{\"type\":\"queue_entry\",\"entryId\":77},"
+                + "{\"type\":\"track\",\"id\":41}]}");
+
+        QueueAddResult result = source.addToQueue(request, cancellation());
+
+        assertTrue(result.complete);
+        assertEquals(4, result.addedCount);
+        assertEquals(java.util.Arrays.asList(41L, 52L, 63L, 41L),
+                provider.queueInsertedTrackIds);
+        assertEquals(java.util.Arrays.asList(11L, 12L, 13L, 14L),
+                provider.queueInsertedSorts);
+        assertEquals(1L, provider.queueReloads.get());
+        assertEquals(1L, provider.queueEditorsClosed.get());
+        assertEquals(2L, provider.queryCount("play_track"));
+        assertEquals(1L, provider.queryCount("play_playlist_entry"));
+        assertEquals(1L, provider.queryCount("play_queue_entry"));
+    }
+
+    @Test
+    public void queueAppendReportsPartialPrefixAndReloadsExactlyOnce() {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        provider.queueInsertFailureIndex = 2;
+        QueueAddRequest request = QueueAddRequest.parse("{\"items\":["
+                + "{\"type\":\"track\",\"id\":41},"
+                + "{\"type\":\"track\",\"id\":41},"
+                + "{\"type\":\"track\",\"id\":41}]}");
+
+        QueueAddResult result = source.addToQueue(request, cancellation());
+
+        assertFalse(result.complete);
+        assertEquals(2, result.addedCount);
+        assertEquals(Integer.valueOf(2), result.failedIndex);
+        assertEquals(QueueAddResult.Failure.INSERT_FAILED, result.failure);
+        assertEquals(1L, provider.queueReloads.get());
+        assertEquals(1L, provider.queueEditorsClosed.get());
+    }
+
+    @Test
+    public void queueAppendWithNoSuccessfulInsertDoesNotReloadAndClosesEditor() {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        provider.queueInsertFailureIndex = 0;
+
+        QueueAddResult result = source.addToQueue(QueueAddRequest.parse(
+                "{\"items\":[{\"type\":\"track\",\"id\":41}]}"
+        ), cancellation());
+
+        assertFalse(result.complete);
+        assertEquals(0, result.addedCount);
+        assertEquals(Integer.valueOf(0), result.failedIndex);
+        assertEquals(QueueAddResult.Failure.INSERT_FAILED, result.failure);
+        assertEquals(0L, provider.queueReloads.get());
+        assertEquals(1L, provider.queueEditorsClosed.get());
+    }
+
+    @Test
+    public void queueAppendStartsAtOneWhenQueueIsEmpty() {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        provider.queueMaximumSort = null;
+
+        QueueAddResult result = source.addToQueue(QueueAddRequest.parse(
+                "{\"items\":[{\"type\":\"track\",\"id\":41}]}"
+        ), cancellation());
+
+        assertTrue(result.complete);
+        assertEquals(Collections.singletonList(1L), provider.queueInsertedSorts);
+        assertEquals(1L, provider.queueReloads.get());
+        assertEquals(1L, provider.queueEditorsClosed.get());
+    }
+
+    @Test
+    public void queueAppendCancellationReloadsSuccessfulPrefixAndClosesEditor() {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        provider.cancelQueueAfterInsertCount = 1;
+        LibraryCancellation cancellation = cancellation();
+
+        QueueAddResult result = source.addToQueue(QueueAddRequest.parse("{\"items\":["
+                + "{\"type\":\"track\",\"id\":41},"
+                + "{\"type\":\"track\",\"id\":41}]}"), cancellation);
+
+        assertFalse(result.complete);
+        assertEquals(1, result.addedCount);
+        assertEquals(Integer.valueOf(1), result.failedIndex);
+        assertEquals(QueueAddResult.Failure.CANCELLED, result.failure);
+        assertEquals(1L, provider.queueReloads.get());
+        assertEquals(1L, provider.queueEditorsClosed.get());
+    }
+
+    @Test
+    public void queueAppendValidatesWholeBatchBeforeOpeningEditor() {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        QueueAddRequest request = QueueAddRequest.parse("{\"items\":["
+                + "{\"type\":\"track\",\"id\":41},"
+                + "{\"type\":\"queue_entry\",\"entryId\":88}]}");
+
+        QueueAddResult result = source.addToQueue(request, cancellation());
+
+        assertFalse(result.complete);
+        assertEquals(0, result.addedCount);
+        assertEquals(Integer.valueOf(1), result.failedIndex);
+        assertEquals(QueueAddResult.Failure.ITEM_NOT_FOUND, result.failure);
+        assertTrue(provider.queueInsertedTrackIds.isEmpty());
+        assertEquals(0L, provider.queueReloads.get());
+        assertEquals(0L, provider.queueEditorsClosed.get());
+    }
+
+    @Test
+    public void concurrentQueueAppendsReceiveDistinctSequentialSortValues() throws Exception {
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        QueueAddRequest request = QueueAddRequest.parse(
+                "{\"items\":[{\"type\":\"track\",\"id\":41}]}"
+        );
+        CountDownLatch start = new CountDownLatch(1);
+        Thread first = new Thread(() -> awaitAndAdd(start, request));
+        Thread second = new Thread(() -> awaitAndAdd(start, request));
+        first.start();
+        second.start();
+        start.countDown();
+        first.join(2_000L);
+        second.join(2_000L);
+
+        assertFalse(first.isAlive());
+        assertFalse(second.isAlive());
+        assertEquals(java.util.Arrays.asList(11L, 12L), provider.queueInsertedSorts);
+        assertEquals(2L, provider.queueReloads.get());
+        assertEquals(2L, provider.queueEditorsClosed.get());
+    }
+
+    @Test
+    public void successfulQueueAppendInvalidatesOnlyQueueSnapshot() throws Exception {
+        provider.rows.put("queue", java.util.Arrays.asList(
+                row("track_id", 1L, "entry_id", 101L, "title", "One"),
+                row("track_id", 2L, "entry_id", 102L, "title", "Two")
+        ));
+        PowerampLibrarySource.Result queuePage = source.query(
+                PowerampLibraryContract.queue(), 1, null, null, cancellation()
+        );
+        String queueToken = queuePage.page.nextPageToken;
+        provider.rows.put("play_track", Collections.singletonList(row(
+                "track_id", 41L, "title", "Track"
+        )));
+        source.addToQueue(QueueAddRequest.parse(
+                "{\"items\":[{\"type\":\"track\",\"id\":41}]}"
+        ), cancellation());
+
+        expectInvalidToken(() -> source.query(
+                PowerampLibraryContract.queue(), 1, queueToken, null, cancellation()
+        ));
+    }
+
+    private void awaitAndAdd(CountDownLatch start, QueueAddRequest request) {
+        try {
+            start.await(2, TimeUnit.SECONDS);
+            source.addToQueue(request, cancellation());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private void assertFailure(
             PowerampLibraryProvider.Failure failure,
             LibraryAccessState.Status expected
@@ -746,6 +930,13 @@ public final class PowerampLibrarySourceTest {
         volatile CountDownLatch blockedSearchStarted;
         volatile CountDownLatch blockedIndexStarted;
         volatile String lastProviderUri;
+        Long queueMaximumSort = 10L;
+        int queueInsertFailureIndex = -1;
+        int cancelQueueAfterInsertCount = -1;
+        final List<Long> queueInsertedTrackIds = new ArrayList<>();
+        final List<Long> queueInsertedSorts = new ArrayList<>();
+        final AtomicLong queueReloads = new AtomicLong();
+        final AtomicLong queueEditorsClosed = new AtomicLong();
 
         @Override
         public boolean isPowerampInstalled() {
@@ -805,6 +996,44 @@ public final class PowerampLibrarySourceTest {
                     ? available.size() : Math.min(limit, available.size());
             List<Map<String, Object>> limited = new ArrayList<>(available.subList(0, end));
             return new FakeRows(limited, cancellation, failOnMove, closedRows);
+        }
+
+        @Override
+        public QueueEditor openQueueEditor(LibraryCancellation cancellation)
+                throws ProviderException {
+            if (failure != null) throw new ProviderException(failure);
+            return new QueueEditor() {
+                private boolean closed;
+
+                @Override public Long maximumSort() throws ProviderException {
+                    if (cancellation.isCancelled()) throw new ProviderException(Failure.CANCELLED);
+                    return queueMaximumSort;
+                }
+
+                @Override public boolean insert(long folderFileId, long sort)
+                        throws ProviderException {
+                    if (cancellation.isCancelled()) throw new ProviderException(Failure.CANCELLED);
+                    if (queueInsertFailureIndex == queueInsertedTrackIds.size()) return false;
+                    queueInsertedTrackIds.add(folderFileId);
+                    queueInsertedSorts.add(sort);
+                    queueMaximumSort = sort;
+                    if (cancelQueueAfterInsertCount == queueInsertedTrackIds.size()) {
+                        cancellation.cancel();
+                    }
+                    return true;
+                }
+
+                @Override public void reload() {
+                    queueReloads.incrementAndGet();
+                }
+
+                @Override public void close() {
+                    if (!closed) {
+                        closed = true;
+                        queueEditorsClosed.incrementAndGet();
+                    }
+                }
+            };
         }
 
         long queryCount(String category) {

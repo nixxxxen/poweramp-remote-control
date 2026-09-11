@@ -34,7 +34,7 @@ public final class RemoteFormattingTest {
         assertEquals("44.1 kHz", formatter.sampleRate(state));
         assertEquals("1411 kbps", formatter.bitrate(state));
         // The historical API v1 name is Russian, but English presentation uses the raw category.
-        assertEquals("Queue · 3 / 2976", formatter.source(state));
+        assertEquals("Queue · 4 / 2976", formatter.source(state));
     }
 
     @Test
@@ -46,7 +46,7 @@ public final class RemoteFormattingTest {
         assertEquals("24 бит", formatter.bitDepth(state));
         assertEquals("44,1 кГц", formatter.sampleRate(state));
         assertEquals("1411 кбит/с", formatter.bitrate(state));
-        assertEquals("Очередь · 3 / 2976", formatter.source(state));
+        assertEquals("Очередь · 4 / 2976", formatter.source(state));
     }
 
     @Test
@@ -59,10 +59,24 @@ public final class RemoteFormattingTest {
     }
 
     @Test
-    public void listPositionKeepsTheUnverifiedPowerampIndexWithoutAnOffset() {
+    public void queuePositionIsPresentedAsOneBasedOnlyForQueue() {
         RemoteMetadataFormatter formatter = englishFormatter();
-        assertEquals("Queue · 0 / 10", formatter.source(stateAt(0, 10)));
-        assertEquals("Queue · 10 / 10", formatter.source(stateAt(10, 10)));
+        assertEquals("Queue · 1 / 18", formatter.source(stateAt(0, 18)));
+        assertEquals("Queue · 9 / 18", formatter.source(stateAt(8, 18)));
+        assertEquals("Queue · 18 / 18", formatter.source(stateAt(17, 18)));
+        assertEquals("Queue", formatter.source(stateAt(-1, 18)));
+        assertEquals("Queue", formatter.source(stateAt(18, 18)));
+        assertEquals("Queue", formatter.source(stateAt(1, 0)));
+        assertEquals("Queue", formatter.source(stateAt(null, 18, 800)));
+        assertEquals("Queue", formatter.source(stateAt(0, null, 800)));
+        assertEquals("Other source · 7 / 18", formatter.source(stateAt(7, 18, 10)));
+    }
+
+    @Test
+    public void leavingQueueRemovesQueueSpecificPositionConversion() {
+        RemoteMetadataFormatter formatter = englishFormatter();
+        assertEquals("Queue · 1 / 18", formatter.source(stateAt(0, 18)));
+        assertEquals("Other source · 0 / 18", formatter.source(stateAt(0, 18, 10)));
     }
 
     private static RemoteMetadataFormatter englishFormatter() {
@@ -90,12 +104,27 @@ public final class RemoteFormattingTest {
     }
 
     private static RemoteState stateAt(int position, int size) {
+        return stateAt(position, size, RemoteSourceCategory.QUEUE);
+    }
+
+    private static RemoteState stateAt(int position, int size, int sourceCategory) {
+        return stateAt(
+                Integer.valueOf(position), Integer.valueOf(size),
+                Integer.valueOf(sourceCategory)
+        );
+    }
+
+    private static RemoteState stateAt(
+            Integer position,
+            Integer size,
+            Integer sourceCategory
+    ) {
         return new RemoteState(
                 1L, true, true,
                 "Track", "Artist", "Album", null,
                 1, "FLAC", "flac",
                 24, 44_100, 1_411_200,
-                800, "Очередь", "content://queue",
+                sourceCategory, "Очередь", "content://queue",
                 position, size, 180, 37,
                 "playing", 5, true, false, true, 2
         );

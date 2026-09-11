@@ -21,6 +21,7 @@ import android.util.Log;
 import java.security.SecureRandom;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
@@ -276,7 +277,8 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                     playerDeviceName,
                     librarySource,
                     this::submitLibraryPlay,
-                    powerampClient::loadLibraryArtwork
+                    powerampClient::loadLibraryArtwork,
+                    this::submitQueueAdd
             );
         }
         if (serverId != null) {
@@ -432,6 +434,53 @@ public final class RemotePlaybackService extends Service implements PowerampClie
                 powerampClient.openToPlay(target);
             }
         });
+    }
+
+    private QueueAddResult submitQueueAdd(
+            QueueAddRequest request,
+            LibraryCancellation cancellation
+    ) {
+        if (destroyed || librarySource == null || !lifecycle.isRunning()) {
+            return inactiveQueueAdd(request.items.size());
+        }
+        final Future<QueueAddResult> future;
+        try {
+            future = libraryExecutor.submit(
+                    () -> librarySource.addToQueue(request, cancellation)
+            );
+        } catch (RejectedExecutionException exception) {
+            return inactiveQueueAdd(request.items.size());
+        }
+        try {
+            return future.get();
+        } catch (InterruptedException exception) {
+            cancellation.cancel();
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            return inactiveQueueAdd(request.items.size());
+        } catch (ExecutionException exception) {
+            Log.e(TAG, "Queue append worker failed: "
+                    + exception.getCause().getClass().getSimpleName());
+            return new QueueAddResult(
+                    request.items.size(),
+                    0,
+                    false,
+                    0,
+                    QueueAddResult.Failure.PROVIDER_ERROR,
+                    LibraryAccessState.Status.PROVIDER_ERROR
+            );
+        }
+    }
+
+    private static QueueAddResult inactiveQueueAdd(int requestedCount) {
+        return new QueueAddResult(
+                requestedCount,
+                0,
+                false,
+                0,
+                QueueAddResult.Failure.SERVICE_INACTIVE,
+                LibraryAccessState.Status.PROVIDER_ERROR
+        );
     }
 
     private boolean setRatingInternal(int rating) {

@@ -165,6 +165,7 @@ final class PowerampLibrarySource implements AutoCloseable {
         return thread;
     });
     private final Object fuzzyIndexLock = new Object();
+    private final Object queueMutationLock = new Object();
     private final AtomicLong accessSequence = new AtomicLong();
     private final AtomicLong fuzzyIndexGeneration = new AtomicLong();
     private final AtomicReference<LibraryAccessState> accessState = new AtomicReference<>(
@@ -774,6 +775,153 @@ final class PowerampLibrarySource implements AutoCloseable {
                 updateAccess(status);
             }
             return new SelectionResult(status, false);
+        }
+    }
+
+    QueueAddResult addToQueue(
+            QueueAddRequest request,
+            LibraryCancellation cancellation
+    ) {
+        Objects.requireNonNull(request);
+        Objects.requireNonNull(cancellation);
+        synchronized (queueMutationLock) {
+            return addToQueueLocked(request, cancellation);
+        }
+    }
+
+    private QueueAddResult addToQueueLocked(
+            QueueAddRequest request,
+            LibraryCancellation cancellation
+    ) {
+        int requested = request.items.size();
+        if (!provider.isPowerampInstalled()) {
+            updateAccess(LibraryAccessState.Status.POWERAMP_MISSING);
+            return queueFailure(
+                    requested, 0, 0, QueueAddResult.Failure.POWERAMP_UNAVAILABLE,
+                    LibraryAccessState.Status.POWERAMP_MISSING
+            );
+        }
+
+        List<Long> trackIds = new ArrayList<>(requested);
+        for (int index = 0; index < requested; index++) {
+            LibraryItem.PlayTarget target = request.items.get(index);
+            PowerampLibraryContract.Query query =
+                    PowerampLibraryContract.validationQuery(target);
+            try (PowerampLibraryProvider.Rows rows = provider.query(query, 1, cancellation)) {
+                LibraryItem item = rows.moveToNext() ? parseItem(query, rows, null) : null;
+                if (item == null || !matchesTarget(query, rows, target)) {
+                    updateAccess(LibraryAccessState.Status.AVAILABLE);
+                    return queueFailure(
+                            requested, 0, index, QueueAddResult.Failure.ITEM_NOT_FOUND,
+                            LibraryAccessState.Status.AVAILABLE
+                    );
+                }
+                trackIds.add(item.id);
+            } catch (PowerampLibraryProvider.ProviderException exception) {
+                LibraryAccessState.Status status = statusFor(exception.failure);
+                if (exception.failure != PowerampLibraryProvider.Failure.CANCELLED) {
+                    updateAccess(status);
+                }
+                return queueFailure(
+                        requested, 0, index, queueFailure(exception.failure), status
+                );
+            }
+        }
+
+        int added = 0;
+        Integer failedIndex = null;
+        QueueAddResult.Failure failure = QueueAddResult.Failure.NONE;
+        LibraryAccessState.Status status = LibraryAccessState.Status.AVAILABLE;
+        PowerampLibraryProvider.QueueEditor editor = null;
+        try {
+            editor = provider.openQueueEditor(cancellation);
+            Long maximum = editor.maximumSort();
+            if (maximum != null && maximum < 0L) {
+                failure = QueueAddResult.Failure.SORT_UNAVAILABLE;
+                failedIndex = 0;
+            } else if (maximum != null && maximum == Long.MAX_VALUE) {
+                failure = QueueAddResult.Failure.SORT_OVERFLOW;
+                failedIndex = 0;
+            } else {
+                long nextSort = (maximum == null ? 0L : maximum) + 1L;
+                for (int index = 0; index < trackIds.size(); index++) {
+                    if (nextSort <= 0L) {
+                        failure = QueueAddResult.Failure.SORT_OVERFLOW;
+                        failedIndex = index;
+                        break;
+                    }
+                    if (!editor.insert(trackIds.get(index), nextSort)) {
+                        failure = QueueAddResult.Failure.INSERT_FAILED;
+                        failedIndex = index;
+                        break;
+                    }
+                    added++;
+                    if (nextSort == Long.MAX_VALUE && added < trackIds.size()) {
+                        failure = QueueAddResult.Failure.SORT_OVERFLOW;
+                        failedIndex = index + 1;
+                        break;
+                    }
+                    nextSort++;
+                }
+            }
+        } catch (PowerampLibraryProvider.ProviderException exception) {
+            status = statusFor(exception.failure);
+            failure = queueFailure(exception.failure);
+            failedIndex = Math.min(added, requested - 1);
+        } finally {
+            if (added > 0) {
+                pagingSessions.discardMatching(key -> key.startsWith("queue\n"));
+                if (editor != null) {
+                    try {
+                        editor.reload();
+                    } catch (PowerampLibraryProvider.ProviderException exception) {
+                        if (failure == QueueAddResult.Failure.NONE) {
+                            status = statusFor(exception.failure);
+                            failure = QueueAddResult.Failure.RELOAD_FAILED;
+                            failedIndex = null;
+                        }
+                    }
+                }
+            }
+            if (editor != null) editor.close();
+        }
+
+        if (failure == QueueAddResult.Failure.NONE && added == requested) {
+            updateAccess(LibraryAccessState.Status.AVAILABLE);
+            return QueueAddResult.complete(requested);
+        }
+        if (status != LibraryAccessState.Status.PROVIDER_ERROR
+                || !cancellation.isCancelled()) {
+            updateAccess(status);
+        }
+        return queueFailure(requested, added, failedIndex, failure, status);
+    }
+
+    private static QueueAddResult queueFailure(
+            int requested,
+            int added,
+            Integer failedIndex,
+            QueueAddResult.Failure failure,
+            LibraryAccessState.Status status
+    ) {
+        return new QueueAddResult(
+                requested, added, false, failedIndex, failure, status
+        );
+    }
+
+    private static QueueAddResult.Failure queueFailure(
+            PowerampLibraryProvider.Failure failure
+    ) {
+        switch (failure) {
+            case PERMISSION_REQUIRED:
+                return QueueAddResult.Failure.PERMISSION_REQUIRED;
+            case UNAVAILABLE:
+                return QueueAddResult.Failure.PROVIDER_UNAVAILABLE;
+            case CANCELLED:
+                return QueueAddResult.Failure.CANCELLED;
+            case ERROR:
+            default:
+                return QueueAddResult.Failure.PROVIDER_ERROR;
         }
     }
 

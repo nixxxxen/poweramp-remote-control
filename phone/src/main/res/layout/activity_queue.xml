@@ -57,6 +57,39 @@
                 android:minWidth="48dp"
                 android:padding="12dp"
                 android:src="@drawable/ic_reload" />
+
+            <TextView
+                android:id="@+id/queue_selection_count"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/queue_selection_add"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/selection_add_queue_description"
+                android:padding="12dp"
+                android:src="@drawable/ic_queue_add"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/queue_selection_close"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/selection_close_description"
+                android:padding="12dp"
+                android:src="@drawable/ic_close"
+                android:visibility="gone" />
         </LinearLayout>
 
         <ListView

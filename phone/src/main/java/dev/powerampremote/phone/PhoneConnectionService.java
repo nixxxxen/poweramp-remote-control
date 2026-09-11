@@ -72,6 +72,35 @@ public final class PhoneConnectionService extends MediaSessionService
 
     interface Listener extends RemoteClientController.Listener {
         void onPlaybackSnapshot(PlaybackUiSnapshot snapshot);
+
+        default void onQueueAddCompleted(
+                long operationId,
+                int connectionGeneration,
+                QueueAddResult result,
+                RemoteClientController.LibraryFailure failure
+        ) { }
+    }
+
+    static final class QueueAddOperation {
+        final long id;
+        final int connectionGeneration;
+        final boolean inFlight;
+        final QueueAddResult result;
+        final RemoteClientController.LibraryFailure failure;
+
+        QueueAddOperation(
+                long id,
+                int connectionGeneration,
+                boolean inFlight,
+                QueueAddResult result,
+                RemoteClientController.LibraryFailure failure
+        ) {
+            this.id = id;
+            this.connectionGeneration = connectionGeneration;
+            this.inFlight = inFlight;
+            this.result = result;
+            this.failure = failure;
+        }
     }
 
     final class LocalBinder extends Binder {
@@ -157,6 +186,10 @@ public final class PhoneConnectionService extends MediaSessionService
             return controller == null ? -1 : controller.libraryConnectionGeneration();
         }
 
+        long queueContentGeneration() {
+            return controller == null ? 0L : controller.queueContentGeneration();
+        }
+
         void requestLibraryPage(
                 LibraryRequest request,
                 String pageToken,
@@ -207,6 +240,29 @@ public final class PhoneConnectionService extends MediaSessionService
                 return;
             }
             controller.playLibraryTarget(target, callback);
+        }
+
+        QueueAddOperation queueAddOperation() {
+            return queueAddOperation;
+        }
+
+        long addToQueue(QueueAddRequest request) {
+            if (controller == null || queueAddOperation != null
+                    && queueAddOperation.inFlight) return -1L;
+            if (queueAddOperationSequence == Long.MAX_VALUE) {
+                queueAddOperationSequence = 0L;
+            }
+            long operationId = ++queueAddOperationSequence;
+            int generation = controller.libraryConnectionGeneration();
+            queueAddOperation = new QueueAddOperation(
+                    operationId, generation, true, null, null
+            );
+            controller.addToQueue(request, (resultGeneration, result, failure) ->
+                    mainHandler.post(() -> finishQueueAdd(
+                            operationId, resultGeneration, result, failure
+                    ))
+            );
+            return operationId;
         }
 
         void requestLibraryArtwork(
@@ -279,6 +335,8 @@ public final class PhoneConnectionService extends MediaSessionService
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final CopyOnWriteArrayList<Listener> listeners = new CopyOnWriteArrayList<>();
+    private long queueAddOperationSequence;
+    private QueueAddOperation queueAddOperation;
     private final LocalBinder binder = new LocalBinder();
     private final String notificationActionToken = UUID.randomUUID().toString();
     private final PairingRequestState pairingRequestState = new PairingRequestState();
@@ -672,6 +730,34 @@ public final class PhoneConnectionService extends MediaSessionService
             }
         }
         listener.onArtworkChanged(currentArtwork);
+        QueueAddOperation operation = queueAddOperation;
+        if (operation != null && !operation.inFlight) {
+            listener.onQueueAddCompleted(
+                    operation.id,
+                    operation.connectionGeneration,
+                    operation.result,
+                    operation.failure
+            );
+        }
+    }
+
+    private void finishQueueAdd(
+            long operationId,
+            int connectionGeneration,
+            QueueAddResult result,
+            RemoteClientController.LibraryFailure failure
+    ) {
+        if (destroyed) return;
+        QueueAddOperation current = queueAddOperation;
+        if (current == null || current.id != operationId || !current.inFlight) return;
+        queueAddOperation = new QueueAddOperation(
+                operationId, connectionGeneration, false, result, failure
+        );
+        for (Listener listener : listeners) {
+            listener.onQueueAddCompleted(
+                    operationId, connectionGeneration, result, failure
+            );
+        }
     }
 
     private PlayerDeviceSnapshot playerDeviceSnapshot() {

@@ -152,13 +152,19 @@ final class RemoteMetadataFormatter {
         if (state.sourceCategory != null && state.sourceCategory >= 0) {
             values.add(categoryNames.getOrDefault(state.sourceCategory, otherSource));
         }
+        boolean queue = state.sourceCategory != null
+                && state.sourceCategory == RemoteSourceCategory.QUEUE;
         if (state.positionInList != null
                 && state.listSize != null
                 && state.positionInList >= 0
                 && state.listSize > 0
-                && state.positionInList <= state.listSize) {
-            // API v1 preserves Poweramp's value and its index base is not publicly guaranteed.
-            values.add(state.positionInList + " / " + state.listSize);
+                && (queue
+                ? state.positionInList < state.listSize
+                : state.positionInList <= state.listSize)) {
+            // Build 1025 confirms only Queue is zero-based. API v1 remains raw.
+            int displayPosition = queue
+                    ? state.positionInList + 1 : state.positionInList;
+            values.add(displayPosition + " / " + state.listSize);
         }
         return join(values);
     }

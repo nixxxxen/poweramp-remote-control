@@ -16,6 +16,7 @@ final class RemoteApiClient {
     static final String PAIRING_PATH = "/api/v1/pair";
     static final String LIBRARY_PLAY_PATH = "/api/v1/library/play";
     static final String LIBRARY_PATH = "/api/v1/library";
+    static final String QUEUE_ADD_PATH = "/api/v1/queue/add";
 
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 5_000;
     private static final int READ_TIMEOUT_MILLISECONDS = 10_000;
@@ -163,6 +164,30 @@ final class RemoteApiClient {
         );
         if (response.statusCode != HttpURLConnection.HTTP_ACCEPTED) {
             throw new HttpStatusException(response.statusCode);
+        }
+    }
+
+    QueueAddResult addToQueue(
+            DiscoveredServer server,
+            String token,
+            QueueAddRequest addRequest
+    ) throws IOException {
+        byte[] body = addRequest.toJson().getBytes(StandardCharsets.UTF_8);
+        Response response = request(
+                server, token, "POST", QUEUE_ADD_PATH, body, MAX_JSON_BYTES
+        );
+        if (response.statusCode != HttpURLConnection.HTTP_OK
+                && response.statusCode != HttpURLConnection.HTTP_FORBIDDEN
+                && response.statusCode != HttpURLConnection.HTTP_NOT_FOUND
+                && response.statusCode != HttpURLConnection.HTTP_UNAVAILABLE) {
+            throw new HttpStatusException(response.statusCode);
+        }
+        try {
+            return QueueAddResult.parse(
+                    new String(response.body, StandardCharsets.UTF_8)
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Invalid Queue add response", exception);
         }
     }
 

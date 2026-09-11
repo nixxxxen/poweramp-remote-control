@@ -130,14 +130,6 @@
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="7dp"
-                android:text="@string/about_third_party"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
             <Button
                 android:id="@+id/open_third_party_button"
                 android:layout_width="match_parent"
@@ -151,13 +143,6 @@
                 android:textColor="@color/text_primary"
                 android:textSize="14sp" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:text="@string/about_independence_notice"
-                android:textColor="@color/warning"
-                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>

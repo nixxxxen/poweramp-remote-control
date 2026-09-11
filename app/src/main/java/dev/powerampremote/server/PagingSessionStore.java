@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 
 /** Bounded, expiring server-owned snapshots behind opaque continuation tokens. */
 final class PagingSessionStore<T> implements AutoCloseable {
@@ -116,6 +117,15 @@ final class PagingSessionStore<T> implements AutoCloseable {
     synchronized void discard(String token) {
         Token continuation = tokens.get(token);
         if (continuation != null) closeSession(continuation.sessionId);
+    }
+
+    synchronized void discardMatching(Predicate<String> queryKeyPredicate) {
+        Objects.requireNonNull(queryKeyPredicate);
+        List<Long> matching = new ArrayList<>();
+        for (Session<T> session : sessions.values()) {
+            if (queryKeyPredicate.test(session.queryKey)) matching.add(session.id);
+        }
+        for (Long id : matching) closeSession(id);
     }
 
     synchronized int activeSessions() {

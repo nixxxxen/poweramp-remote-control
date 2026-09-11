@@ -31,6 +31,15 @@
     <string name="queue_reload">Reload Queue</string>
     <string name="queue_play_error">Could not start this Queue entry.</string>
     <string name="queue_current_entry">Current Queue entry</string>
+    <string name="track_actions_description">Track actions</string>
+    <string name="add_to_queue">Add to Queue</string>
+    <string name="add_to_queue_success">Added to Queue</string>
+    <string name="add_to_queue_result">Added %1$d of %2$d to Queue</string>
+    <string name="add_to_queue_error">Could not add to Queue</string>
+    <string name="selection_count">%1$d selected</string>
+    <string name="selection_add_queue_description">Add selected tracks to Queue</string>
+    <string name="selection_close_description">Clear selection</string>
+    <string name="selection_limit">Up to 100 tracks can be selected at once</string>
 
     <string name="library_all_tracks">All tracks</string>
     <string name="library_artists">Artists</string>
@@ -96,7 +105,6 @@
     <string name="mini_player_open_description">%1$s by %2$s. Open Player</string>
     <string name="mini_player_controls_unavailable">Playback controls unavailable while disconnected</string>
     <string name="mini_player_action_unavailable">%1$s unavailable while disconnected</string>
-    <string name="settings_about_description">Version, project links, licenses, and independence notice</string>
     <string name="settings_open_about">About Poweramp Remote</string>
 
     <plurals name="library_track_count">
@@ -105,11 +113,9 @@
     </plurals>
 
     <string name="app_language">App language</string>
-    <string name="app_language_description">Choose the language used by Phone Client screens, scanner prompts, and notifications.</string>
     <string name="language_system_default">System default</string>
     <string name="language_russian">Russian</string>
     <string name="language_english">English</string>
-    <string name="language_system_behavior">System default uses Russian when the primary system language is Russian and English for every other language.</string>
     <string name="language_storage_error">The language choice could not be saved.</string>
 
     <string name="about_description">Controls Poweramp playback on another Android device over a local connection.</string>
@@ -119,9 +125,7 @@
     <string name="about_repository_label">Public repository</string>
     <string name="about_open_repository">Open public repository</string>
     <string name="about_license">License: MIT License</string>
-    <string name="about_third_party">Third-party software notices are available in THIRD_PARTY_NOTICES.md.</string>
     <string name="about_open_third_party">Open third-party notices</string>
-    <string name="about_independence_notice">This independent project is not affiliated with, endorsed by, sponsored by, or supported by Poweramp or Max MP.</string>
     <string name="about_version_unavailable">Unavailable</string>
     <string name="link_open_error">No application could open this link.</string>
 

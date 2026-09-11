@@ -28,6 +28,7 @@ final class LibraryJson {
                     "/api/v1/library/artists/{id}/member-tracks"
             );
             routes.put("queue", "/api/v1/queue");
+            routes.put("queueAdd", "/api/v1/queue/add");
             routes.put("play", "/api/v1/library/play");
             root.put("routes", routes);
 
@@ -63,7 +64,7 @@ final class LibraryJson {
             JSONObject queue = new JSONObject();
             queue.put("read", true);
             queue.put("playExisting", true);
-            queue.put("add", false);
+            queue.put("add", state.status == LibraryAccessState.Status.AVAILABLE);
             queue.put("remove", false);
             queue.put("reorder", false);
             queue.put("playNext", false);
@@ -71,6 +72,22 @@ final class LibraryJson {
             return root.toString();
         } catch (JSONException impossible) {
             throw new IllegalStateException("Unable to serialize library capabilities", impossible);
+        }
+    }
+
+    static String queueAddResult(QueueAddResult result) {
+        try {
+            JSONObject root = new JSONObject();
+            root.put("requestedCount", result.requestedCount);
+            root.put("addedCount", result.addedCount);
+            root.put("complete", result.complete);
+            root.put("failedIndex", nullable(result.failedIndex));
+            root.put("failure", result.failure.wireName == null
+                    ? JSONObject.NULL : result.failure.wireName);
+            root.put("status", result.accessStatus.wireName);
+            return root.toString();
+        } catch (JSONException impossible) {
+            throw new IllegalStateException("Unable to serialize Queue add result", impossible);
         }
     }
 

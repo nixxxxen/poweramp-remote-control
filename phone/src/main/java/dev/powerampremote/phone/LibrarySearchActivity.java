@@ -24,6 +24,7 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ImageButton;
 import android.widget.ListView;
+import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -45,6 +46,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private static final String STATE_QUERY = "library_query";
     private static final String STATE_SEARCH_FIRST = "search_first";
     private static final String STATE_SEARCH_TOP = "search_top";
+    private static final String STATE_SELECTION = "track_selection";
+    private static final String STATE_QUEUE_ADD_OPERATION = "queue_add_operation";
+    private static final String STATE_QUEUE_ADD_SELECTION = "queue_add_selection";
     private static final long SEARCH_DEBOUNCE_MILLISECONDS = 300L;
 
     private enum LocalAction {
@@ -170,6 +174,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private TextView titleView;
     private ImageButton sortCriterion;
     private ImageButton sortDirection;
+    private TextView selectionCount;
+    private ImageButton selectionAddQueue;
+    private ImageButton selectionClose;
     private View searchContainer;
     private EditText searchInput;
     private ImageButton searchClear;
@@ -211,6 +218,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     private boolean imeVisible;
     private String lastSuccessfulQueryKey;
     private long searchSectionGeneration;
+    private final TrackSelection selection = new TrackSelection();
+    private long queueAddOperationId;
+    private boolean queueAddFromSelection;
+    private boolean queueAddInFlight;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -223,8 +234,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             // Discard any Activity-local identity first; the service replay below is authoritative.
             adapter.setConfirmedState(null);
             controller.addListener(LibrarySearchActivity.this);
+            synchronizeQueueAddOperation();
             miniPlayer.attach(controller);
             adapter.notifyDataSetChanged();
+            render();
         }
 
         @Override
@@ -256,6 +269,9 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         titleView = findViewById(R.id.library_screen_title);
         sortCriterion = findViewById(R.id.library_sort_criterion);
         sortDirection = findViewById(R.id.library_sort_direction);
+        selectionCount = findViewById(R.id.library_selection_count);
+        selectionAddQueue = findViewById(R.id.library_selection_add_queue);
+        selectionClose = findViewById(R.id.library_selection_close);
         searchContainer = findViewById(R.id.library_search_container);
         searchInput = findViewById(R.id.library_search_input);
         searchClear = findViewById(R.id.library_search_clear);
@@ -306,17 +322,35 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         searchInput.setSelection(savedQuery.length());
         restoringSearchText = false;
         searchClear.setVisibility(savedQuery.isEmpty() ? View.GONE : View.VISIBLE);
+        if (savedInstanceState != null) {
+            queueAddOperationId = savedInstanceState.getLong(
+                    STATE_QUEUE_ADD_OPERATION, 0L
+            );
+            queueAddFromSelection = savedInstanceState.getBoolean(
+                    STATE_QUEUE_ADD_SELECTION, false
+            );
+            queueAddInFlight = queueAddOperationId != 0L;
+            ArrayList<String> savedSelection = savedInstanceState.getStringArrayList(
+                    STATE_SELECTION
+            );
+            if (savedSelection != null) {
+                for (String json : savedSelection) {
+                    try {
+                        selection.toggle(LibraryPlayTarget.parse(
+                                new org.json.JSONObject(json)
+                        ));
+                    } catch (Exception ignored) {
+                        selection.clear();
+                        break;
+                    }
+                }
+            }
+        }
 
         findViewById(R.id.library_back_button).setOnClickListener(view -> {
             haptic(view);
-            navigateBack();
-        });
-        listView.setOnItemClickListener((parent, view, position, id) -> {
-            BrowseRow row = adapter.getItem(position);
-            if (row != null && row.searchHeader == null && !row.historyHeader) {
-                haptic(view);
-                openRow(row);
-            }
+            if (!selection.isEmpty()) clearSelection();
+            else navigateBack();
         });
         listView.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
             @Override
@@ -367,8 +401,19 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             haptic(view);
             toggleSortDirection();
         });
+        selectionAddQueue.setOnClickListener(view -> {
+            haptic(view);
+            addSelectionToQueue();
+        });
+        selectionClose.setOnClickListener(view -> {
+            haptic(view);
+            clearSelection();
+        });
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override public void handleOnBackPressed() { navigateBack(); }
+            @Override public void handleOnBackPressed() {
+                if (!selection.isEmpty()) clearSelection();
+                else navigateBack();
+            }
         });
 
         try {
@@ -410,6 +455,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         libraryRequestSerial++;
         libraryCapabilitiesSerial++;
         libraryCapabilitiesGeneration = Integer.MIN_VALUE;
+        queueAddInFlight = false;
         searchGate.invalidate();
         searchSectionGeneration++;
         searchLoading = false;
@@ -451,11 +497,18 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         outState.putString(STATE_QUERY, searchInput.getText().toString());
         outState.putInt(STATE_SEARCH_FIRST, searchFirstVisible);
         outState.putInt(STATE_SEARCH_TOP, searchTopOffset);
+        ArrayList<String> selected = new ArrayList<>();
+        for (LibraryPlayTarget target : selection.targets()) selected.add(target.toJson());
+        outState.putStringArrayList(STATE_SELECTION, selected);
+        outState.putLong(STATE_QUEUE_ADD_OPERATION, queueAddOperationId);
+        outState.putBoolean(STATE_QUEUE_ADD_SELECTION, queueAddFromSelection);
         super.onSaveInstanceState(outState);
     }
 
     void showTab(BottomNavigation.Tab tab) {
         if (tab != BottomNavigation.Tab.LIBRARY && tab != BottomNavigation.Tab.SEARCH) return;
+        if (queueAddInFlight && tab != selectedTab) return;
+        if (tab != selectedTab) clearSelectionWithoutRender();
         saveScrollPosition();
         if (tab == BottomNavigation.Tab.SEARCH && searchOrigin.active()) {
             restoreSearchOrigin();
@@ -683,6 +736,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void push(Level level) {
+        clearSelectionWithoutRender();
         saveScrollPosition();
         currentLevel().loading = false; // Its outstanding append will be invalidated below.
         libraryStack.add(level);
@@ -739,6 +793,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (level == null || level.local() || !level.request.isTrackList()) return;
         LibrarySort supported = librarySortCapabilities.supportedOrDefault(selected);
         if (!level.sortState.change(supported)) return;
+        clearSelectionWithoutRender();
         if (persist && librarySortStore != null) {
             librarySortStore.save(level.request.sortView, supported);
         }
@@ -758,7 +813,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private boolean sortingVisible() {
-        if (selectedTab != BottomNavigation.Tab.LIBRARY
+        if (!selection.isEmpty() || selectedTab != BottomNavigation.Tab.LIBRARY
                 || !librarySortCapabilities.hasSelectableSort()) return false;
         Level level = currentLevel();
         return !level.local() && level.request.isTrackList();
@@ -776,6 +831,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                     || resultGeneration != controller.libraryConnectionGeneration()) return;
             if (failure != null || capabilities == null) return;
             librarySortCapabilities = capabilities;
+            if (!capabilities.supportsQueueAdd()) clearSelectionWithoutRender();
             Level level = currentLevel();
             if (selectedTab == BottomNavigation.Tab.LIBRARY
                     && !level.local() && level.request.isTrackList()) {
@@ -833,6 +889,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void navigateBack() {
+        clearSelectionWithoutRender();
         if (selectedTab == BottomNavigation.Tab.LIBRARY && searchOrigin.active()) {
             SearchOriginState.Snapshot origin = searchOrigin.peek();
             if (origin != null && libraryStack.size() > origin.libraryDepth) {
@@ -879,6 +936,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void scheduleSearch() {
+        clearSelectionWithoutRender();
         cancelDebounce();
         searchGate.invalidate();
         resetSearchSections();
@@ -1082,6 +1140,79 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         });
     }
 
+    private boolean canAddToQueue(LibraryItem item) {
+        if (item == null || item.playTarget == null
+                || !librarySortCapabilities.supportsQueueAdd()) return false;
+        String type = item.playTarget.type;
+        return "track".equals(type)
+                || "playlist_entry".equals(type)
+                || "queue_entry".equals(type);
+    }
+
+    private void showTrackActions(View anchor, LibraryItem item) {
+        if (!canAddToQueue(item) || queueAddInFlight) return;
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add(R.string.add_to_queue);
+        menu.setOnMenuItemClickListener(ignored -> {
+            haptic(anchor);
+            addTargetsToQueue(java.util.Collections.singletonList(item.playTarget), false);
+            return true;
+        });
+        menu.show();
+    }
+
+    private void toggleSelection(LibraryItem item, View view) {
+        if (!canAddToQueue(item) || queueAddInFlight) return;
+        if (!selection.contains(item.playTarget)
+                && selection.size() >= QueueAddRequest.MAX_ITEMS) {
+            Toast.makeText(this, R.string.selection_limit, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        haptic(view);
+        selection.toggle(item.playTarget);
+        adapter.notifyDataSetChanged();
+        render();
+    }
+
+    private void addSelectionToQueue() {
+        if (selection.isEmpty()) return;
+        addTargetsToQueue(selection.targets(), true);
+    }
+
+    private void addTargetsToQueue(List<LibraryPlayTarget> targets, boolean fromSelection) {
+        if (queueAddInFlight || controller == null || !connected()
+                || !librarySortCapabilities.supportsQueueAdd()) return;
+        final QueueAddRequest request;
+        try {
+            request = new QueueAddRequest(targets);
+        } catch (IllegalArgumentException exception) {
+            Toast.makeText(this, R.string.add_to_queue_error, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        queueAddInFlight = true;
+        queueAddFromSelection = fromSelection;
+        queueAddOperationId = controller.addToQueue(request);
+        if (queueAddOperationId <= 0L) {
+            queueAddOperationId = 0L;
+            queueAddFromSelection = false;
+            synchronizeQueueAddOperation();
+            Toast.makeText(this, R.string.add_to_queue_error, Toast.LENGTH_SHORT).show();
+        }
+        render();
+    }
+
+    private void clearSelection() {
+        if (queueAddInFlight) return;
+        clearSelectionWithoutRender();
+        adapter.notifyDataSetChanged();
+        render();
+    }
+
+    private void clearSelectionWithoutRender() {
+        if (selection.isEmpty() || queueAddInFlight) return;
+        selection.clear();
+    }
+
     private void render() {
         Object source = selectedTab == BottomNavigation.Tab.SEARCH
                 ? searchRenderSource : currentLevel();
@@ -1089,16 +1220,30 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         if (!changedSource) saveScrollPosition();
         BottomNavigation.bind(this, selectedTab, findViewById(R.id.tab_content));
         boolean connected = connected();
+        boolean selecting = !selection.isEmpty();
         findViewById(R.id.library_back_button).setVisibility(
-                selectedTab == BottomNavigation.Tab.LIBRARY && libraryStack.size() > 1
+                selecting || selectedTab == BottomNavigation.Tab.LIBRARY
+                        && libraryStack.size() > 1
                         ? View.VISIBLE : View.INVISIBLE
         );
+        titleView.setVisibility(selecting ? View.GONE : View.VISIBLE);
+        selectionCount.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        selectionAddQueue.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        selectionClose.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        selectionCount.setText(getString(R.string.selection_count, selection.size()));
+        boolean mutationEnabled = selecting && connected && !queueAddInFlight;
+        selectionAddQueue.setEnabled(mutationEnabled);
+        selectionAddQueue.setAlpha(mutationEnabled ? 1f : 0.38f);
+        selectionClose.setEnabled(!queueAddInFlight);
+        selectionClose.setAlpha(queueAddInFlight ? 0.38f : 1f);
         titleView.setText(selectedTab == BottomNavigation.Tab.SEARCH
                 ? getString(R.string.nav_search) : currentLevel().title);
         updateSortControls();
         searchContainer.setVisibility(
                 selectedTab == BottomNavigation.Tab.SEARCH ? View.VISIBLE : View.GONE
         );
+        searchInput.setEnabled(!queueAddInFlight);
+        searchClear.setEnabled(!queueAddInFlight);
         progress.setVisibility(View.GONE);
         statusMessage.setVisibility(View.GONE);
         actionButton.setVisibility(View.GONE);
@@ -1161,8 +1306,12 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 level.pager,
                 level.loading,
                 level.failure,
-                () -> loadLibraryPage(level, level.pager.initialized()
-                        && level.failure != RemoteClientController.LibraryFailure.PAGE_EXPIRED)
+                () -> {
+                    boolean reload = level.failure
+                            == RemoteClientController.LibraryFailure.PAGE_EXPIRED;
+                    if (reload) clearSelectionWithoutRender();
+                    loadLibraryPage(level, level.pager.initialized() && !reload);
+                }
         );
     }
 
@@ -1313,6 +1462,10 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         searchLoading = false;
         for (Level level : libraryStack) level.loading = false;
         if (serverChanged) {
+            queueAddOperationId = 0L;
+            queueAddFromSelection = false;
+            queueAddInFlight = false;
+            clearSelectionWithoutRender();
             librarySortCapabilities = LibrarySortCapabilities.defaultOnly();
             libraryCapabilitiesGeneration = Integer.MIN_VALUE;
             libraryCapabilitiesSerial++;
@@ -1343,6 +1496,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     }
 
     private void clearSearchInput() {
+        clearSelectionWithoutRender();
         cancelDebounce();
         searchGate.invalidate();
         resetSearchSections();
@@ -1537,6 +1691,65 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
     @Override public void onCommandError(boolean authenticationError) { }
     @Override public void onPlaybackSnapshot(PlaybackUiSnapshot snapshot) { }
 
+    @Override
+    public void onQueueAddCompleted(
+            long operationId,
+            int connectionGeneration,
+            QueueAddResult result,
+            RemoteClientController.LibraryFailure failure
+    ) {
+        queueAddInFlight = false;
+        if (operationId != queueAddOperationId) {
+            render();
+            return;
+        }
+        boolean fromSelection = queueAddFromSelection;
+        queueAddOperationId = 0L;
+        queueAddFromSelection = false;
+        if (!started || controller == null) {
+            render();
+            return;
+        }
+        if (failure != null || result == null) {
+            Toast.makeText(this, R.string.add_to_queue_error, Toast.LENGTH_SHORT).show();
+        } else if (result.complete) {
+            if (fromSelection) selection.clear();
+            Toast.makeText(this, R.string.add_to_queue_success, Toast.LENGTH_SHORT).show();
+        } else {
+            if (fromSelection && result.addedCount > 0) {
+                selection.removeFirst(result.addedCount);
+            }
+            Toast.makeText(
+                    this,
+                    result.addedCount > 0
+                            ? getString(
+                                    R.string.add_to_queue_result,
+                                    result.addedCount,
+                                    result.requestedCount
+                            )
+                            : getString(R.string.add_to_queue_error),
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
+        adapter.notifyDataSetChanged();
+        render();
+    }
+
+    private void synchronizeQueueAddOperation() {
+        if (controller == null) {
+            queueAddInFlight = false;
+            return;
+        }
+        PhoneConnectionService.QueueAddOperation operation =
+                controller.queueAddOperation();
+        if (queueAddOperationId != 0L
+                && (operation == null || operation.id != queueAddOperationId)) {
+            queueAddOperationId = 0L;
+            queueAddFromSelection = false;
+        }
+        queueAddInFlight = operation != null && operation.inFlight;
+    }
+
     private static void haptic(View view) {
         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
     }
@@ -1641,6 +1854,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 header.setText(row.historyHeader
                         ? R.string.search_history_title
                         : searchHeaderLabel(row.searchHeader));
+                resetNonInteractive(convertView);
                 return convertView;
             }
             if (row != null && row.searchMore != null) {
@@ -1664,6 +1878,17 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 } else {
                     label.setText(R.string.search_show_more);
                 }
+                boolean enabled = !loading;
+                convertView.setEnabled(enabled);
+                convertView.setClickable(enabled);
+                convertView.setLongClickable(false);
+                convertView.setActivated(false);
+                convertView.setSelected(false);
+                convertView.setOnLongClickListener(null);
+                convertView.setOnClickListener(enabled ? view -> {
+                    haptic(view);
+                    openRow(row);
+                } : null);
                 return convertView;
             }
             if (row != null && row.historyQuery != null) {
@@ -1674,6 +1899,23 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
                 TextView query = convertView.findViewById(R.id.search_history_query);
                 ImageButton remove = convertView.findViewById(R.id.search_history_remove);
                 query.setText(row.historyQuery);
+                convertView.setEnabled(true);
+                convertView.setClickable(true);
+                convertView.setLongClickable(false);
+                convertView.setActivated(false);
+                convertView.setSelected(false);
+                convertView.setOnLongClickListener(null);
+                convertView.setOnClickListener(view -> {
+                    haptic(view);
+                    selectHistoryQuery(row.historyQuery);
+                });
+                remove.setEnabled(true);
+                remove.setClickable(true);
+                remove.setLongClickable(false);
+                remove.setActivated(false);
+                remove.setSelected(false);
+                remove.setContentDescription(getString(R.string.search_history_remove));
+                remove.setOnLongClickListener(null);
                 remove.setOnClickListener(view -> removeHistoryQuery(view, row.historyQuery));
                 return convertView;
             }
@@ -1686,9 +1928,21 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             } else {
                 holder = (Holder) convertView.getTag();
             }
-            if (row == null) return convertView;
+            bindPrimaryInteraction(holder, row);
             renderCurrentIndicator(holder, row);
+            if (row == null) {
+                resetMenu(holder.menu);
+                holder.root.setActivated(false);
+                holder.artworkGate.bind(null);
+                holder.artwork.setVisibility(View.INVISIBLE);
+                holder.title.setText("");
+                setOptional(holder.subtitle, null);
+                setOptional(holder.detail, null);
+                return convertView;
+            }
             if (row.item == null) {
+                holder.root.setActivated(false);
+                resetMenu(holder.menu);
                 holder.artworkGate.bind(null);
                 holder.title.setText(row.labelResource);
                 setOptional(holder.subtitle, null);
@@ -1705,6 +1959,20 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             boolean track = "track".equals(item.type)
                     || "playlist_entry".equals(item.type)
                     || "queue_entry".equals(item.type);
+            holder.root.setActivated(track && selection.contains(item.playTarget));
+            boolean menuVisible = track && selection.isEmpty()
+                    && canAddToQueue(item) && !queueAddInFlight;
+            holder.menu.setVisibility(menuVisible ? View.VISIBLE : View.GONE);
+            holder.menu.setEnabled(menuVisible);
+            holder.menu.setClickable(menuVisible);
+            holder.menu.setLongClickable(false);
+            holder.menu.setActivated(false);
+            holder.menu.setSelected(false);
+            holder.menu.setContentDescription(menuVisible
+                    ? getString(R.string.track_actions_description) : null);
+            holder.menu.setOnLongClickListener(null);
+            holder.menu.setOnClickListener(menuVisible
+                    ? view -> showTrackActions(view, item) : null);
             ArrayList<String> detail = new ArrayList<>(4);
             if (item.trackCount != null) {
                 detail.add(getResources().getQuantityString(
@@ -1790,6 +2058,65 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             return convertView;
         }
 
+        private void bindPrimaryInteraction(Holder holder, BrowseRow row) {
+            boolean available = row != null;
+            boolean longEnabled = available && canAddToQueue(row.item)
+                    && !queueAddInFlight;
+            holder.root.setEnabled(available);
+            holder.root.setClickable(available);
+            holder.root.setLongClickable(longEnabled);
+            holder.root.setSelected(false);
+            holder.root.setContentDescription(null);
+            holder.root.setOnClickListener(available ? view -> {
+                TrackRowInteractionPolicy.Action action =
+                        TrackRowInteractionPolicy.tap(
+                                !selection.isEmpty(),
+                                canAddToQueue(row.item),
+                                !queueAddInFlight
+                        );
+                if (action == TrackRowInteractionPolicy.Action.TOGGLE_SELECTION) {
+                    toggleSelection(row.item, view);
+                } else if (action == TrackRowInteractionPolicy.Action.OPEN) {
+                    haptic(view);
+                    openRow(row);
+                }
+            } : null);
+            holder.root.setOnLongClickListener(longEnabled ? view -> {
+                TrackRowInteractionPolicy.Action action =
+                        TrackRowInteractionPolicy.longPress(
+                                canAddToQueue(row.item),
+                                !queueAddInFlight
+                        );
+                if (action != TrackRowInteractionPolicy.Action.TOGGLE_SELECTION) {
+                    return false;
+                }
+                toggleSelection(row.item, view);
+                return true;
+            } : null);
+        }
+
+        private void resetMenu(ImageButton menu) {
+            menu.setVisibility(View.GONE);
+            menu.setEnabled(false);
+            menu.setClickable(false);
+            menu.setLongClickable(false);
+            menu.setActivated(false);
+            menu.setSelected(false);
+            menu.setContentDescription(null);
+            menu.setOnClickListener(null);
+            menu.setOnLongClickListener(null);
+        }
+
+        private void resetNonInteractive(View view) {
+            view.setEnabled(false);
+            view.setClickable(false);
+            view.setLongClickable(false);
+            view.setActivated(false);
+            view.setSelected(false);
+            view.setOnClickListener(null);
+            view.setOnLongClickListener(null);
+        }
+
         private boolean sameText(String first, String second) {
             return first == null ? second == null : first.equals(second);
         }
@@ -1811,6 +2138,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
         final View root;
         final ImageView artwork;
         final ImageView current;
+        final ImageButton menu;
         final TextView title;
         final TextView subtitle;
         final TextView detail;
@@ -1820,6 +2148,7 @@ public final class LibrarySearchActivity extends LocaleAwareActivity
             root = view;
             artwork = view.findViewById(R.id.library_item_artwork);
             current = view.findViewById(R.id.library_item_current);
+            menu = view.findViewById(R.id.library_item_menu);
             title = view.findViewById(R.id.library_item_title);
             subtitle = view.findViewById(R.id.library_item_subtitle);
             detail = view.findViewById(R.id.library_item_detail);

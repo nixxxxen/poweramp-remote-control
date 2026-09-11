@@ -407,26 +407,31 @@ mini-player, strict live matching, Reload, and recoverable states. It adds no so
 controls. The maintainer confirmed its complete Phone matrix, including empty and multi-page queues,
 duplicates, exact current-entry selection, external changes, Reload, reconnect/rebind, Back, and all
 four existing tabs. The tested build exposes Queue `posInList` as zero-based; the separate main-
-Player `0/N` presentation issue remains recorded without generalizing that index base to every
-Poweramp category.
+Player presentation now adds one only for valid Queue values, without changing the raw API value or
+generalizing that index base to every Poweramp category.
 
-### Stage 2 — investigate mutations
+### Stage 2 — Add to Queue release candidate; other mutations deferred
 
-Before promising editing support, verify documented/public mechanisms for:
+The public Add-to-Queue contract is implemented as the final pre-release candidate:
 
-- Add to Queue;
-- Play Next;
-- Remove from Queue;
-- Reorder Queue.
+- Bearer-only `POST /api/v1/queue/add` accepts a bounded ordered batch;
+- Server revalidates every track, Playlist entry, or Queue entry before inserting anything;
+- the service-owned worker serializes raw `MAX(sort)` plus sequential public Queue inserts;
+- one `ACTION_RELOAD_DATA` broadcast follows any successful prefix;
+- Phone exposes capability-gated single-row actions and ordered selection over loaded track rows;
+- a successful prefix invalidates the old Queue snapshot instead of mutating rows optimistically.
 
-Do not write directly to undocumented/internal Poweramp database structures and do not rely on unsupported MediaSession queue operations.
+Poweramp build 1025 confirms the insert contract, including ordered duplicate preservation, exact
+Playlist/Queue occurrence revalidation, and no playback restart. The remaining Phone device matrix
+is tracked in `STATUS.md`; Add to Queue is not release-complete until that matrix is confirmed.
 
-Only add mutation endpoints after their behavior has been verified on real Poweramp installations.
+The batch is explicitly non-transactional and reports its actual successful prefix. The product
+does not write undocumented/internal database structures, use MediaSession queue mutations, or
+retry a network-failed append automatically.
 
-The current official sample demonstrates Add to Queue with public ContentProvider inserts plus
-`ACTION_RELOAD_DATA`, but it is deliberately not exposed in Stage 1. No documented public Remove,
-Reorder, or Play Next contract was found in the audited upstream source. All four mutation
-capabilities therefore remain `false` until a separately scoped audit/implementation task.
+Remove, Clear, Reorder, and Play Next remain after the next release. No documented public contract
+for them was found in the audited upstream source, so their capabilities remain `false` until a
+separately scoped device-audited implementation task.
 
 ## After the Library/Queue release — User-controlled connection policy
 
