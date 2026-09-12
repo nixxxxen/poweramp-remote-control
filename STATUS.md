@@ -180,11 +180,11 @@ Confirmed areas include:
 
 Application code is ready. Remaining release work is procedural:
 
-1. push this documentation-only cleanup to the remote feature branch;
+1. push the final documentation-only commit to the remote feature branch;
 2. fast-forward `main` without altering the validated application-source commit;
-3. stage the two APKs under their public filenames with license files;
-4. generate `SHA256SUMS.txt` from the final signed APKs;
-5. create the release tag at the APK-source revision and publish the GitHub Release.
+3. create `server-v0.11.0_phone-v0.7.0` at `6bb22a8`;
+4. publish the GitHub Release using `RELEASE_NOTES.md` and every file from the prepared
+   `outputs/release-0.11.0_phone-0.7.0/` bundle.
 
 Future implementation order is maintained in [`ROADMAP.md`](ROADMAP.md); durable architecture and
 protocol contracts are maintained in [`PROJECT.md`](PROJECT.md).

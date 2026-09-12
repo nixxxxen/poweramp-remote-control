@@ -45,11 +45,28 @@ included because the audited public Poweramp API does not document those mutatio
 streaming, and full multi-player selection are also not included. Local HTTP/WebSocket traffic is
 authenticated but unencrypted; use it only on trusted networks.
 
+## Verification
+
+The final release-signed APKs were built from application-source revision `6bb22a8` and passed the
+complete automated release pipeline plus the full in-place real-device matrix. They were installed
+over public Server `0.10.2` and Phone `0.6.0` without losing Server identity, API token, pairing,
+Bearer credential, language, or application data.
+
+The APKs use the existing permanent `CN=Poweramp Remote Release` certificate and pass APK Signature
+Scheme v2 verification and 16 KiB-aware ZIP alignment.
+
 ## Release assets
 
 - `Poweramp-Remote-Server-v0.11.0.apk`
 - `Poweramp-Remote-Phone-v0.7.0.apk`
 - `SHA256SUMS.txt`
-- license and third-party notice files
+- `LICENSE`
+- `THIRD_PARTY_NOTICES.md`
+- `Apache-2.0.txt`
+
+APK SHA-256:
+
+- Server: `6a2f1341e7b9e3ae356e954f613415ff41f8189522c4c4c96a161ac357361ed7`
+- Phone: `5c7aa5ad089e2c6e45b444f2ec6f7e5857a068f63d5411b006412436aa137a8c`
 
 Poweramp Remote is independent and is not affiliated with Poweramp or Max MP.

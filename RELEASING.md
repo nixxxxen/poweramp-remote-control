@@ -5,16 +5,15 @@ maintainer-supplied signing identity loaded from a private properties file outsi
 Any release task fails before building if that file is absent or incomplete; debug builds continue
 to use Android's separate debug signing configuration.
 
-## Before the first public release
+## Repository and key safety
 
 1. Confirm the protected pre-rewrite mirror backup is still available. Never publish local
    `refs/codex/*` or use `git push --mirror`.
 2. Repeat the secret and generated-file scan from a fresh clone of the exact history that will be
    published.
-3. Create a dedicated, permanent Android release key outside the repository. Back it up securely
-   in more than one protected location. Never commit the keystore, aliases, or passwords.
-4. Decide and document the signing-key migration boundary described below.
-5. Run the complete tests, lint, and clean release build for both modules.
+3. Keep the permanent Android release key outside the repository and backed up securely in more
+   than one protected location. Never commit the keystore, aliases, or passwords.
+4. Run the complete tests, lint, and clean release build for both modules.
 
 ## Signing
 
@@ -75,6 +74,9 @@ Distribute `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `licenses/Apache-2.0.txt` wi
 release tag should be created only after the final history decision and may be signed separately
 from the APKs.
 
+For Server `0.11.0` / Phone `0.7.0`, the ready-to-upload local bundle belongs in
+`outputs/release-0.11.0_phone-0.7.0/`. The directory is intentionally ignored by Git.
+
 ## Mandatory subsequent-release in-place pass
 
 Every release after the first public release must prove update compatibility with the exact prior
@@ -82,7 +84,8 @@ public release. A fresh install is useful additional coverage but does not repla
 Build the exact release-signed APKs from the final release commit with the same permanent signing
 certificate, install those exact files, and record device models and Android versions.
 
-For Server `0.11.0` / Phone Client `0.7.0`, complete every item:
+For Server `0.11.0` / Phone Client `0.7.0`, every item below has been completed with the exact
+release APKs intended for upload:
 
 1. Install Server `0.11.0` over public Server `0.10.2` without uninstalling it. Confirm that Server
    identity, API token, browser/API access, and pairing state remain intact.
@@ -118,16 +121,23 @@ For Server `0.11.0` / Phone Client `0.7.0`, complete every item:
     multi-player selection remain absent rather than partially exposed.
 
 Only the exact release-signed APKs intended for upload count as validated. Any failure remains a
-release blocker until understood, fixed or explicitly documented, and re-tested. Do not call the
-release ready before the maintainer confirms every hardware item.
+release blocker until understood, fixed or explicitly documented, and re-tested.
 
-The previous Server `0.10.2` / Phone Client `0.5.0` release passed its complete matrix on
-2026-08-23 using the exact release-signed APKs built from commit
-`675d1affd8776bb6b05dfa1795df51a18de08fcc`. Server ran on a
-Hiby R4 with Android 12 and Phone Client ran on a Samsung Galaxy S24 Ultra with Android 16. APK
-metadata, signing-certificate continuity, alignment, and file hashes are recorded in `STATUS.md`.
-The release tag must point to that APK-source commit; any later validation-only documentation
-commit is not a reason to rebuild the already checked binaries.
+The maintainer completed this matrix on 2026-09-12 with Server on a Hiby R4 running Android 12 and
+Phone Client on a Samsung Galaxy S24 Ultra running Android 16. Both APKs were built from
+`6bb22a87c77a7563e4855b460c1507b00def1ecc`, retain the permanent release certificate, and have the
+hashes recorded in `STATUS.md`, `RELEASE_NOTES.md`, and the staged `SHA256SUMS.txt`. The release tag
+`server-v0.11.0_phone-v0.7.0` must point to that APK-source commit. Later documentation-only commits
+do not require rebuilding the already validated binaries.
+
+## Publishing Server 0.11.0 / Phone 0.7.0
+
+1. Fast-forward `main` from `codex/library-queue` and push it.
+2. Create `server-v0.11.0_phone-v0.7.0` at application-source revision `6bb22a8` and push the tag.
+3. Create a GitHub Release from that tag and copy the body from `RELEASE_NOTES.md`.
+4. Upload every file from `outputs/release-0.11.0_phone-0.7.0/` without renaming it.
+5. Download or otherwise re-read the uploaded assets and confirm `SHA256SUMS.txt` plus the two APK
+   signatures before publishing the Release.
 
 ## Historical first-public-release fresh-install pass
 
