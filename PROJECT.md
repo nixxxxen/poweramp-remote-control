@@ -53,8 +53,8 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - `NsdDiscoveryClient` for ordinary LAN discovery/resolution;
 - `WifiDirectConnectionClient` for known-server Wi-Fi Direct discovery and group negotiation;
 - `PairingStore` for a verified stable Server identity, device/service names, and Bearer token;
-- `RemoteApiClient` for REST state/control/artwork, paged Library requests, and typed categorized
-  Search requests;
+- `RemoteApiClient` for REST state/control/artwork, paged Library/Search/Queue requests, and Queue
+  additions;
 - `RemoteWebSocket` for complete event-driven state snapshots;
 - `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
 - `PairingRequestState` for binder-independent QR/manual requests delivered to that controller;
@@ -85,8 +85,9 @@ The Player toolbar also has a 48 dp Queue action in its free left slot, opposite
 pill. It opens the separate auxiliary `QueueActivity`, which keeps Player selected in the unchanged
 four-item bottom navigation and finishes back to the retained Player Activity. Queue binds to the
 same `PhoneConnectionService`, reuses the shared mini-player and Library thumbnail caches, and owns
-only its read-only page chain, scroll position, failures, and request generation. It never enters
-the Library/Search stack, sorting preferences, or Search history.
+its page chain, scroll position, failures, request generation, and selection presentation. Queue
+mutations still run through the existing service/controller; the Activity never enters the Library/
+Search stack, sorting preferences, or Search history.
 Library and Search track rows also consume the service-replayed complete playback snapshot. The
 Phone model exposes `underlyingId` only for the API's `track`, `playlist_entry`, and `queue_entry`
 wire types; under the current Library contract that value is the row's documented underlying
@@ -802,9 +803,9 @@ Important semantic rules:
 The Phone Client UI formats bitrate as `kbps` in English and `кбит/с` in Russian, using the same
 tolerant rule as Server presentation (current bit/s representation or older values already in
 kbit/s). Bit depth and sample-rate units plus decimal point/comma also follow the selected Phone
-language. Every presentation surface shows an available list position as the unchanged raw
-`current / total`; it does not display diagnostic `list`/`raw` labels, invent an unverified index
-offset, or change API v1 payloads.
+language. Presentation normally shows an available list position as the unchanged raw
+`current / total`. The only verified exception is Queue: a valid zero-based Queue position displays
+as `1/N…N/N` while API `v1` remains raw. No index offset is inferred for another source category.
 
 ### Controls
 
@@ -947,7 +948,7 @@ synchronized with confirmed state rather than animation completion.
 
 ## Security model
 
-This remains a trusted-local-link prototype. Wi-Fi Direct provides link encryption, but API HTTP
+This remains a trusted-local-network design. Wi-Fi Direct provides link encryption, but API HTTP
 and `ws://` are not end-to-end encrypted; LAN traffic and the one-time exchange/credentials can be
 observed on an untrusted network. Never expose port `8765` to the internet. Discovery advertises
 public identity, API version, and (for P2P) listener port only. The QR never carries an address or
@@ -961,45 +962,24 @@ The exact Poweramp `bitRate` unit and the `posInList` index base outside Queue s
 verification; Queue is confirmed zero-based on Poweramp build 1025. API v1 intentionally preserves
 the raw values. Phone presentation alone maps a valid Queue `0…N-1` position to `1…N`; null,
 negative, out-of-range, incomplete, and non-Queue values keep the safe existing fallback, and the
-next non-Queue snapshot removes the Queue-specific conversion. Wi-Fi Direct behavior also varies by
-vendor: the Server must
-be selected as group owner for the current IPv4 client path, system approval may be required after
-prior pairing, and dual LAN/P2P routing must be checked on representative Android 8–16 devices.
+next non-Queue snapshot removes the Queue-specific conversion.
 
-The maintainer has confirmed basic tracks/Albums browsing, album counts/durations, track-ID play,
-and positive/empty legacy search responses on Poweramp `1025004-fa3ec08671d`. Poweramp is now
-configured to split Artists on `,` and `;`, and a matching debug Server/Phone pair has exercised the
-published `artists.is_unsplit`, `artists.num_files`, `multi_artists` membership, and related-Album
-relations. The maintainer confirmed the completed Global Search/Library matrix: exact plus partial
-Track ordering (including `Beyond Oblivion`), canonical Artist totals and solo/collaboration browse,
-large lists beyond the former 1000-row boundary, independently continued Search sections,
-structured queries, clear/history/IME behavior, repeated fuzzy speedup, Back/query/scroll/insets,
-and unchanged playback UI. Server uses only those provider relations and never parses Artist display
-strings.
+Wi-Fi Direct behavior varies by Android version and vendor. The Server must be group owner for the
+current IPv4 path, and permissions, Location Mode, system approval, and recovery behavior require
+continued representative-device coverage.
 
-The maintainer subsequently confirmed the complete Library sorting matrix on the matching Server
-and Phone debug builds: every advertised criterion/direction, raw date/play-count presentation,
-continuation beyond 1000, Artist/Album/Folder/Playlist scopes, switching during continuation,
-Back/recreation/reconnect/rebind persistence, exact Playlist-entry launch with Poweramp follow-on
-order, and unchanged Global Search all behave as specified.
+Poweramp build 1025 confirms the complete current Library/Search/Queue contract, including public
+multi-artist relations, lists beyond 1000 rows, all sorting modes, duplicate Queue entries, exact
+play targets, single/batch Queue additions, and zero-based Queue position. The signed Server
+`0.11.0` / Phone `0.7.0` in-place release matrix is maintainer-confirmed. Broader OEM and Poweramp
+version coverage remains valuable but is not a release blocker.
 
-The ContentProvider foundation still needs broader device/OEM coverage: first grant/deny/retry and
-process-not-running behavior; remaining category projections/order; hierarchy root/children;
-duplicate playlist entry IDs; album-art access for arbitrary tracks; and derived representative
-covers across artists, albums, playlists, and direct folder tracks. Queue provider order, duplicate
-entry IDs, exact current matching, `OPEN_TO_PLAY`, empty/multi-page presentation, and the complete
-Phone Stage 1 matrix are confirmed on the current device setup. Extra category metadata remains
-intentionally absent, not failed track metadata.
-Live library or Queue edits do not mutate an existing paging snapshot: users must Reload to start a
-fresh view. A successful mutation made by this Phone is the narrow exception: it marks only Queue
-dirty and starts a fresh Queue snapshot without mixing continuation tokens. On the tested Poweramp
-build the Queue playback snapshot exposes zero-based `posInList`; Phone adds one only in Queue
-presentation, while Server/API state remains raw and the index base for other source categories
-remains unverified.
+Live Library or Queue edits do not mutate an existing paging snapshot: Reload starts a fresh view.
+A successful Phone Queue addition is the narrow exception that invalidates only Queue and starts a
+fresh Queue snapshot without mixing continuation tokens.
 
-Exact completed automation, the earlier Server `0.10.2` / Phone `0.5.0` in-place release matrix,
-and the maintainer-confirmed Phone `0.6.0` UI validation are recorded in `STATUS.md`. Broader
-Android/OEM coverage remains ongoing rather than a blocker for this release.
+Exact automation, artifacts, device coverage, and remaining product limitations are recorded in
+[`STATUS.md`](STATUS.md).
 
 ## Roadmap
 

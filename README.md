@@ -25,35 +25,23 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
 
 ## Features
 
-- play/pause, previous, next, and precise seek;
-- player-device media volume;
-- title, artist, album, artwork, codec/file type, bit depth, sample rate, bitrate, source category,
-  and current-list position;
-- Like, Dislike, exact `0…5` rating, and shuffle state/control;
-- event-driven WebSocket updates with resume/reconnect state restoration;
-- address-free QR pairing with a short-lived one-time secret;
-- manual persistent Bearer-token pairing as a camera-free fallback;
-- LAN NSD discovery with automatic Wi-Fi Direct fallback;
-- Android MediaSession, media notification/lock-screen controls, and compatible Wear OS controls;
-- a compact Phone connection entry plus a main menu with Settings, app language, and About;
-- an artwork-derived dark theme with smooth palette transitions and cached Previous/Next artwork
-  gestures;
-- animated playback controls, smooth event-driven seek presentation, a compact LAN/Wi-Fi Direct
-  status indicator, and stable muted metadata-chip families;
-- lazy Library browsing for tracks, artists, albums, folders, and playlists, with representative
-  artwork and per-list sorting;
-- categorized global Search with independent Tracks, Artists, and Albums results, typo-tolerant
-  entity matching, structured artist/title queries, and local removable history;
-- Queue viewing and exact-entry playback, plus single or ordered batch Add to Queue from track rows;
-- complete English and Russian Phone UI, scanner, dialogs, accessibility text, and notifications;
-- an authenticated English embedded Web UI for browsers on the local network.
+- **Playback and volume:** play/pause, previous/next, seek, shuffle, ratings, detailed metadata,
+  artwork, and the player device's media volume, with Android MediaSession/Wear controls.
+- **Library:** browse all tracks, artists, albums, folders, and playlists with lazy artwork and
+  full-list sorting.
+- **Search:** categorized Tracks, Artists, and Albums results, typo-tolerant matching, structured
+  artist/title queries, independent pagination, and removable local history.
+- **Queue:** view and play exact Queue occurrences, including duplicates, and add one track or an
+  ordered batch of up to 100 tracks.
+- **Web UI:** a small authenticated browser remote for essential playback, seek, rating, shuffle,
+  artwork, metadata, and volume controls.
 
 ## Screenshots
 
 <table>
   <tr>
     <th>Phone Client — Now playing</th>
-    <th>Server — Now playing</th>
+    <th>Phone Client — Library</th>
   </tr>
   <tr>
     <td align="center" valign="top">
@@ -62,24 +50,24 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
            width="360">
     </td>
     <td align="center" valign="top">
-      <img src="docs/screenshots/server-now-playing.png"
-           alt="Server now playing screen"
+      <img src="docs/screenshots/phone-library.jpg"
+           alt="Phone Client library screen"
            width="360">
     </td>
   </tr>
   <tr>
+    <th>Phone Client — Search</th>
     <th>Phone Client — Player devices</th>
-    <th>Server — QR pairing</th>
   </tr>
   <tr>
+    <td align="center" valign="top">
+      <img src="docs/screenshots/phone-search.jpg"
+           alt="Phone Client search screen"
+           width="360">
+    </td>
     <td align="center" valign="top">
       <img src="docs/screenshots/phone-player-devices.jpg"
-           alt="Phone Client player devices screen connected through Wi-Fi Direct"
-           width="360">
-    </td>
-    <td align="center" valign="top">
-      <img src="docs/screenshots/server-pairing.png"
-           alt="Server one-time QR pairing screen"
+           alt="Phone Client player devices screen connected through LAN"
            width="360">
     </td>
   </tr>
@@ -131,11 +119,11 @@ After successful pairing, the Phone Client stores the Server identity and creden
 backup-excluded app storage and reconnects automatically. If LAN discovery fails, the client may
 offer or start Wi-Fi Direct fallback; confirm any system dialogs shown on either device.
 
-The Phone main screen uses a compact LAN/Wi-Fi Direct connection pill on the right; tapping it opens
-**Player devices**. The menu button on the left opens **Settings** and **About**. Settings selects
-**System default**, **Russian**, or **English** without changing pairing or stopping the connection
-service; About shows exact installed version metadata, licenses, and repository links. System
-default uses Russian only for a primary Russian system locale and English otherwise.
+The Phone bottom bar opens **Player**, **Library**, **Search**, and **Settings**. The connection pill
+opens **Player devices**, and the Queue button in the Player toolbar opens the current Poweramp
+Queue. Settings selects **System default**, **Russian**, or **English** without changing pairing or
+stopping the connection service; About shows installed version metadata, licenses, and project
+links.
 
 For browser control, open `http://<SERVER-IP>:8765/` from a device on the same trusted LAN and log
 in with the credential copied through the Server's explicit Web UI credential action.

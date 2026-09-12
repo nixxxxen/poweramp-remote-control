@@ -25,7 +25,7 @@ Before any non-trivial change:
 2. Read `STATUS.md`.
 3. Read `ROADMAP.md` when changing planned scope.
 4. Inspect the existing implementation before adding a new integration path.
-5. Preserve all functionality confirmed working in Phone Client `0.6.0`.
+5. Preserve all functionality confirmed working in Phone Client `0.7.0`.
 6. Prefer documented/public Poweramp and Android APIs.
 7. Do not assume an API field, unit, index base, event, command, permission, or network behavior
    unless verified by documentation, source/API definitions, tests, or device behavior.
@@ -75,8 +75,8 @@ Phone UI. `RemotePlaybackService` owns `PowerampLibrarySource` and its unstable
 ContentProvider adapter; HTTP routes are additive and Bearer-only. Search uses `/files` with fixed
 bound selection arguments, not the obsolete `/search?flt` path that crashes the verified Poweramp
 build. The Phone UI consumes these routes only through the existing `PhoneConnectionService` and
-`RemoteClientController`. Completed device checks and the remaining exact release matrix are in
-`STATUS.md`. Do not reintroduce `/search?flt` or an automatic query retry.
+`RemoteClientController`. The completed signed release matrix is recorded in `STATUS.md`. Do not
+reintroduce `/search?flt` or an automatic query retry.
 
 Version history:
 
@@ -123,7 +123,7 @@ Version history:
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
 
-## Regression-sensitive baseline: Server 0.10.2 / Phone Client 0.6.0
+## Core regression baseline inherited from Server 0.10.2 / Phone Client 0.6.0
 
 The following functionality is implemented and working:
 
