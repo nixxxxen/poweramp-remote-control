@@ -1,7 +1,8 @@
 # Poweramp Remote Roadmap
 
-Server and Phone Client have independent version numbers. The current published versions are Server
-`0.11.0` / code 14 and Phone `0.7.0` / code 16. Local API `v1` remains backward-compatible.
+Server and Phone Client have independent version numbers. The published baseline is Server
+`0.11.0` / code 14 and Phone `0.7.0` / code 16. The next release candidate is Phone `0.8.0` /
+code 17 with the same Server. Local API `v1` remains backward-compatible.
 
 Completed verification is recorded in [`STATUS.md`](STATUS.md). Durable architecture and protocol
 rules live in [`PROJECT.md`](PROJECT.md).
@@ -81,11 +82,10 @@ The release is published and passed the complete signed in-place device matrix.
 - Server `0.11.0` / code 14 and Phone `0.7.0` / code 16 retain the legacy application IDs,
   permanent release certificate, pairing data, one-service architecture, and API `v1`.
 
-## Planned after 0.11.0 / 0.7.0
+## Server 0.11.0 / Phone 0.8.0 — connection policy and recovery
 
-### 1. User-controlled connection policy and network hardening
-
-Implemented on `codex/connection-policy`, with the new physical-device matrix still pending:
+Implementation and the complete manual connection-policy matrix are maintainer-confirmed on
+2026-11-03. Final signed Phone in-place validation remains the release gate.
 
 - **Allow Wi-Fi Direct connections**: off means `LAN_ONLY`; on permits Direct fallback;
 - **Prefer Wi-Fi Direct**: on means `DIRECT_PREFERRED`; off with Direct allowed means
@@ -93,8 +93,8 @@ Implemented on `codex/connection-policy`, with the new physical-device matrix st
 
 `DIRECT_PREFERRED` keeps a healthy authenticated Direct connection even when LAN is
 available, while retaining LAN discovery as bounded fallback. The UI does not allow the impossible
-state “prefer a disabled transport”. Pairing that explicitly needs pre-association Direct may offer
-a clearly explained temporary allowance, never silently override the saved policy.
+state “prefer a disabled transport”. QR pairing follows the saved policy; LAN-only never silently
+permits Direct. Manual-token pairing remains LAN-only.
 
 Contextual actions:
 
@@ -105,7 +105,10 @@ Contextual actions:
   paired device changes, or the user chooses the other transport.
 
 The saved mode is independent of pairing and Activity binding. A 60-second preference/manual window
-permits fallback without repeatedly abandoning healthy connections. Existing backoff/heartbeat,
+permits fallback without repeatedly abandoning healthy connections. After confirmed connection loss,
+Direct preference starts a fresh bounded recovery cycle and reuses a verified usable P2P group for
+Server API recovery. Old fallback/suppression state cannot permanently select LAN after Server
+restart. A healthy confirmed LAN fallback remains stable. Existing backoff/heartbeat,
 non-postponable recovery deadlines, generation-gated probes, Network-bound LAN identity, bounded
 P2P negotiation, and safe optional in-memory diagnostics now share the existing runtime. Developer
 mode and the connection-event viewer are implemented with a 100-entry process buffer.
@@ -114,10 +117,19 @@ All policy changes stay inside the existing `PhoneConnectionService` and
 `RemoteClientController`. Connected transport is reported only after an identity-checked,
 authenticated API/WebSocket connection succeeds—not from a P2P group or discovered endpoint.
 Permissions, Location Mode, Android/OEM approval, group-owner selection, and bounded fallback must
-remain recoverable and user-visible. Validate the new manual matrix in `STATUS.md` before preparing
-a subsequent release; release APKs/publication are outside this implementation task.
+remain recoverable and user-visible.
 
-### 2. Multi-player foundation and pairing hardening
+- [x] Persisted three-state connection policy and manual transport actions.
+- [x] Bounded recovery, confirmed transport status, and stale-callback protection.
+- [x] Direct-preferred recovery after short/long Server stop/restart.
+- [x] Developer mode and 100-event connection-log viewer.
+- [x] Complete manual connection-policy and regression matrix confirmed by the maintainer.
+- [ ] Install and smoke-test the exact final release-signed Phone `0.8.0` over public `0.7.0`.
+- [ ] Publish Phone `0.8.0` with the unchanged Server `0.11.0` APK.
+
+## Planned after Phone 0.8.0
+
+### Multi-player foundation and pairing hardening
 
 - evolve one-slot pairing storage into an explicit collection keyed by stable Server identity;
 - add deterministic active-device selection without persisting LAN/P2P addresses;

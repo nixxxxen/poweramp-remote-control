@@ -7,7 +7,7 @@ controls, or a compatible Wear OS controller operates it over a local connection
 Current versions:
 
 - Server `0.11.0` (`versionCode 14`)
-- Phone Client `0.7.0` (`versionCode 16`)
+- Phone Client `0.8.0` (`versionCode 17`)
 - local API `v1`
 
 The Server and Phone Client are separate APKs with independent version numbers.
@@ -19,9 +19,10 @@ The Server and Phone Client are separate APKs with independent version numbers.
 | Server | Android device that runs Poweramp | Uses Poweramp's public Intent API, exposes the authenticated local API and Web UI, publishes LAN/Wi-Fi Direct discovery, and controls player-device volume. |
 | Phone Client | A second Android phone | Owns discovery, pairing, reconnect, the remote player UI, and one Android MediaSession. It controls the Server and never receives or decodes audio. |
 
-The Phone Client discovers `_poweramp-remote._tcp` with LAN NSD first. If the paired player is not
-available on the LAN, it can automatically start the existing Wi-Fi Direct discovery path. Android
-and OEM connection approval dialogs are always respected; LAN remains preferred when it returns.
+The Phone Client discovers `_poweramp-remote._tcp` over LAN and Wi-Fi Direct. Settings lets you use
+LAN only, prefer LAN with Direct fallback (the default), or prefer Direct with LAN fallback.
+Player devices also provides manual transport switching. Android and OEM connection approval
+dialogs are always respected.
 
 ## Features
 
@@ -35,8 +36,12 @@ and OEM connection approval dialogs are always respected; LAN remains preferred 
   ordered batch of up to 100 tracks.
 - **Web UI:** a small authenticated browser remote for essential playback, seek, rating, shuffle,
   artwork, metadata, and volume controls.
+- **Connection control:** saved LAN/Direct preferences, manual switching, automatic recovery, and
+  an optional developer-mode viewer for the latest 100 connection events.
 
 ## Screenshots
+
+Screenshots show Phone `0.7.0`; the new connection settings and actions are described below.
 
 <table>
   <tr>
@@ -90,14 +95,13 @@ group owner for the current fallback connection to work.
 Download the two APKs from the [latest GitHub Release](../../releases/latest):
 
 - `Poweramp-Remote-Server-v0.11.0.apk`
-- `Poweramp-Remote-Phone-v0.7.0.apk`
+- `Poweramp-Remote-Phone-v0.8.0.apk`
 
 The release also provides `SHA256SUMS.txt` plus the project and third-party license notices.
 
-> **Library and Queue update:** install Server `0.11.0` over public Server `0.10.2` and Phone Client
-> `0.7.0` over public Phone `0.6.0` without uninstalling. Both application IDs and the permanent
-> release certificate are unchanged, so Server identity, API token, saved pairing, and Bearer
-> credential remain in place. Both new APKs are required for the complete feature set.
+> **Connection update:** install Phone Client `0.8.0` over public Phone `0.7.0` without
+> uninstalling. Server `0.11.0` is unchanged and does not need reinstalling. The application ID and
+> permanent release certificate are retained, preserving pairing, credentials, and app data.
 
 > **Historical debug-build boundary:** pre-release APKs were signed with Android debug
 > certificates. Release-signed APKs still cannot update those installations. Uninstall both old
@@ -116,14 +120,20 @@ Then:
    verifies the Server on the LAN.
 
 After successful pairing, the Phone Client stores the Server identity and credential in its private,
-backup-excluded app storage and reconnects automatically. If LAN discovery fails, the client may
-offer or start Wi-Fi Direct fallback; confirm any system dialogs shown on either device.
+backup-excluded app storage and reconnects automatically using the saved transport policy. Confirm
+any system dialogs shown on either device when Direct is allowed.
 
 The Phone bottom bar opens **Player**, **Library**, **Search**, and **Settings**. The connection pill
 opens **Player devices**, and the Queue button in the Player toolbar opens the current Poweramp
-Queue. Settings selects **System default**, **Russian**, or **English** without changing pairing or
-stopping the connection service; About shows installed version metadata, licenses, and project
-links.
+Queue. Settings provides **Allow Wi-Fi Direct connections**, **Prefer Wi-Fi Direct**, app language
+(**System default**, **Russian**, or **English**), and optional **Developer mode**. When enabled,
+**View logs** shows up to 100 connection events kept only in process memory; disabling the mode
+clears the buffer. About shows installed version metadata, licenses, and project links.
+
+Under Direct preference, a healthy Direct connection stays active when LAN returns. Player devices
+can temporarily override the preference; switching to LAN asks for confirmation. If the preferred
+transport cannot connect within its bounded attempt, the allowed alternative can take over. A
+healthy LAN fallback is retained to avoid repeated switching.
 
 For browser control, open `http://<SERVER-IP>:8765/` from a device on the same trusted LAN and log
 in with the credential copied through the Server's explicit Web UI credential action.

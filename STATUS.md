@@ -3,6 +3,7 @@
 ## Release state
 
 - Published baseline: Server `0.11.0` / code 14 and Phone `0.7.0` / code 16.
+- Next candidate: Phone `0.8.0` / code 17 with the unchanged public Server `0.11.0` APK.
 - Local API: backward-compatible `v1`.
 - Validated application-source revision: `6bb22a8`
   (`6bb22a87c77a7563e4855b460c1507b00def1ecc`).
@@ -12,10 +13,12 @@ The release is already published. Its signed in-place matrix passed over Server 
 data. The published tag and APKs identify the application-source revision above; subsequent
 connection-policy work below is not part of those binaries.
 
-## Connection policy and recovery work (2026-10-25)
+## Connection policy and recovery — completed implementation
 
-Branch: `codex/connection-policy`, based on current `origin/main` at `d4f8733`. Application versions
-remain Server `0.11.0` / Phone `0.7.0`; no release build or publication is included.
+Implementation was committed as `ee6795a` (`feat(phone): add transport preferences and resilient
+reconnect`) on `codex/connection-policy`, based on `main` at `d4f8733`. The maintainer confirmed the
+complete manual matrix on 2026-11-03. Release preparation advances only Phone to `0.8.0` / code 17;
+Server source and build configuration are identical to the published release.
 
 Confirmed source-level causes and fixes:
 
@@ -77,7 +80,8 @@ Automated verification completed:
 Physical timing measurements are not yet available; the times above are nominal source/protocol
 bounds and Android suspension can delay callback delivery. The loopback test's injected 500 ms
 first-snapshot deadline completed in about 504 ms; this is JVM evidence, not a screen-off/OEM timing
-claim. No new physical-device item below is marked complete.
+claim. The maintainer subsequently confirmed the complete functional device matrix below;
+no quantitative physical timing results were supplied.
 
 ### Direct-preferred reconnect regression (2026-10-27)
 
@@ -108,23 +112,34 @@ claim. No new physical-device item below is marked complete.
   **24/24** tests, zero failures/errors/skips; `:phone:assembleDebug` and `git diff --check` pass.
   No clean, lint, Server tasks, full suites, release tasks, API or version changes were made for
   this correction. Existing unrelated/uncommitted connection-policy work is retained.
-- Device verification of this fix remains **unconfirmed**. Specifically recheck a short Server
-  stop/restart with the group retained, group loss/recovery, restart after the old window/cooldown,
-  and unavailable Direct falling back to LAN without subsequent oscillation or approval loops.
+- Device verification is **maintainer-confirmed on 2026-11-03**, including the complete manual
+  matrix and the reported Server stop/restart correction. Final signed-candidate checks remain
+  separate from this implementation validation.
 
-### Manual connection-policy matrix — not yet performed
+### Manual connection-policy matrix — passed 2026-11-03
 
-- [ ] All three modes with both transports available; persistence after process restart.
-- [ ] LAN loss, immediate allowed fallback, return home/new DHCP address, and no P2P-as-LAN label.
-- [ ] Server unavailable with Wi-Fi still up; bounded alternatives; Server stop/restart.
-- [ ] Direct group loss versus API-only loss; recovery and no repeated approval prompts.
-- [ ] Both manual switches, Direct-preferred LAN confirmation/cancel, temporary priority and failure.
-- [ ] Policy changes during discovery/negotiation/probe; Forget/Stop; no stale status or callbacks.
-- [ ] Nearby permission denial, Wi-Fi/Location off, approval refusal/timeout, and explicit retry.
-- [ ] Background, screen-off/paused playback, rebind, and saved settings after restart.
-- [ ] Developer mode on/off, 100-entry eviction, safe fields, Refresh reading offset/end, Clear.
-- [ ] Queue-add interrupted after delivery: one factual result, no automatic second append; playback,
+- [x] All three modes with both transports available; persistence after process restart.
+- [x] LAN loss, immediate allowed fallback, return home/new DHCP address, and no P2P-as-LAN label.
+- [x] Server unavailable with Wi-Fi still up; bounded alternatives; Server stop/restart.
+- [x] Direct group loss versus API-only loss; recovery and no repeated approval prompts.
+- [x] Both manual switches, Direct-preferred LAN confirmation/cancel, temporary priority and failure.
+- [x] Policy changes during discovery/negotiation/probe; Forget/Stop; no stale status or callbacks.
+- [x] Nearby permission denial, Wi-Fi/Location off, approval refusal/timeout, and explicit retry.
+- [x] Background, screen-off/paused playback, rebind, and saved settings after restart.
+- [x] Developer mode on/off, 100-entry eviction, safe fields, Refresh reading offset/end, Clear.
+- [x] Queue-add interrupted after delivery: one factual result, no automatic second append; playback,
   MediaSession, Library/Search/Queue, pairing, and Web UI regressions.
+
+### Phone 0.8.0 release-candidate preparation
+
+- Existing implementation and the complete device matrix are confirmed.
+- Release metadata/docs are being prepared for Phone `0.8.0` / code 17.
+- The final clean debug baseline and signed Phone release pipeline must finish before the bundle
+  is handed off. Exact results, source revision, and APK hashes will be recorded here afterward.
+- The reused Server is the exact public APK, source revision `6bb22a8`, SHA-256
+  `6a2f1341e7b9e3ae356e954f613415ff41f8189522c4c4c96a161ac357361ed7`.
+- The exact signed Phone APK still needs the short in-place check in `RELEASING.md` before
+  publication. Implementation/debug-device confirmation does not claim that later artifact passed.
 
 ## Implemented product
 
@@ -136,8 +151,8 @@ claim. No new physical-device item below is marked complete.
   connections, reconnect, playback state, Library/Search/Queue requests, and one Media3 session.
 - Initial pairing uses an address-free QR with stable Server identity and a short-lived one-time
   secret. Manual persistent Bearer-token pairing remains available for devices without a camera.
-- The published release prefers LAN with verified Wi-Fi Direct fallback. The subsequent policy
-  work above makes the preference configurable while preserving Android/OEM prerequisites.
+- Phone `0.8.0` makes transport preference configurable and adds bounded, authenticated recovery;
+  the public Phone `0.7.0` baseline retains its original LAN-first selection.
 - Pairing identity is never an IP address. Activities do not own or restart either connection
   runtime.
 
@@ -207,8 +222,8 @@ claim. No new physical-device item below is marked complete.
   independently, including recycled views.
 - English fallback and Russian resources cover screens, dialogs, scanner, accessibility, service
   notification, and metadata formatting. App language is System default, Russian, or English.
-- Settings/About use concise labels while retaining repository, license, and third-party-notice
-  actions.
+- Settings adds saved transport policy and optional Developer mode/View logs while retaining
+  language, About, repository, license, and third-party-notice actions.
 
 ### Embedded Web UI
 
@@ -216,7 +231,7 @@ claim. No new physical-device item below is marked complete.
   Like/Dislike, shuffle, artwork, metadata, and player-device volume.
 - Library/Search/Queue remain Phone/API features; the Web UI has no partial library surface.
 
-## Verification
+## Published 0.11.0 / 0.7.0 verification (historical)
 
 ### Signed release automation
 
@@ -274,8 +289,8 @@ Confirmed areas include:
 - Local HTTP/WebSocket traffic is authenticated but not encrypted. Use only trusted networks and do
   not expose port `8765` to the internet.
 - Pairing persistence currently stores one Server; full multi-player selection is future work.
-- The new connection policy/recovery code requires the manual matrix above; published `0.7.0`
-  still uses its original LAN-first selection.
+- Final signed Phone `0.8.0` in-place validation remains pending; the implementation's full device
+  matrix is confirmed.
 - Wi-Fi Direct behavior still varies by Android/OEM permissions, Location Mode, approval, and
   group-owner selection.
 - Queue removal, Clear, Reorder, and Play Next are unavailable; Scoped Search and Lyrics are
@@ -287,11 +302,12 @@ Confirmed areas include:
 - Broader Android vendor/Poweramp version coverage remains useful but is not a blocker for the
   validated release.
 
-## Published release and next validation
+## Release handoff
 
-Server `0.11.0` / Phone `0.7.0` are published; their binaries, source tag, and signed matrix remain
-the baseline. Complete the separate connection-policy matrix before a later release-preparation
-task. Do not rebuild or republish release APKs as part of the current work.
+Server `0.11.0` / Phone `0.7.0` are published; their source tag and binaries remain unchanged.
+Prepare `outputs/release-0.11.0_phone-0.8.0/` with the new signed Phone and the exact public Server,
+then fast-forward local `main`. Do not push or publish in this task. The maintainer checks the
+exact signed Phone in place, then pushes and tags at the Phone APK-source revision recorded above.
 
 Future implementation order is maintained in [`ROADMAP.md`](ROADMAP.md); durable architecture and
 protocol contracts are maintained in [`PROJECT.md`](PROJECT.md).

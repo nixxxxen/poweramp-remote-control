@@ -6,11 +6,11 @@ Poweramp Remote provides a reliable native Android Server for any compatible And
 with Poweramp, a retained same-origin Web UI, and a native Android Phone Client.
 
 - Server: `0.11.0` (`versionCode 14`)
-- Phone Client: `0.7.0` (`versionCode 16`)
+- Phone Client: `0.8.0` (`versionCode 17`, release candidate)
 - API: `v1` (unchanged)
 
 The two application versions are deliberately independent. Both old application IDs shipped
-`versionCode 7`; the Server counter is now `14` and the Phone counter is `16`. This preserves
+`versionCode 7`; the Server counter is now `14` and the Phone counter is `17`. This preserves
 Android upgrade compatibility while later Server and Phone codes continue to advance independently. The existing Android
 `applicationId` values remain unchanged solely so upgrades preserve the Server API token and Phone
 Client pairing. Current source namespaces and UI terminology are device-neutral.
@@ -226,10 +226,10 @@ Server `id`, a random 256-bit one-time secret, and a non-secret player-device na
 neither the persistent Bearer token nor a LAN/P2P address.
 
 After **Pair new player** or **Re-pair**, the Phone Client scans and strictly validates that payload,
-then targets only its exact public Server `id`. Ordinary LAN NSD remains the first search path. If
-the identity is not found during the LAN grace period, the same pre-association Wi-Fi Direct DNS-SD
-path is used for this scanned identity; Android/OEM permissions, Location Mode, group-owner choice,
-and approval remain mandatory where applicable. Once an endpoint is reachable, unauthenticated
+then targets only its exact public Server `id`. The saved transport policy also governs QR pairing:
+LAN-only forbids Direct, LAN-preferred uses its LAN grace, and Direct-preferred starts the existing
+pre-association Wi-Fi Direct DNS-SD path first. Android/OEM permissions, Location Mode, group-owner
+choice, and approval remain mandatory where applicable. Once an endpoint is reachable, unauthenticated
 `POST /api/v1/pair` atomically consumes the secret and returns the existing persistent API
 credential. Reuse, expiry, a mismatched identity, or a mismatched API version is rejected. Expected
 rejections and unexpected request-local failures are logged without request bodies, secrets, or
@@ -262,8 +262,8 @@ uses the unchanged reconnect/WebSocket path.
 
 ### Transport policy and confirmed connections
 
-Server `0.11.0` and Phone `0.7.0` are published releases. The subsequent connection-policy work keeps
-those version numbers and API `v1` while adding three valid Phone modes:
+Server `0.11.0` and Phone `0.7.0` are the published baseline. Phone `0.8.0` adds the following modes
+with the same Server APK and API `v1`:
 
 | Policy | Behavior |
 |---|---|
@@ -312,9 +312,9 @@ direct fallback without the normal LAN grace delay. A new DHCP address can repla
 
 ### Wi-Fi Direct fallback
 
-When a paired Server, or the exact identity from an active QR offer, is not found through LAN NSD
-after a short grace period, the Phone Client starts Wi-Fi Direct pre-association DNS-SD. The Server
-publishes:
+For a paired Server or the exact identity from an active QR offer, Direct-preferred starts Wi-Fi
+Direct pre-association DNS-SD immediately. LAN-preferred uses it as allowed fallback after its LAN
+grace, or immediately on confirmed LAN loss; LAN-only never starts it. The unchanged Server publishes:
 
 - instance name `Poweramp Remote Server`;
 - service type `_poweramp-remote._tcp`;
@@ -344,13 +344,13 @@ local DNS-SD record, the Server starts and refreshes `discoverPeers()` so it par
 framework peer-discovery/listen cycle. The Phone explicitly runs `discoverPeers()` before adding its
 DNS-SD request and calling `discoverServices()`. Both sides observe P2P state, discovery, peer-list,
 connection, and channel-loss callbacks for their service lifetime. Stopped or failed discovery is
-retried with bounded delay; a confirmed group loss returns to LAN-first discovery and direct fallback.
+retried with bounded delay; a confirmed group loss resumes selection under the saved transport policy.
 
 Every fresh LAN-to-direct transition discards stale Phone discovery requests/connections and closes
 the old `WifiP2pManager.Channel` where supported before creating a new channel. The Server watches
 LAN transport changes, clears/re-adds its local DNS-SD service, restarts peer discovery, and likewise
 reinitializes a failed channel. This repairs framework state that can otherwise remain stale until a
-process restart while retaining LAN preference and the same stable identity.
+process restart while retaining the same stable identity and the Phone's selected transport policy.
 
 Direct-connect is bounded and user-visible. The Phone Client distinguishes permission required,
 Location Mode disabled, Wi-Fi disabled, P2P unsupported, discovery/connect timeout, and a phone
@@ -380,7 +380,8 @@ idle streams keep the existing heartbeat: after 20 seconds without a frame Phone
 another 20 seconds without a reply fails the path. Paused playback is not itself a failure, since
 the Server handles Ping/Pong independently of track events. No REST polling, wake lock, or shortened
 background timeout is introduced. Android suspension/OEM scheduling can delay delivery beyond
-these nominal bounds; new physical-device screen-off measurements remain pending.
+these nominal bounds. Functional screen-off recovery is maintainer-confirmed; physical timing
+measurements across OEMs have not been recorded.
 
 A confirmed infrastructure-network loss schedules recovery immediately; other network changes use
 the existing 500 ms debounce. Earlier deadlines win, so repeated callbacks cannot restart a grace
@@ -1069,7 +1070,9 @@ Poweramp build 1025 confirms the complete current Library/Search/Queue contract,
 multi-artist relations, lists beyond 1000 rows, all sorting modes, duplicate Queue entries, exact
 play targets, single/batch Queue additions, and zero-based Queue position. The signed Server
 `0.11.0` / Phone `0.7.0` in-place release matrix is maintainer-confirmed. Broader OEM and Poweramp
-version coverage remains valuable but is not a release blocker.
+version coverage remains valuable. The maintainer also confirmed the complete connection-policy
+device matrix and the Direct-preferred Server stop/restart correction on 2026-11-03. Final signed
+Phone `0.8.0` in-place installation remains a separate release-candidate check.
 
 Live Library or Queue edits do not mutate an existing paging snapshot: Reload starts a fresh view.
 A successful Phone Queue addition is the narrow exception that invalidates only Queue and starts a

@@ -8,13 +8,13 @@ Android player device with Poweramp, plus a separate native Phone Client.
 Current application versions are independent:
 
 - Server: `0.11.0` (`versionCode 14`);
-- Phone Client: `0.7.0` (`versionCode 16`);
+- Phone Client: `0.8.0` (`versionCode 17`, release candidate);
 - local API: `v1` (unchanged).
 
 The legacy Android application IDs under `dev.r4remote` are intentionally retained only for
 in-place upgrade compatibility, so existing Server tokens and Phone pairing preferences survive.
 Both legacy apps previously shipped `versionCode 7`; the Server counter is now `14` and the Phone
-counter is `16`. Future Server and Phone codes must continue to advance separately. The legacy IDs
+counter is `17`. Future Server and Phone codes must continue to advance separately. The legacy IDs
 are not the current product or source namespace.
 
 ## Read first
@@ -59,18 +59,20 @@ posting it to the main looper. `PhoneConnectionService` turns that pair into one
 anchor shared by the rebound player UI and `RemoteSessionPlayer`; neither consumer may replace it
 with its later callback-delivery time.
 
-For a previously paired Server or the exact identity in an active QR offer, the Phone Client starts
-Wi-Fi Direct service discovery when the target is not found through LAN NSD. The Server advertises the same public stable
+For a previously paired Server or the exact identity in an active QR offer, the Phone Client applies
+the saved LAN-only, LAN-preferred (default), or Direct-preferred policy. The Server advertises the same public stable
 identity, API version, and listener port through pre-association Wi-Fi Direct DNS-SD. The credential
 is never advertised. After Android forms a P2P group, the Phone Client uses the group-owner address
 with the unchanged API v1 client.
 
-LAN remains preferred. Network callbacks restart NSD after network changes; a recovered LAN
-endpoint replaces a direct endpoint. Wi-Fi Direct connection requests must respect runtime
+LAN remains preferred by default. Direct preference retains a healthy Direct path when LAN returns;
+under that preference, loss of a confirmed connection starts a bounded Direct-first cycle with LAN
+fallback. Manual choice temporarily takes priority; a confirmed healthy fallback is not repeatedly
+displaced. Network callbacks restart NSD as needed. Wi-Fi Direct connection requests must respect runtime
 permissions, Location Mode requirements, platform group-owner selection, and any system approval
 shown on either device. Never try to bypass or automate those dialogs.
 
-The Server `0.11.0` / Phone `0.7.0` release candidate adds the Library/Search/Queue foundation and
+The published Server `0.11.0` / Phone `0.7.0` release adds the Library/Search/Queue foundation and
 Phone UI. `RemotePlaybackService` owns `PowerampLibrarySource` and its unstable
 ContentProvider adapter; HTTP routes are additive and Bearer-only. Search uses `/files` with fixed
 bound selection arguments, not the obsolete `/search?flt` path that crashes the verified Poweramp
@@ -119,6 +121,9 @@ Version history:
   full-list sorting, a shared mini-player, exact current-row identity, read/exact-play Queue UI,
   and public single/batch Add to Queue. API `v1` remains backward-compatible; Queue removal,
   clearing, reordering, and Play Next remain unavailable.
+- Phone Client `0.8.0` adds persisted transport policy, manual LAN/Direct switching, bounded
+  recovery including Server stop/restart under Direct preference, Network-bound LAN requests,
+  and optional 100-event in-memory diagnostics. Server stays `0.11.0`; API remains `v1`.
 
 Do not introduce a cloud dependency, duplicate Poweramp path, duplicate Server service, protocol
 fork, or unrelated architectural rewrite unless explicitly requested.
@@ -205,7 +210,7 @@ These remain out of scope unless explicitly requested.
 The exact public semantics of these Poweramp fields are not fully guaranteed:
 
 - units of `bitRate`;
-- index base of `posInList`.
+- index base of `posInList` outside the verified zero-based Queue category.
 
 API v1 must continue to preserve both raw values. Presentation code may format bitrate and remove
 diagnostic labels from list position, but must not invent an unverified index offset or alter the
@@ -221,7 +226,8 @@ For every new capability:
 4. Preserve automatic event-driven refresh and avoid polling when an event is available.
 5. Avoid magic numbers when official constants exist.
 6. Keep API v1 routes, payloads, authentication, and status semantics compatible.
-7. Keep LAN NSD active and preferred when changing direct-connect behavior.
+7. Keep LAN NSD available for allowed discovery/fallback and honor the saved transport policy and
+   temporary manual priority; LAN is preferred by default, not unconditionally.
 8. Match Wi-Fi Direct peers by the already verified stable Server identity before connecting.
 9. Never advertise or persist a resolved address as pairing identity.
 10. Treat Android permission denial, Location Mode off, Wi-Fi off, unsupported P2P, approval
