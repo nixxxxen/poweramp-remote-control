@@ -46,11 +46,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         DIRECT_LOCATION_REQUIRED,
         DIRECT_WIFI_REQUIRED,
         DIRECT_CONNECTING,
+        DIRECT_WAITING_APPROVAL,
         CONNECTED_DIRECT,
         DIRECT_UNSUPPORTED,
         DIRECT_ACTION_REQUIRED,
         RETRYING,
         AUTH_REQUIRED,
+        SWITCHING,
+        SERVER_UNAVAILABLE,
         ERROR
     }
 
@@ -65,6 +68,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     enum PairingMode { NONE, QR, MANUAL_TOKEN }
+
+    enum SwitchFailure { NONE, TIMEOUT, PERMISSION, LOCATION, WIFI, UNSUPPORTED, DIRECT_FAILED }
 
     enum LibraryFailure {
         DISCONNECTED,
@@ -165,6 +170,11 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private final WifiDirectConnectionClient directClient;
     private final ConnectivityManager connectivityManager;
     private final Listener listener;
+    private final TransportSelectionPolicy transportSelection;
+    private final RecoveryDeadline directFallbackDeadline = new RecoveryDeadline();
+    private final RecoveryDeadline networkRecoveryDeadline = new RecoveryDeadline();
+    private final RecoveryDeadline selectionDeadline = new RecoveryDeadline();
+    private final Map<DiscoveredServer, Long> rejectedEndpoints = new HashMap<>();
     private final ExecutorService controlExecutor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "remote-controls");
         thread.setDaemon(true);
@@ -199,10 +209,17 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private final Runnable directFallbackRunnable = this::startDirectFallback;
     private final Runnable networkRecoveryRunnable = this::handleNetworkRecovery;
     private final Runnable manualPairingTimeoutRunnable = this::finishManualPairingTimeout;
-    private final ConnectivityManager.NetworkCallback networkCallback =
-            new ConnectivityManager.NetworkCallback() {
+    private final Runnable selectionTimeoutRunnable = this::handleSelectionTimeout;
+    private final Runnable pathFailureTimeoutRunnable = this::handlePathFailureTimeout;
+    private final Runnable qrPairingTimeoutRunnable = this::finishQrPairingTimeout;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private int networkMonitorGeneration;
+
+    private ConnectivityManager.NetworkCallback networkCallback(int monitorGeneration) {
+        return new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(Network network) {
+                    if (!active || monitorGeneration != networkMonitorGeneration) return;
                     updateTrackedNetwork(
                             network,
                             getNetworkCapabilities(network),
@@ -215,6 +232,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                         Network network,
                         NetworkCapabilities networkCapabilities
                 ) {
+                    if (!active || monitorGeneration != networkMonitorGeneration) return;
                     updateTrackedNetwork(
                             network,
                             networkCapabilities,
@@ -224,11 +242,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
                 @Override
                 public void onLost(Network network) {
+                    if (!active || monitorGeneration != networkMonitorGeneration) return;
                     boolean hadLanNetwork = lanNetworkTracker.hasLanNetwork();
                     if (lanNetworkTracker.remove(network)) {
                         scheduleNetworkRecovery(
                                 "infrastructure LAN network lost",
-                                TransportRecoveryPolicy.networkRecoveryDelayMilliseconds(
+                                endpoint != null && network.equals(endpoint.network) ? 0L
+                                        : TransportRecoveryPolicy.networkRecoveryDelayMilliseconds(
                                         hadLanNetwork,
                                         lanNetworkTracker.hasLanNetwork(),
                                         NETWORK_RECOVERY_DEBOUNCE_MILLISECONDS
@@ -238,6 +258,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 }
 
             };
+    }
 
     private PairingCredentials credentials;
     private DiscoveredServer endpoint;
@@ -245,16 +266,26 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private String pendingManualToken;
     private final Set<String> attemptedManualServerIds = new HashSet<>();
     private RemoteWebSocket webSocket;
+    private RemoteWebSocket pendingSocket;
+    private DiscoveredServer pendingEndpoint;
+    private DiscoveredServer directEndpoint;
+    private final ConnectionAttemptGate socketAttempts = new ConnectionAttemptGate();
+    private long attemptStartedMs;
+    private long failureWindowStartedMs;
+    private boolean directSuppressed;
+    private boolean directNeedsUserRetry;
+    private boolean authenticationRequired;
+    private SwitchFailure switchFailure = SwitchFailure.NONE;
     private boolean active;
     private boolean closed;
     private boolean connecting;
     private boolean connected;
     private boolean pairingExchangeInFlight;
     private boolean manualPairingSawRejectedToken;
-    private int connectionGeneration;
+    private volatile int connectionGeneration;
     private final AtomicLong queueContentGeneration = new AtomicLong();
     private final AtomicBoolean queueAddInFlight = new AtomicBoolean();
-    private int operationGeneration;
+    private volatile int operationGeneration;
     private int reconnectFailures;
     private int artworkGeneration;
     private long connectionLastRevision = -1L;
@@ -267,6 +298,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         pairingStore = new PairingStore(context.getApplicationContext());
         libraryArtworkRepository = new LibraryArtworkRepository(context.getApplicationContext());
         credentials = pairingStore.load();
+        transportSelection = new TransportSelectionPolicy(new ConnectionPreferences(context).policy());
         discoveryClient = new NsdDiscoveryClient(context.getApplicationContext(), this);
         directClient = new WifiDirectConnectionClient(context.getApplicationContext(), this);
         connectivityManager = context.getSystemService(ConnectivityManager.class);
@@ -292,6 +324,77 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         return endpoint;
     }
 
+    ConnectionPolicy connectionPolicy() { return transportSelection.policy(); }
+    boolean isSwitchingTransport() { return transportSelection.switching(); }
+    SwitchFailure switchFailure() { return switchFailure; }
+
+    void changeConnectionPolicy(ConnectionPolicy policy) {
+        if (policy == transportSelection.policy()) return;
+        transportSelection.changePolicy(policy);
+        switchFailure = SwitchFailure.NONE;
+        directSuppressed = false;
+        directNeedsUserRetry = false;
+        cancelTransportTimers();
+        cancelPendingSocket();
+        operationGeneration++;
+        if (isPairingInProgress()) {
+            pendingPairing = null;
+            mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
+            clearManualPairingState();
+            listener.onPairingFailed(PairingError.NETWORK);
+        }
+        pairingExchangeInFlight = false;
+        record(ConnectionDiagnostics.Reason.POLICY_CHANGED, null,
+                ConnectionDiagnostics.Stage.RUNTIME, ConnectionDiagnostics.Result.SUCCEEDED);
+        if (!policy.allowsDirect()) {
+            stopDirect();
+            directEndpoint = null;
+            if (endpoint != null && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) {
+                disconnectSocket();
+                endpoint = null;
+                notifyStatus(Status.SEARCHING, 0L);
+            }
+        }
+        if (!active) return;
+        // A deliberate preference change starts a fresh bounded choice; healthy old API stays up.
+        if (policy == ConnectionPolicy.DIRECT_PREFERRED) startPreferredDirectWindow();
+        else {
+            if (connected && endpoint.transport == DiscoveredServer.Transport.LAN) stopDirect();
+            tryLanCandidate();
+            if (!connected) scheduleDirectFallback(0L);
+        }
+        restartDiscovery();
+    }
+
+    boolean switchTransport(DiscoveredServer.Transport target) {
+        if (!active || credentials == null || isPairingInProgress() || authenticationRequired
+                || connected && endpoint != null && endpoint.transport == target
+                || !transportSelection.beginManual(target)) return false;
+        cancelTransportTimers();
+        cancelPendingSocket();
+        reconnectFailures = 0;
+        failureWindowStartedMs = 0L;
+        directSuppressed = false;
+        directNeedsUserRetry = false;
+        switchFailure = SwitchFailure.NONE;
+        rejectedEndpoints.clear();
+        attemptStartedMs = SystemClock.elapsedRealtime();
+        record(ConnectionDiagnostics.Reason.MANUAL_SWITCH, target,
+                ConnectionDiagnostics.Stage.CONNECT, ConnectionDiagnostics.Result.STARTED);
+        notifyStatus(connected ? confirmedStatus() : Status.SWITCHING, 0L);
+        scheduleSelectionTimeout();
+        if (target == DiscoveredServer.Transport.WIFI_DIRECT) {
+            scheduleDirectFallback(0L);
+        } else {
+            if (!connected || endpoint.transport != DiscoveredServer.Transport.WIFI_DIRECT) {
+                stopDirect();
+            }
+            tryLanCandidate();
+            restartDiscovery();
+        }
+        return true;
+    }
+
     boolean isPairingInProgress() {
         return pendingPairing != null || pendingManualToken != null;
     }
@@ -305,25 +408,35 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     void start() {
         if (active || closed) return;
         active = true;
-        Log.i(TAG, "Client runtime started; LAN discovery has priority");
+        record(ConnectionDiagnostics.Reason.START, null,
+                ConnectionDiagnostics.Stage.RUNTIME, ConnectionDiagnostics.Result.STARTED);
         notifyStatus(Status.SEARCHING, 0L);
         startNetworkMonitor();
         discoveryClient.start();
-        scheduleDirectFallback(DIRECT_FALLBACK_DELAY_MILLISECONDS);
+        if (transportSelection.policy() == ConnectionPolicy.DIRECT_PREFERRED) {
+            startPreferredDirectWindow();
+        } else {
+            scheduleDirectFallback(TransportRecoveryPolicy.directFallbackDelayMilliseconds(
+                    hasLanCapableNetwork(), DIRECT_FALLBACK_DELAY_MILLISECONDS));
+        }
     }
 
     void stop() {
         if (!active) return;
         Log.i(TAG, "Client runtime explicitly stopping");
         active = false;
+        operationGeneration++;
+        cancelTransportTimers();
+        transportSelection.reset();
         mainHandler.removeCallbacks(reconnectRunnable);
         mainHandler.removeCallbacks(discoveryRestartRunnable);
         mainHandler.removeCallbacks(directFallbackRunnable);
         mainHandler.removeCallbacks(networkRecoveryRunnable);
         mainHandler.removeCallbacks(manualPairingTimeoutRunnable);
+        mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
         stopNetworkMonitor();
         discoveryClient.stop();
-        directClient.stop();
+        stopDirect();
         candidates.clear();
         pendingPairing = null;
         pendingManualToken = null;
@@ -331,6 +444,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         pairingExchangeInFlight = false;
         endpoint = null;
         disconnectSocket();
+        record(ConnectionDiagnostics.Reason.STOP, null,
+                ConnectionDiagnostics.Stage.RUNTIME, ConnectionDiagnostics.Result.CANCELLED);
     }
 
     @Override
@@ -340,21 +455,26 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         operationGeneration++;
+        resetTransportChoice();
         pendingPairing = payload;
+        mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
+        mainHandler.postDelayed(qrPairingTimeoutRunnable, 120_000L);
         clearManualPairingState();
         pairingExchangeInFlight = false;
         mainHandler.removeCallbacks(reconnectRunnable);
         mainHandler.removeCallbacks(directFallbackRunnable);
         disconnectSocket();
-        directClient.stop();
+        stopDirect();
         endpoint = null;
         notifyStatus(Status.PAIRING, 0L);
         DiscoveredServer candidate = candidates.get(payload.serverId);
-        if (candidate != null) {
+        if (candidate != null && transportSelection.maySelect(candidate.transport, null, false)) {
             beginPairingExchange(candidate);
         } else {
             restartDiscovery();
-            scheduleDirectFallback(DIRECT_FALLBACK_DELAY_MILLISECONDS);
+            if (transportSelection.policy() == ConnectionPolicy.DIRECT_PREFERRED) {
+                startPreferredDirectWindow();
+            } else scheduleDirectFallback(DIRECT_FALLBACK_DELAY_MILLISECONDS);
         }
     }
 
@@ -366,7 +486,9 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         operationGeneration++;
+        resetTransportChoice();
         pendingPairing = null;
+        mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
         pendingManualToken = token;
         attemptedManualServerIds.clear();
         manualPairingSawRejectedToken = false;
@@ -375,7 +497,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         mainHandler.removeCallbacks(directFallbackRunnable);
         mainHandler.removeCallbacks(manualPairingTimeoutRunnable);
         disconnectSocket();
-        directClient.stop();
+        stopDirect();
         endpoint = null;
         notifyStatus(Status.PAIRING, 0L);
         restartDiscovery();
@@ -405,11 +527,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         credentials = null;
         operationGeneration++;
+        resetTransportChoice();
         pendingPairing = null;
+        mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
         clearManualPairingState();
         pairingExchangeInFlight = false;
         mainHandler.removeCallbacks(directFallbackRunnable);
-        directClient.stop();
+        stopDirect();
         endpoint = null;
         disconnectSocket();
         artworkRequestKey = null;
@@ -560,6 +684,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             libraryExecutor.execute(() -> {
                 LibraryFailure failure = null;
                 try {
+                    if (!requestStillCurrent(generation)) throw new IOException("Cancelled before dispatch");
                     apiClient.playLibraryTarget(
                             currentEndpoint, currentCredentials.token, target
                     );
@@ -593,6 +718,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 QueueAddResult result = null;
                 LibraryFailure failure = null;
                 try {
+                    if (!requestStillCurrent(generation)) throw new IOException("Cancelled before dispatch");
                     result = apiClient.addToQueue(
                             currentEndpoint, currentCredentials.token, request
                     );
@@ -1101,8 +1227,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     void retryDirectConnection() {
-        if (!active || targetServerId() == null) return;
+        if (!active || targetServerId() == null || !transportSelection.allowsDirect()
+                || authenticationRequired) return;
+        directSuppressed = false;
+        directNeedsUserRetry = false;
+        switchFailure = SwitchFailure.NONE;
+        rejectedEndpoints.clear();
         restartDiscovery();
+        scheduleSelectionTimeout();
         if (directClient.isActive()) {
             directClient.retry();
         } else {
@@ -1112,12 +1244,18 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     void retryLanDiscovery() {
         if (!active) return;
+        rejectedEndpoints.clear();
+        transportSelection.allowFallback();
         notifyStatus(Status.SEARCHING, 0L);
         restartDiscovery();
+        tryLanCandidate();
     }
 
     void onDirectPermissionOrSettingsChanged() {
-        if (!active || targetServerId() == null) return;
+        if (!active || targetServerId() == null || !transportSelection.allowsDirect()
+                || authenticationRequired) return;
+        directSuppressed = false;
+        directNeedsUserRetry = false;
         if (directClient.isActive()) {
             directClient.onPermissionOrSettingsChanged();
         } else {
@@ -1128,12 +1266,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     @Override
     public void onServerFound(DiscoveredServer server) {
         if (!active) return;
-        Log.i(TAG, "LAN NSD Server found; transport=" + server.transport);
+        // NSD also sees the P2P interface. It is not evidence of infrastructure LAN.
+        if (!hasLanCapableNetwork() || isDirectAddress(server)) return;
+        record(ConnectionDiagnostics.Reason.ENDPOINT_FOUND, server.transport,
+                ConnectionDiagnostics.Stage.DISCOVERY, ConnectionDiagnostics.Result.SUCCEEDED);
         candidates.put(server.serverId, server);
         if (pendingPairing != null) {
             if (pendingPairing.serverId.equals(server.serverId)) {
-                mainHandler.removeCallbacks(directFallbackRunnable);
-                directClient.stop();
+                if (!transportSelection.maySelect(server.transport, null, false)) return;
                 beginPairingExchange(server);
             }
             return;
@@ -1144,20 +1284,12 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         }
         if (credentials == null) return;
         if (!credentials.matches(server)) return;
-        if (endpoint != null
-                && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
-                && endpoint.port == server.port
-                && endpoint.address.equals(server.address)) {
-            // NsdManager can surface the same server over the P2P interface. Keep the
-            // established direct group instead of tearing down the route underneath it.
-            return;
-        }
         if (endpoint != null && endpoint.sameEndpoint(server) && (connecting || connected)) return;
-        mainHandler.removeCallbacks(directFallbackRunnable);
-        Log.i(TAG, "Selecting LAN endpoint and stopping direct fallback/group");
-        directClient.stop();
-        endpoint = server;
-        connectSocket(false);
+        // A Server returning after an exhausted, disconnected cycle gets a fresh bounded choice,
+        // not the previous attempt's fallback/suppression. A healthy LAN fallback never gets here.
+        beginPreferredDirectRecovery();
+        tryDirectCandidate();
+        tryLanCandidate();
     }
 
     @Override
@@ -1165,11 +1297,14 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         if (!active) return;
         Log.i(TAG, "LAN NSD service lost");
         candidates.values().removeIf(server -> serviceName.equals(server.serviceName));
+        // A disappearing mDNS record alone must not destroy a healthy authenticated socket.
+        if (connected || connecting) return;
         if (endpoint != null
                 && endpoint.transport == DiscoveredServer.Transport.LAN
                 && serviceName.equals(endpoint.serviceName)) {
             endpoint = null;
             disconnectSocket();
+            transportSelection.unavailable(DiscoveredServer.Transport.LAN);
             notifyStatus(Status.SEARCHING, 0L);
             scheduleDirectFallback(0L);
         }
@@ -1179,7 +1314,9 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     public void onDiscoveryError(int errorCode) {
         if (!active) return;
         Log.w(TAG, "LAN NSD discovery failed: " + errorCode);
-        notifyStatus(Status.SEARCHING, ReconnectBackoff.delayMilliseconds(1));
+        if (!connected && !connecting) {
+            notifyStatus(Status.SEARCHING, ReconnectBackoff.delayMilliseconds(1));
+        }
         scheduleDirectFallback(0L);
         mainHandler.removeCallbacks(discoveryRestartRunnable);
         mainHandler.postDelayed(discoveryRestartRunnable, ReconnectBackoff.delayMilliseconds(1));
@@ -1197,6 +1334,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         notifyStatus(Status.VERIFYING, 0L);
         try {
             controlExecutor.execute(() -> {
+                if (!active || operation != operationGeneration) return;
                 try {
                     PairingExchangeResponse response = apiClient.exchangePairing(server, offer);
                     mainHandler.post(() -> finishPairing(operation, server, response));
@@ -1232,7 +1370,9 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         credentials = paired;
+        authenticationRequired = false;
         pendingPairing = null;
+        mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
         clearManualPairingState();
         pairingExchangeInFlight = false;
         endpoint = server;
@@ -1262,6 +1402,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         notifyStatus(Status.VERIFYING, 0L);
         try {
             controlExecutor.execute(() -> {
+                if (!active || operation != operationGeneration) return;
                 try {
                     RemoteState verifiedState = apiClient.getState(server, token);
                     long receivedRealtimeMilliseconds = SystemClock.elapsedRealtime();
@@ -1316,6 +1457,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         credentials = paired;
+        authenticationRequired = false;
         pendingPairing = null;
         clearManualPairingState();
         pairingExchangeInFlight = false;
@@ -1335,20 +1477,27 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         );
     }
 
+    private void finishQrPairingTimeout() {
+        if (active && pendingPairing != null) failPairing(operationGeneration, PairingError.NETWORK);
+    }
+
     private void failPairing(int operation, PairingError error) {
         if (!active || operation != operationGeneration) return;
         operationGeneration++;
+        cancelTransportTimers();
         pendingPairing = null;
+        mainHandler.removeCallbacks(qrPairingTimeoutRunnable);
         clearManualPairingState();
         pairingExchangeInFlight = false;
         endpoint = null;
-        directClient.stop();
+        stopDirect();
         notifyStatus(Status.SEARCHING, 0L);
         listener.onPairingFailed(error);
         restartDiscovery();
         DiscoveredServer previous = credentials == null
                 ? null : candidates.get(credentials.serverId);
-        if (previous != null) {
+        transportSelection.allowFallback();
+        if (previous != null && !endpointRejected(previous)) {
             endpoint = previous;
             connectSocket(false);
         } else {
@@ -1365,19 +1514,31 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private void connectSocket(boolean retry) {
         if (!active || credentials == null || endpoint == null) return;
+        connectSocketTo(endpoint, retry);
+    }
+
+    private void connectSocketTo(DiscoveredServer selectedEndpoint, boolean retry) {
+        if (!active || credentials == null || authenticationRequired) return;
+        if (pendingEndpoint != null && pendingEndpoint.sameEndpoint(selectedEndpoint)) return;
+        if (endpoint != null && !endpoint.sameEndpoint(selectedEndpoint)) {
+            // A stale path's retry budget must not cancel a replacement transport's probe.
+            reconnectFailures = 0;
+            failureWindowStartedMs = 0L;
+            mainHandler.removeCallbacks(pathFailureTimeoutRunnable);
+        }
         mainHandler.removeCallbacks(reconnectRunnable);
-        disconnectSocket();
-        final int generation = ++connectionGeneration;
-        final DiscoveredServer connectingEndpoint = endpoint;
-        connectionLastRevision = -1L;
+        cancelPendingSocket();
+        final long attemptId = socketAttempts.begin();
+        final DiscoveredServer connectingEndpoint = selectedEndpoint;
+        pendingEndpoint = selectedEndpoint;
+        attemptStartedMs = SystemClock.elapsedRealtime();
         connecting = true;
-        connected = false;
-        if (connectingEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) {
-            Log.i(TAG, "Opening API v1 WebSocket over Wi-Fi Direct");
-            notifyStatus(Status.DIRECT_CONNECTING, 0L);
-        } else {
-            Log.i(TAG, "Opening API v1 WebSocket over LAN; retry=" + retry);
-            notifyStatus(retry ? Status.RETRYING : Status.CONNECTING, 0L);
+        record(ConnectionDiagnostics.Reason.ENDPOINT_FOUND, selectedEndpoint.transport,
+                ConnectionDiagnostics.Stage.CONNECT, ConnectionDiagnostics.Result.STARTED);
+        if (!connected) {
+            notifyStatus(transportSelection.switching() ? Status.SWITCHING
+                    : connectingEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                    ? Status.DIRECT_CONNECTING : retry ? Status.RETRYING : Status.CONNECTING, 0L);
         }
         RemoteWebSocket socket = new RemoteWebSocket(
                 connectingEndpoint,
@@ -1385,13 +1546,20 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 new RemoteWebSocket.Listener() {
                     @Override
                     public void onOpen() {
-                        mainHandler.post(() -> handleSocketOpen(generation));
+                        mainHandler.post(() -> {
+                            if (socketAttempts.pending(attemptId)) {
+                                record(ConnectionDiagnostics.Reason.ENDPOINT_FOUND,
+                                        connectingEndpoint.transport,
+                                        ConnectionDiagnostics.Stage.UPGRADE,
+                                        ConnectionDiagnostics.Result.WAITING);
+                            }
+                        });
                     }
 
                     @Override
                     public void onState(RemoteState state, long receivedRealtimeMilliseconds) {
                         mainHandler.post(() -> handleSocketState(
-                                generation,
+                                attemptId,
                                 state,
                                 receivedRealtimeMilliseconds
                         ));
@@ -1400,36 +1568,50 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                     @Override
                     public void onFailure(RemoteWebSocket.FailureType type, Exception exception) {
                         mainHandler.post(() -> handleSocketFailure(
-                                generation, connectingEndpoint, type
+                                attemptId, connectingEndpoint, type
                         ));
                     }
                 }
         );
-        webSocket = socket;
+        pendingSocket = socket;
         socket.start();
     }
 
-    private void handleSocketOpen(int generation) {
-        // API v1 sends a complete snapshot immediately after the upgrade. Keep controls
-        // disabled until that snapshot is parsed, rather than exposing stale prior state.
-    }
-
     private void handleSocketState(
-            int generation,
+            long attemptId,
             RemoteState state,
             long receivedRealtimeMilliseconds
     ) {
-        if (!isCurrentConnection(generation) || state.revision <= connectionLastRevision) return;
-        boolean firstSnapshot = connectionLastRevision < 0L;
-        connectionLastRevision = state.revision;
-        reconnectFailures = 0;
-        if (firstSnapshot) {
+        if (!active) return;
+        if (socketAttempts.pending(attemptId) && pendingSocket != null) {
+            DiscoveredServer confirmed = pendingEndpoint;
+            if (confirmed.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                    && !transportSelection.allowsDirect()) return;
+            RemoteWebSocket oldSocket = webSocket;
+            webSocket = pendingSocket;
+            pendingSocket = null;
+            pendingEndpoint = null;
+            socketAttempts.confirm(attemptId);
+            endpoint = confirmed;
+            connectionGeneration++;
+            artworkGeneration++;
+            artworkRequestKey = null;
+            if (oldSocket != null) oldSocket.close();
+            connectionLastRevision = -1L;
             connecting = false;
             connected = true;
+            reconnectFailures = 0;
+            failureWindowStartedMs = 0L;
+            mainHandler.removeCallbacks(pathFailureTimeoutRunnable);
+            transportSelection.confirmed(endpoint.transport);
+            mainHandler.removeCallbacks(selectionTimeoutRunnable);
+            selectionDeadline.clear();
             if (endpoint != null && endpoint.transport == DiscoveredServer.Transport.LAN) {
-                mainHandler.removeCallbacks(directFallbackRunnable);
-                directClient.stop();
+                cancelDirectFallback();
+                stopDirect();
             }
+            record(ConnectionDiagnostics.Reason.SNAPSHOT, endpoint.transport,
+                    ConnectionDiagnostics.Stage.SNAPSHOT, ConnectionDiagnostics.Result.SUCCEEDED);
             Log.i(TAG, "API v1 WebSocket connected over "
                     + (endpoint == null ? "unknown" : endpoint.transport));
             notifyStatus(endpoint != null
@@ -1437,25 +1619,91 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                             ? Status.CONNECTED_DIRECT : Status.CONNECTED,
                     0L);
         }
+        if (!socketAttempts.confirmed(attemptId) || !connected
+                || state.revision <= connectionLastRevision) return;
+        connectionLastRevision = state.revision;
         listener.onStateChanged(state, receivedRealtimeMilliseconds);
         requestArtwork(state);
     }
 
     private void handleSocketFailure(
-            int generation,
+            long attemptId,
             DiscoveredServer failedEndpoint,
             RemoteWebSocket.FailureType type
     ) {
-        if (!isCurrentConnection(generation)) return;
-        webSocket = null;
-        connecting = false;
-        connected = false;
+        if (!active || !socketAttempts.accepts(attemptId)) return;
+        boolean probeFailed = socketAttempts.pending(attemptId);
+        if (probeFailed) cancelPendingSocket();
+        else {
+            webSocket = null;
+            socketAttempts.loseConfirmed();
+            connected = false;
+            connectionGeneration++;
+        }
+        record(type == RemoteWebSocket.FailureType.PROTOCOL
+                        ? ConnectionDiagnostics.Reason.PROTOCOL_FAILURE
+                        : ConnectionDiagnostics.Reason.SOCKET_FAILURE, failedEndpoint.transport,
+                ConnectionDiagnostics.Stage.RECOVERY, ConnectionDiagnostics.Result.FAILED);
+        if (connected) {
+            rejectEndpoint(failedEndpoint);
+            if (transportSelection.switching()) failManualSwitch(SwitchFailure.DIRECT_FAILED);
+            else {
+                transportSelection.allowFallback();
+                if (failedEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) {
+                    directSuppressed = true;
+                    stopDirect();
+                }
+            }
+            notifyStatus(confirmedStatus(), 0L);
+            return;
+        }
         if (type == RemoteWebSocket.FailureType.AUTHENTICATION) {
             Log.w(TAG, "WebSocket authentication rejected");
             invalidateRejectedCredentials(failedEndpoint);
             return;
         }
-        long delay = ReconnectBackoff.delayMilliseconds(reconnectFailures++);
+        if (failureWindowStartedMs == 0L) failureWindowStartedMs = SystemClock.elapsedRealtime();
+        reconnectFailures++;
+        if (!probeFailed) {
+            transportSelection.unavailable(failedEndpoint.transport);
+            beginPreferredDirectRecovery();
+            // A known path loss never pays another initial LAN grace period.
+            if (failedEndpoint.transport == DiscoveredServer.Transport.LAN) {
+                scheduleDirectFallback(0L);
+            } else {
+                tryDirectCandidate();
+                tryLanCandidate();
+            }
+        }
+        if (TransportSelectionPolicy.exhausted(reconnectFailures,
+                SystemClock.elapsedRealtime() - failureWindowStartedMs)
+                && !retryingPreferredDirectApi(failedEndpoint)) {
+            rejectEndpoint(failedEndpoint);
+            mainHandler.removeCallbacks(pathFailureTimeoutRunnable);
+            boolean manualFailed = transportSelection.switching();
+            if (manualFailed) failManualSwitch(SwitchFailure.DIRECT_FAILED);
+            transportSelection.unavailable(failedEndpoint.transport);
+            // An API-only Direct failure keeps its verified group and endpoint for the
+            // bounded retry. Restarting Server must not force a new system negotiation.
+            endpoint = null;
+            restartDiscovery();
+            tryDirectCandidate();
+            tryLanCandidate();
+            scheduleDirectFallback(0L);
+            if (!connecting) notifyStatus(Status.SERVER_UNAVAILABLE, 0L);
+            mainHandler.postDelayed(reconnectRunnable, TransportSelectionPolicy.ENDPOINT_COOLDOWN_MS);
+            return;
+        }
+        if (!connecting) endpoint = failedEndpoint;
+        DiscoveredServer freshLan = candidates.get(targetServerId());
+        if (freshLan != null && !freshLan.sameEndpoint(failedEndpoint)) tryLanCandidate();
+        if (pendingSocket != null) return;
+        if (reconnectFailures == 1) {
+            mainHandler.removeCallbacks(pathFailureTimeoutRunnable);
+            mainHandler.postDelayed(pathFailureTimeoutRunnable,
+                    TransportSelectionPolicy.PATH_FAILURE_WINDOW_MS);
+        }
+        long delay = ReconnectBackoff.delayMilliseconds(reconnectFailures - 1);
         Log.w(TAG, "WebSocket failed over " + failedEndpoint.transport
                 + "; reconnect in " + delay + " ms; type=" + type);
         notifyStatus(Status.RETRYING, delay);
@@ -1464,17 +1712,12 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private void invalidateRejectedCredentials(DiscoveredServer failedEndpoint) {
+        record(ConnectionDiagnostics.Reason.AUTH_REJECTED, failedEndpoint.transport,
+                ConnectionDiagnostics.Stage.UPGRADE, ConnectionDiagnostics.Result.FAILED);
         disconnectSocket();
-        mainHandler.removeCallbacks(directFallbackRunnable);
-        if (failedEndpoint.transport == DiscoveredServer.Transport.LAN) {
-            directClient.stop();
-        }
-        try {
-            pairingStore.clear();
-        } catch (IllegalStateException exception) {
-            listener.onPairingFailed(PairingError.STORAGE);
-        }
-        credentials = null;
+        cancelTransportTimers();
+        stopDirect();
+        authenticationRequired = true;
         operationGeneration++;
         pendingPairing = null;
         clearManualPairingState();
@@ -1485,22 +1728,24 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     private void sendControl(String commandJson) {
         PairingCredentials currentCredentials = credentials;
         DiscoveredServer currentEndpoint = endpoint;
+        int generation = connectionGeneration;
         if (!active || !connected || currentCredentials == null || currentEndpoint == null) {
             listener.onCommandError(false);
             return;
         }
         try {
             controlExecutor.execute(() -> {
+                if (!requestStillCurrent(generation)) return;
                 try {
                     apiClient.sendControl(currentEndpoint, currentCredentials.token, commandJson);
                 } catch (RemoteApiClient.HttpStatusException exception) {
                     boolean authentication = exception.statusCode == 401;
                     mainHandler.post(() -> handleControlFailure(
-                            currentEndpoint, currentCredentials, authentication
+                            generation, currentEndpoint, currentCredentials, authentication
                     ));
                 } catch (IOException exception) {
                     mainHandler.post(() -> handleControlFailure(
-                            currentEndpoint, currentCredentials, false
+                            generation, currentEndpoint, currentCredentials, false
                     ));
                 }
             });
@@ -1510,11 +1755,13 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private void handleControlFailure(
+            int generation,
             DiscoveredServer failedEndpoint,
             PairingCredentials usedCredentials,
             boolean authentication
     ) {
-        if (!active || credentials != usedCredentials || endpoint != failedEndpoint) return;
+        if (!requestStillCurrent(generation)
+                || credentials != usedCredentials || endpoint != failedEndpoint) return;
         if (authentication) invalidateRejectedCredentials(failedEndpoint);
         listener.onCommandError(authentication);
     }
@@ -1575,8 +1822,38 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     @Override
     public void onDirectStatus(WifiDirectConnectionClient.State directState, int reason) {
-        if (!active || targetServerId() == null || connected) return;
+        if (!active || targetServerId() == null || !transportSelection.allowsDirect()
+                || directNeedsUserRetry || authenticationRequired) return;
         Log.i(TAG, "Direct fallback state=" + directState + ", reason=" + reason);
+        SwitchFailure failure = null;
+        switch (directState) {
+            case PERMISSION_REQUIRED: failure = SwitchFailure.PERMISSION; break;
+            case LOCATION_DISABLED: failure = SwitchFailure.LOCATION; break;
+            case WIFI_DISABLED: failure = SwitchFailure.WIFI; break;
+            case UNSUPPORTED: failure = SwitchFailure.UNSUPPORTED; break;
+            case PHONE_GROUP_OWNER:
+            case FAILED: failure = SwitchFailure.DIRECT_FAILED; break;
+            default: break;
+        }
+        // A retained group can be lost during the fallback cooldown. Do not swallow a failed
+        // recovery negotiation then: it must still require user retry, not another approval loop.
+        if (failure == null && directSuppressed) return;
+        if (failure != null) {
+            if (transportSelection.switching()) failManualSwitch(failure);
+            else {
+                transportSelection.allowFallback();
+                directSuppressed = true;
+                directNeedsUserRetry = true;
+                stopDirect();
+                mainHandler.removeCallbacks(selectionTimeoutRunnable);
+                selectionDeadline.clear();
+                tryLanCandidate();
+            }
+        }
+        if (connected || connecting) {
+            if (connected) notifyStatus(confirmedStatus(), 0L);
+            return;
+        }
         switch (directState) {
             case PERMISSION_REQUIRED:
                 notifyStatus(Status.DIRECT_PERMISSION_REQUIRED, 0L);
@@ -1591,8 +1868,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 notifyStatus(Status.DIRECT_SEARCHING, 0L);
                 break;
             case CONNECTING:
-            case WAITING_FOR_APPROVAL:
                 notifyStatus(Status.DIRECT_CONNECTING, 0L);
+                break;
+            case WAITING_FOR_APPROVAL:
+                notifyStatus(Status.DIRECT_WAITING_APPROVAL, 0L);
                 break;
             case UNSUPPORTED:
                 notifyStatus(Status.DIRECT_UNSUPPORTED, 0L);
@@ -1608,62 +1887,304 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     @Override
     public void onDirectEndpoint(DiscoveredServer server) {
         String targetServerId = targetServerId();
-        if (!active || targetServerId == null || !targetServerId.equals(server.serverId)) {
+        if (!active || targetServerId == null || !targetServerId.equals(server.serverId)
+                || !transportSelection.allowsDirect() || directNeedsUserRetry
+                || authenticationRequired || !directClient.isActive()) {
             return;
         }
+        directEndpoint = server;
         if (pendingPairing != null) {
-            beginPairingExchange(server);
+            if (!directSuppressed) beginPairingExchange(server);
             return;
         }
         if (credentials == null) return;
-        if (endpoint != null
-                && endpoint.transport == DiscoveredServer.Transport.LAN
-                && (connecting || connected)) {
-            directClient.stop();
+        beginPreferredDirectRecovery();
+        if (directSuppressed) return;
+        if (pendingEndpoint != null && pendingEndpoint.transport == DiscoveredServer.Transport.LAN
+                && transportSelection.preferred() == DiscoveredServer.Transport.LAN) return;
+        if (!transportSelection.maySelect(server.transport,
+                endpoint == null ? null : endpoint.transport, connected)) {
+            stopDirect();
             return;
         }
-        endpoint = server;
         Log.i(TAG, "Selecting verified Wi-Fi Direct endpoint");
-        connectSocket(false);
+        tryDirectCandidate();
     }
 
     @Override
     public void onDirectDisconnected() {
-        if (!active || endpoint == null
-                || endpoint.transport != DiscoveredServer.Transport.WIFI_DIRECT) {
-            return;
+        if (!active || !transportSelection.allowsDirect()) return;
+        directEndpoint = null;
+        if (pendingEndpoint != null
+                && pendingEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) {
+            cancelPendingSocket();
         }
-        endpoint = null;
+        if (endpoint == null || endpoint.transport != DiscoveredServer.Transport.WIFI_DIRECT) return;
+        transportSelection.unavailable(DiscoveredServer.Transport.WIFI_DIRECT);
         Log.w(TAG, "Wi-Fi Direct endpoint lost; restarting LAN and direct discovery");
-        disconnectSocket();
+        // Group loss must not cancel an unrelated LAN replacement already being confirmed.
+        disconnectConfirmedSocket();
+        endpoint = null;
         notifyStatus(Status.SEARCHING, 0L);
         restartDiscovery();
+        beginPreferredDirectRecovery();
+        tryLanCandidate();
         scheduleDirectFallback(0L);
     }
 
     private void scheduleDirectFallback(long delayMilliseconds) {
-        mainHandler.removeCallbacks(directFallbackRunnable);
-        if (active && targetServerId() != null && !connected) {
+        if (active && targetServerId() != null && transportSelection.allowsDirect()
+                && !directSuppressed && !authenticationRequired
+                && (!connected || transportSelection.switching()
+                    || transportSelection.policy() == ConnectionPolicy.DIRECT_PREFERRED)
+                && directFallbackDeadline.schedule(SystemClock.elapsedRealtime(), delayMilliseconds)) {
+            mainHandler.removeCallbacks(directFallbackRunnable);
             mainHandler.postDelayed(directFallbackRunnable, Math.max(0L, delayMilliseconds));
         }
     }
 
     private void startDirectFallback() {
+        directFallbackDeadline.clear();
         String targetServerId = targetServerId();
-        if (!active || targetServerId == null || connected || directClient.isActive()) return;
+        if (!active || targetServerId == null || !transportSelection.allowsDirect()
+                || directSuppressed || authenticationRequired) return;
+        if (directClient.isActive()) {
+            tryDirectCandidate();
+            return;
+        }
+        if (connected && !transportSelection.maySelect(DiscoveredServer.Transport.WIFI_DIRECT,
+                endpoint.transport, true)) return;
+        if (!transportSelection.switching()
+                && transportSelection.preferred() == DiscoveredServer.Transport.LAN) {
+            transportSelection.allowFallback();
+        }
+        if (directEndpoint != null) {
+            tryDirectCandidate();
+            return;
+        }
         Log.i(TAG, "LAN grace period expired; starting Wi-Fi Direct fallback");
+        scheduleSelectionTimeout();
         directClient.start(targetServerId, targetServiceName());
+    }
+
+    private void startPreferredDirectWindow() {
+        if (!transportSelection.allowsDirect()) return;
+        transportSelection.beginRecovery(SystemClock.elapsedRealtime());
+        scheduleSelectionTimeout();
+        scheduleDirectFallback(0L);
+    }
+
+    private void beginPreferredDirectRecovery() {
+        if (!active || connected || connecting || authenticationRequired || isPairingInProgress()
+                || directNeedsUserRetry
+                || transportSelection.policy() != ConnectionPolicy.DIRECT_PREFERRED
+                || !transportSelection.beginRecovery(SystemClock.elapsedRealtime())) return;
+        directSuppressed = false;
+        reconnectFailures = 0;
+        failureWindowStartedMs = 0L;
+        mainHandler.removeCallbacks(pathFailureTimeoutRunnable);
+        mainHandler.removeCallbacks(selectionTimeoutRunnable);
+        selectionDeadline.clear();
+        if (directEndpoint != null) rejectedEndpoints.remove(directEndpoint);
+        record(ConnectionDiagnostics.Reason.RECOVERY_DIRECT_PRIORITY,
+                DiscoveredServer.Transport.WIFI_DIRECT, ConnectionDiagnostics.Stage.RECOVERY,
+                ConnectionDiagnostics.Result.STARTED);
+        record(hasUsableDirectGroup() ? ConnectionDiagnostics.Reason.RECOVERY_REUSE_GROUP
+                        : ConnectionDiagnostics.Reason.RECOVERY_DISCOVER_DIRECT,
+                DiscoveredServer.Transport.WIFI_DIRECT, ConnectionDiagnostics.Stage.RECOVERY,
+                ConnectionDiagnostics.Result.STARTED);
+        scheduleSelectionTimeout();
+        scheduleDirectFallback(0L);
+    }
+
+    private boolean hasUsableDirectGroup() {
+        return directEndpoint != null && directClient.isActive()
+                && directClient.isGroupAddress(directEndpoint.address);
+    }
+
+    private boolean retryingPreferredDirectApi(DiscoveredServer failed) {
+        return failed.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                && transportSelection.shouldRetryDirectApi(
+                        hasUsableDirectGroup(), SystemClock.elapsedRealtime());
+    }
+
+    private void scheduleSelectionTimeout() {
+        if (!selectionDeadline.schedule(SystemClock.elapsedRealtime(),
+                TransportSelectionPolicy.SELECTION_TIMEOUT_MS)) return;
+        mainHandler.removeCallbacks(selectionTimeoutRunnable);
+        mainHandler.postDelayed(selectionTimeoutRunnable, TransportSelectionPolicy.SELECTION_TIMEOUT_MS);
+    }
+
+    private void handlePathFailureTimeout() {
+        if (!active || connected || authenticationRequired) return;
+        DiscoveredServer failed = pendingEndpoint != null ? pendingEndpoint : endpoint;
+        if (failed == null) return;
+        if (retryingPreferredDirectApi(failed)) return;
+        rejectEndpoint(failed);
+        cancelPendingSocket();
+        endpoint = null;
+        if (transportSelection.switching()) failManualSwitch(SwitchFailure.TIMEOUT);
+        transportSelection.unavailable(failed.transport);
+        tryDirectCandidate();
+        tryLanCandidate();
+        scheduleDirectFallback(0L);
+        if (!connecting) notifyStatus(Status.SERVER_UNAVAILABLE, 0L);
+        mainHandler.removeCallbacks(reconnectRunnable);
+        mainHandler.postDelayed(reconnectRunnable, TransportSelectionPolicy.ENDPOINT_COOLDOWN_MS);
+    }
+
+    private void handleSelectionTimeout() {
+        selectionDeadline.clear();
+        if (!active) return;
+        if (transportSelection.switching()) {
+            failManualSwitch(SwitchFailure.TIMEOUT);
+            return;
+        }
+        if (connected && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) return;
+        transportSelection.allowFallback();
+        directSuppressed = true;
+        if (pendingEndpoint != null
+                && pendingEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT) cancelPendingSocket();
+        // Retain a known group while disconnected. A later API retry needs no Android approval;
+        // only a confirmed LAN replacement releases it. Cancel unfinished negotiation as before.
+        if (!hasUsableDirectGroup()) stopDirect();
+        if (!connected) endpoint = null;
+        record(ConnectionDiagnostics.Reason.RECOVERY_LAN_FALLBACK,
+                DiscoveredServer.Transport.LAN, ConnectionDiagnostics.Stage.RECOVERY,
+                ConnectionDiagnostics.Result.STARTED);
+        tryLanCandidate();
+        if (!connected && !connecting) {
+            notifyStatus(Status.SERVER_UNAVAILABLE, 0L);
+            mainHandler.removeCallbacks(reconnectRunnable);
+            mainHandler.postDelayed(reconnectRunnable, TransportSelectionPolicy.ENDPOINT_COOLDOWN_MS);
+        }
+    }
+
+    private void failManualSwitch(SwitchFailure failure) {
+        DiscoveredServer.Transport requested = transportSelection.preferred();
+        transportSelection.unavailable(requested);
+        switchFailure = failure;
+        mainHandler.removeCallbacks(selectionTimeoutRunnable);
+        selectionDeadline.clear();
+        cancelPendingSocket();
+        if (requested == DiscoveredServer.Transport.WIFI_DIRECT) {
+            directSuppressed = true;
+            directNeedsUserRetry = true;
+            stopDirect();
+        }
+        record(ConnectionDiagnostics.Reason.SWITCH_TIMEOUT, requested,
+                ConnectionDiagnostics.Stage.RECOVERY, ConnectionDiagnostics.Result.FAILED);
+        if (connected) notifyStatus(confirmedStatus(), 0L);
+        else {
+            tryLanCandidate();
+            scheduleDirectFallback(0L);
+            if (!connecting) notifyStatus(Status.SERVER_UNAVAILABLE, 0L);
+        }
+    }
+
+    private void tryLanCandidate() {
+        if (!active || authenticationRequired || !hasLanCapableNetwork()) return;
+        DiscoveredServer candidate = candidates.get(targetServerId());
+        if (candidate == null || isDirectAddress(candidate) || endpointRejected(candidate)
+                || !transportSelection.maySelect(DiscoveredServer.Transport.LAN,
+                        endpoint == null ? null : endpoint.transport, connected)) return;
+        if (connected && endpoint.sameEndpoint(candidate)) return;
+        record(ConnectionDiagnostics.Reason.RECOVERY_SELECT_LAN,
+                DiscoveredServer.Transport.LAN, ConnectionDiagnostics.Stage.CONNECT,
+                ConnectionDiagnostics.Result.STARTED);
+        if (pendingPairing != null) beginPairingExchange(candidate);
+        else connectSocketTo(candidate, false);
+    }
+
+    private void tryDirectCandidate() {
+        if (directEndpoint == null || directSuppressed || !directClient.isActive()
+                || endpointRejected(directEndpoint) && !retryingPreferredDirectApi(directEndpoint)
+                || pendingEndpoint != null
+                    && pendingEndpoint.transport == DiscoveredServer.Transport.LAN
+                    && transportSelection.preferred() == DiscoveredServer.Transport.LAN
+                || !transportSelection.maySelect(DiscoveredServer.Transport.WIFI_DIRECT,
+                        endpoint == null ? null : endpoint.transport, connected)) return;
+        record(ConnectionDiagnostics.Reason.RECOVERY_SELECT_DIRECT,
+                DiscoveredServer.Transport.WIFI_DIRECT, ConnectionDiagnostics.Stage.CONNECT,
+                ConnectionDiagnostics.Result.STARTED);
+        connectSocketTo(directEndpoint, false);
+    }
+
+    private boolean isDirectAddress(DiscoveredServer server) {
+        return directClient.isGroupAddress(server.address)
+                || endpoint != null && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                && endpoint.address.equals(server.address)
+                || pendingEndpoint != null
+                && pendingEndpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                && pendingEndpoint.address.equals(server.address);
+    }
+
+    private void stopDirect() {
+        directEndpoint = null;
+        directClient.stop();
+    }
+
+    private boolean endpointRejected(DiscoveredServer server) {
+        Long until = rejectedEndpoints.get(server);
+        return until != null && SystemClock.elapsedRealtime() < until;
+    }
+
+    private void rejectEndpoint(DiscoveredServer server) {
+        if (rejectedEndpoints.size() >= 16) rejectedEndpoints.clear();
+        rejectedEndpoints.put(server, SystemClock.elapsedRealtime()
+                + TransportSelectionPolicy.ENDPOINT_COOLDOWN_MS);
+    }
+
+    private Status confirmedStatus() {
+        return endpoint != null && endpoint.transport == DiscoveredServer.Transport.WIFI_DIRECT
+                ? Status.CONNECTED_DIRECT : Status.CONNECTED;
+    }
+
+    private void cancelDirectFallback() {
+        directFallbackDeadline.clear();
+        mainHandler.removeCallbacks(directFallbackRunnable);
+    }
+
+    private void cancelTransportTimers() {
+        cancelDirectFallback();
+        networkRecoveryDeadline.clear();
+        mainHandler.removeCallbacks(networkRecoveryRunnable);
+        mainHandler.removeCallbacks(reconnectRunnable);
+        mainHandler.removeCallbacks(selectionTimeoutRunnable);
+        selectionDeadline.clear();
+        mainHandler.removeCallbacks(pathFailureTimeoutRunnable);
+    }
+
+    private void resetTransportChoice() {
+        cancelTransportTimers();
+        transportSelection.reset();
+        directSuppressed = false;
+        directNeedsUserRetry = false;
+        authenticationRequired = false;
+        switchFailure = SwitchFailure.NONE;
+        rejectedEndpoints.clear();
+        directEndpoint = null;
+        reconnectFailures = 0;
+        failureWindowStartedMs = 0L;
     }
 
     private void startNetworkMonitor() {
         if (networkMonitorRegistered || connectivityManager == null) return;
         try {
+            for (Network network : connectivityManager.getAllNetworks()) {
+                NetworkCapabilities caps = getNetworkCapabilities(network);
+                lanNetworkTracker.update(network,
+                        caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                        caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+                        caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_WIFI_P2P));
+            }
             // Wi-Fi Direct can also report TRANSPORT_WIFI, so callback capabilities are
             // classified separately instead of treating every matching network as LAN.
             NetworkRequest request = new NetworkRequest.Builder()
                     .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                     .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
                     .build();
+            networkCallback = networkCallback(++networkMonitorGeneration);
             connectivityManager.registerNetworkCallback(request, networkCallback, mainHandler);
             networkMonitorRegistered = true;
         } catch (RuntimeException ignored) {
@@ -1672,9 +2193,10 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private void stopNetworkMonitor() {
+        networkMonitorGeneration++;
+        lanNetworkTracker.clear();
         if (!networkMonitorRegistered || connectivityManager == null) return;
         networkMonitorRegistered = false;
-        lanNetworkTracker.clear();
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback);
         } catch (RuntimeException ignored) {
@@ -1684,8 +2206,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
 
     private void scheduleNetworkRecovery(String reason, long delayMilliseconds) {
         Log.d(TAG, "Scheduling transport recovery: " + reason);
-        mainHandler.removeCallbacks(networkRecoveryRunnable);
-        if (active) {
+        if (active && networkRecoveryDeadline.schedule(SystemClock.elapsedRealtime(), delayMilliseconds)) {
+            mainHandler.removeCallbacks(networkRecoveryRunnable);
             mainHandler.postDelayed(
                     networkRecoveryRunnable,
                     Math.max(0L, delayMilliseconds)
@@ -1694,30 +2216,43 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private void handleNetworkRecovery() {
+        networkRecoveryDeadline.clear();
         if (!active) return;
         lanNetworkAvailable = hasLanCapableNetwork();
         Log.i(TAG, "Transport recovery evaluation: lanNetworkAvailable="
                 + lanNetworkAvailable + ", endpoint="
                 + (endpoint == null ? "none" : endpoint.transport));
-        if (endpoint != null && TransportRecoveryPolicy.shouldInvalidateEndpoint(
+        boolean lostLan = endpoint != null && TransportRecoveryPolicy.shouldInvalidateEndpoint(
                 endpoint.transport,
-                lanNetworkAvailable
-        )) {
+                lanNetworkAvailable && (endpoint.network == null
+                        || isInfrastructureLan(getNetworkCapabilities(endpoint.network)))
+        );
+        if (pendingEndpoint != null
+                && pendingEndpoint.transport == DiscoveredServer.Transport.LAN
+                && (!lanNetworkAvailable || pendingEndpoint.network != null
+                && !isInfrastructureLan(getNetworkCapabilities(pendingEndpoint.network)))) {
+            cancelPendingSocket();
+            transportSelection.unavailable(DiscoveredServer.Transport.LAN);
+            if (!connected) notifyStatus(transportSelection.allowsDirect()
+                    ? Status.SEARCHING : Status.SERVER_UNAVAILABLE, 0L);
+        }
+        if (lostLan) {
             Log.w(TAG, "LAN route disappeared; invalidating endpoint and resetting P2P fallback");
             candidates.values().removeIf(
                     server -> server.transport == DiscoveredServer.Transport.LAN
             );
             endpoint = null;
-            disconnectSocket();
-            notifyStatus(Status.SEARCHING, 0L);
+            disconnectConfirmedSocket();
+            transportSelection.unavailable(DiscoveredServer.Transport.LAN);
+            beginPreferredDirectRecovery();
+            if (!connecting) notifyStatus(transportSelection.allowsDirect()
+                    ? Status.SEARCHING : Status.SERVER_UNAVAILABLE, 0L);
         }
         restartDiscovery();
+        if (connected) return;
         if (targetServerId() != null && !connected) {
-            if (!lanNetworkAvailable && directClient.isActive()) {
-                directClient.reinitializeDiscovery("LAN route transition");
-            }
             scheduleDirectFallback(TransportRecoveryPolicy.directFallbackDelayMilliseconds(
-                    lanNetworkAvailable,
+                    lanNetworkAvailable && !lostLan && failureWindowStartedMs == 0L,
                     DIRECT_FALLBACK_DELAY_MILLISECONDS
             ));
         }
@@ -1732,7 +2267,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                     ? null : connectivityManager.getNetworkCapabilities(activeNetwork);
             return isInfrastructureLan(capabilities);
         } catch (RuntimeException exception) {
-            Log.w(TAG, "Unable to evaluate LAN transport", exception);
+            Log.w(TAG, "Unable to evaluate LAN transport");
             return false;
         }
     }
@@ -1742,7 +2277,7 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
         try {
             return connectivityManager.getNetworkCapabilities(network);
         } catch (RuntimeException exception) {
-            Log.w(TAG, "Unable to read network capabilities", exception);
+            Log.w(TAG, "Unable to read network capabilities");
             return null;
         }
     }
@@ -1783,6 +2318,8 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
     }
 
     private void runReconnect() {
+        if (!active || connected || connecting || authenticationRequired) return;
+        beginPreferredDirectRecovery();
         if (endpoint != null && endpoint.transport == DiscoveredServer.Transport.LAN
                 && !hasLanCapableNetwork()) {
             Log.w(TAG, "Skipping stale LAN reconnect; running transport recovery immediately");
@@ -1790,9 +2327,19 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
             return;
         }
         if (active && credentials != null && pendingPairing == null
-                && pendingManualToken == null && endpoint != null) {
+                && pendingManualToken == null && endpoint != null && !endpointRejected(endpoint)
+                && (endpoint.transport != DiscoveredServer.Transport.WIFI_DIRECT || !directSuppressed)
+                && transportSelection.maySelect(endpoint.transport, null, false)) {
             Log.i(TAG, "Running scheduled WebSocket reconnect over " + endpoint.transport);
             connectSocket(true);
+        } else if (targetServerId() != null) {
+            // Cooldown expiry can retry discovery, but never an ambiguous mutation.
+            restartDiscovery();
+            tryDirectCandidate();
+            tryLanCandidate();
+            if (!connecting && !directSuppressed) scheduleDirectFallback(0L);
+            if (!connecting) mainHandler.postDelayed(reconnectRunnable,
+                    TransportSelectionPolicy.ENDPOINT_COOLDOWN_MS);
         }
     }
 
@@ -1815,21 +2362,52 @@ final class RemoteClientController implements NsdDiscoveryClient.Listener,
                 : credentials == null ? "Poweramp Remote Server" : credentials.serviceName;
     }
 
-    private boolean isCurrentConnection(int generation) {
-        return active && generation == connectionGeneration;
+    private void disconnectSocket() {
+        cancelPendingSocket();
+        disconnectConfirmedSocket();
     }
 
-    private void disconnectSocket() {
+    private void disconnectConfirmedSocket() {
         connectionGeneration++;
-        connecting = false;
         connected = false;
         RemoteWebSocket current = webSocket;
         webSocket = null;
+        socketAttempts.loseConfirmed();
+        artworkGeneration++;
+        artworkRequestKey = null;
         if (current != null) current.close();
     }
 
+    private void cancelPendingSocket() {
+        RemoteWebSocket previous = pendingSocket;
+        pendingSocket = null;
+        pendingEndpoint = null;
+        socketAttempts.cancelPending();
+        connecting = false;
+        if (previous != null) previous.close();
+    }
+
+    private void record(ConnectionDiagnostics.Reason reason,
+            DiscoveredServer.Transport transport, ConnectionDiagnostics.Stage stage,
+            ConnectionDiagnostics.Result result) {
+        ConnectionDiagnostics.record(reason, transport, stage,
+                stage == ConnectionDiagnostics.Stage.DISCOVERY ? 0L
+                        : attemptStartedMs == 0L ? 0L
+                        : SystemClock.elapsedRealtime() - attemptStartedMs, result);
+    }
+
     private void notifyStatus(Status status, long retryDelayMilliseconds) {
+        record(status == Status.RETRYING ? ConnectionDiagnostics.Reason.RETRY
+                        : ConnectionDiagnostics.Reason.NETWORK_CHANGED,
+                endpoint == null ? null : endpoint.transport,
+                ConnectionDiagnostics.Stage.RUNTIME,
+                status == Status.CONNECTED || status == Status.CONNECTED_DIRECT
+                        ? ConnectionDiagnostics.Result.SUCCEEDED : ConnectionDiagnostics.Result.WAITING);
         listener.onStatusChanged(status, retryDelayMilliseconds);
+    }
+
+    private boolean requestStillCurrent(int generation) {
+        return active && generation == connectionGeneration;
     }
 
     @Override

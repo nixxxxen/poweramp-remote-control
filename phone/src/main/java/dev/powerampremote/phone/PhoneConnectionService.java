@@ -45,6 +45,8 @@ public final class PhoneConnectionService extends MediaSessionService
             "dev.powerampremote.phone.action.PAIR_MANUAL";
     private static final String ACTION_REFRESH_LANGUAGE =
             "dev.powerampremote.phone.action.REFRESH_LANGUAGE";
+    private static final String ACTION_REFRESH_CONNECTION_SETTINGS =
+            "dev.powerampremote.phone.action.REFRESH_CONNECTION_SETTINGS";
     private static final String ACTION_LOCAL_BIND =
             "dev.powerampremote.phone.action.BIND_CONNECTION_SERVICE";
     private static final String ACTION_NOTIFICATION_PREVIOUS =
@@ -133,6 +135,21 @@ public final class PhoneConnectionService extends MediaSessionService
 
         PlayerDeviceSnapshot playerDeviceSnapshot() {
             return PhoneConnectionService.this.playerDeviceSnapshot();
+        }
+
+        ConnectionPolicy connectionPolicy() {
+            return controller.connectionPolicy();
+        }
+
+        boolean switchingTransport() { return controller != null && controller.isSwitchingTransport(); }
+
+        RemoteClientController.SwitchFailure switchFailure() {
+            return controller == null ? RemoteClientController.SwitchFailure.NONE
+                    : controller.switchFailure();
+        }
+
+        boolean switchTransport(DiscoveredServer.Transport transport) {
+            return controller != null && controller.switchTransport(transport);
         }
 
         boolean forgetPairing() {
@@ -382,6 +399,10 @@ public final class PhoneConnectionService extends MediaSessionService
         context.startService(intent);
     }
 
+    static void refreshConnectionSettings(Context context) {
+        startWithIntent(context, ACTION_REFRESH_CONNECTION_SETTINGS, null, null);
+    }
+
     static Intent bindingIntent(Context context) {
         return new Intent(context, PhoneConnectionService.class)
                 .setAction(ACTION_LOCAL_BIND)
@@ -413,6 +434,7 @@ public final class PhoneConnectionService extends MediaSessionService
     @Override
     public void onCreate() {
         super.onCreate();
+        ConnectionDiagnostics.setEnabled(new ConnectionPreferences(this).developerMode());
         notificationManager = getSystemService(NotificationManager.class);
         createNotificationChannel();
         controller = new RemoteClientController(this, this);
@@ -471,13 +493,13 @@ public final class PhoneConnectionService extends MediaSessionService
             return START_NOT_STICKY;
         }
         if (isNotificationAction(action) && !isTrustedNotificationAction(intent)) {
-            Log.w(TAG, "Rejected untrusted notification action=" + action);
+            Log.w(TAG, "Rejected untrusted notification action");
             return inheritedResult;
         }
         if (intent != null && !isInternalRuntimeAction(action)
                 && !isNotificationAction(action)
                 && !Intent.ACTION_MEDIA_BUTTON.equals(action)) {
-            Log.w(TAG, "Rejected unsupported external service start action=" + action);
+            Log.w(TAG, "Rejected unsupported external service start action");
             stopSelfResult(startId);
             return START_NOT_STICKY;
         }
@@ -502,13 +524,18 @@ public final class PhoneConnectionService extends MediaSessionService
             promoteToForeground();
             controller.start();
             if (ACTION_REFRESH_LANGUAGE.equals(action)) createNotificationChannel();
+            if (ACTION_REFRESH_CONNECTION_SETTINGS.equals(action)) {
+                ConnectionPreferences preferences = new ConnectionPreferences(this);
+                ConnectionDiagnostics.setEnabled(preferences.developerMode());
+                controller.changeConnectionPolicy(preferences.policy());
+            }
             submitPairingRequest(intent, action);
             pairingRequestState.dispatchTo(controller);
             dispatchTrustedNotificationAction(action);
             Log.i(TAG, "Connection runtime started or already active");
             return START_STICKY;
         } catch (RuntimeException exception) {
-            Log.e(TAG, "Unable to start foreground connection runtime", exception);
+            Log.e(TAG, "Unable to start foreground connection runtime");
             controller.stop();
             removeForegroundNotification();
             stopSelfResult(startId);
@@ -969,6 +996,7 @@ public final class PhoneConnectionService extends MediaSessionService
         return ACTION_START.equals(action)
                 || ACTION_PAIR_QR.equals(action)
                 || ACTION_PAIR_MANUAL.equals(action)
+                || ACTION_REFRESH_CONNECTION_SETTINGS.equals(action)
                 || ACTION_REFRESH_LANGUAGE.equals(action);
     }
 

@@ -24,5 +24,8 @@ public final class WifiDirectRecoveryPolicyTest {
         assertFalse(policy.shouldAutomaticallyRetryConnection());
         policy.onGroupConnected();
         assertTrue(policy.shouldAutomaticallyRetryConnection());
+        assertFalse(policy.shouldAutomaticallyRetryConnection());
+        policy.onGroupConnected();
+        assertTrue(policy.shouldAutomaticallyRetryConnection());
     }
 }

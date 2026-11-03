@@ -56,7 +56,7 @@ The Phone Client has no Poweramp integration and no server. One started-and-boun
 - `RemoteApiClient` for REST state/control/artwork, paged Library/Search/Queue requests, and Queue
   additions;
 - `RemoteWebSocket` for complete event-driven state snapshots;
-- `RemoteClientController` for LAN preference, direct fallback, and reconnect coordination;
+- `RemoteClientController` for one transport policy, manual choice, bounded fallback, and reconnect;
 - `PairingRequestState` for binder-independent QR/manual requests delivered to that controller;
 - `PlaybackUiSnapshot`, the service-owned position anchor replayed to a rebound Activity;
 - `RemoteSessionPlayer`, a Media3 `SimpleBasePlayer` facade over the remote state and commands;
@@ -118,7 +118,9 @@ recreation, reconnect, and rebind without entering `PairingStore` or Search hist
 without `trackSorting` continues in Poweramp order and shows no sorting actions.
 `PlayerDevicesActivity` owns saved-device diagnostics,
 QR/manual pairing, re-pair/forget actions, and recoverable permission/settings actions.
-`SettingsActivity` links to the presentation-only `AboutActivity`; neither owns or replaces the connection
+`SettingsActivity` persists connection policy and developer-mode preferences in the separate private
+`connection_settings` file and delivers changes through the existing service's private start-command
+path. It also links to the presentation-only `AboutActivity`. No Activity owns or replaces the connection
 runtime. No Activity lifecycle cancels P2P negotiation,
 removes a group, closes the P2P channel, stops NSD, or closes the API WebSocket. The notification's
 explicit Stop action and final service destruction are the teardown paths.
@@ -258,11 +260,49 @@ service name as the initial device label. The credential commit precedes authent
 a recreated service loads the same association, resumes existing discovery for that exact ID, and
 uses the unchanged reconnect/WebSocket path.
 
-### Preferred LAN connection
+### Transport policy and confirmed connections
 
-Every launch starts ordinary NSD. When the known `id` is resolved, the Phone Client opens the same
-Bearer-authenticated API v1 WebSocket at the current LAN address. LAN remains preferred and retains
-bounded exponential reconnect. Recovery observes Wi-Fi/Ethernet networks rather than merely the
+Server `0.11.0` and Phone `0.7.0` are published releases. The subsequent connection-policy work keeps
+those version numbers and API `v1` while adding three valid Phone modes:
+
+| Policy | Behavior |
+|---|---|
+| `LAN_ONLY` | Direct discovery, negotiation, and recovery are disabled; an existing Direct path is released and LAN is selected if available. |
+| `LAN_PREFERRED` (default) | LAN gets the existing eight-second initial discovery grace when infrastructure LAN exists; Direct is allowed as fallback. |
+| `DIRECT_PREFERRED` | Start Direct immediately, keep a healthy Direct connection, and permit LAN after a terminal Direct failure or a 60-second preference window. API loss starts a fresh bounded Direct-first recovery cycle. A healthy LAN fallback is retained rather than repeatedly renegotiating Direct. |
+
+The Settings switches cannot represent “prefer disabled Direct”. The service loads preferences on
+creation and applies saved changes without requiring an Activity binder. Forget/Re-pair do not
+clear these preferences. QR pairing follows the same allowed-transport policy; `LAN_ONLY` never
+silently grants a temporary Direct exception. A QR attempt is bounded by the offer's two-minute
+lifetime; manual-token pairing keeps its existing LAN-only 15-second bound.
+
+Player devices exposes explicit transport switches. A manual LAN choice under Direct preference
+requires confirmation before any runtime change. The choice becomes the temporary priority and
+survives same-path reconnect until that path is unavailable, another manual choice, a policy
+change, or a paired-device change. Concurrent manual switches are rejected. The confirmed current
+transport's action is disabled; failed switches expose a safe cause and resume allowed recovery.
+The saved policy is never rewritten by a manual switch.
+
+The runtime may hold one confirmed WebSocket and one bounded replacement probe. Only a matching
+discovery identity plus Bearer-authenticated upgrade and a valid complete API snapshot promote a
+probe. The old socket/group stays usable until promotion; a failed probe cannot disconnect it.
+Socket attempt tokens separately gate pending/confirmed callbacks, while connection generations
+continue to invalidate Library/Search/Queue and artwork deliveries. NSD presence, Wi-Fi, and P2P
+group formation are not connection confirmation.
+
+NSD uses its public `Network` on API 33+, rejecting a P2P/non-infrastructure Network. On API 26–32,
+where NSD supplies no Network, it requires an on-link infrastructure route to the resolved address.
+LAN API sockets and HTTP requests bind to that Network. A known group-owner address is never
+relabelled as LAN. The public Android references are
+[`NsdServiceInfo.getNetwork()`](https://developer.android.com/reference/android/net/nsd/NsdServiceInfo#getNetwork())
+and [`Network.bindSocket()`](https://developer.android.com/reference/android/net/Network#bindSocket(java.net.Socket)).
+
+### LAN discovery and recovery
+
+Every launch starts ordinary NSD for permitted connection, fallback, and manual selection. An
+eligible resolved `id` is probed with the existing Bearer API WebSocket. Recovery observes
+Wi-Fi/Ethernet networks rather than merely the
 system default network, so cellular availability cannot keep a stale LAN endpoint alive after the
 shared network disappears. A network is infrastructure LAN only when it has Wi-Fi or Ethernet
 transport and does not have `NET_CAPABILITY_WIFI_P2P`; callbacks also reclassify an already known
@@ -290,7 +330,7 @@ either device. The app never auto-accepts or suppresses them.
 
 After group formation, the phone uses `WifiP2pInfo.groupOwnerAddress` plus advertised port `8765`
 as a transient endpoint. REST, artwork, WebSocket, Bearer auth, JSON, and controls are identical to
-LAN API v1. A direct disconnect returns to LAN discovery and direct fallback. Restored network
+LAN API v1. A direct disconnect resumes selection under the current policy. Restored network
 availability restarts ordinary NSD automatically. A P2P network or group existing in Android is not
 itself a direct endpoint and cannot change connected transport presentation. `CONNECTED_DIRECT` is
 reported only after the identity-checked `WIFI_DIRECT` endpoint has delivered a valid API v1
@@ -316,8 +356,8 @@ Direct-connect is bounded and user-visible. The Phone Client distinguishes permi
 Location Mode disabled, Wi-Fi disabled, P2P unsupported, discovery/connect timeout, and a phone
 selected as group owner. It offers the matching system-settings or retry action instead of looping
 system dialogs. An initial approval/connect failure remains user-retryable so mandatory prompts are
-not looped; after a previously confirmed direct group, a temporary disconnect is automatically
-retried. Wi-Fi Direct support is optional in both manifests.
+not looped; loss of a previously confirmed group permits one recovery negotiation. Its failure
+requires explicit retry. Wi-Fi Direct support is optional in both manifests.
 
 For Android 13+ the apps declare/request `NEARBY_WIFI_DEVICES` with `neverForLocation`. Android
 8–12L uses both `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION`; Wi-Fi Direct discovery also
@@ -330,6 +370,63 @@ The Phone service declares both `FOREGROUND_SERVICE_CONNECTED_DEVICE` and
 standard Media3 service binding, and returns `START_STICKY`. Its private in-process Activity binder
 does not define an IPC transaction surface. No keep-screen-on flag, partial wakelock, or Wi-Fi lock
 is used by either connection path.
+
+### Recovery bounds and diagnostics
+
+The existing WebSocket TCP connect timeout is 5 seconds and upgrade read timeout is 10 seconds.
+An absolute 25-second deadline now also requires the first valid snapshot; an upgrade with no
+snapshot (even if control frames arrive) cannot leave Phone indefinitely Connecting. Established
+idle streams keep the existing heartbeat: after 20 seconds without a frame Phone sends Ping;
+another 20 seconds without a reply fails the path. Paused playback is not itself a failure, since
+the Server handles Ping/Pong independently of track events. No REST polling, wake lock, or shortened
+background timeout is introduced. Android suspension/OEM scheduling can delay delivery beyond
+these nominal bounds; new physical-device screen-off measurements remain pending.
+
+A confirmed infrastructure-network loss schedules recovery immediately; other network changes use
+the existing 500 ms debounce. Earlier deadlines win, so repeated callbacks cannot restart a grace
+period. A vanished NSD record or discovery failure does not disconnect a healthy API stream. API
+failures retain the existing 1/2/4/8/15-second backoff, but two failed attempts or 15 seconds after
+the first failure reject the stale endpoint for 60 seconds and consider an allowed alternative.
+The 15-second recovery budget matches the existing 5-second connect plus 10-second API read/upgrade
+allowance; it bounds repeated use of a failed path rather than reducing the established heartbeat.
+The 60-second endpoint cooldown matches the selection window and prevents rapid path oscillation;
+a genuinely new resolved address remains eligible immediately.
+An API-only Direct failure retains the verified group for later API recovery without renegotiation.
+NSD resolution itself is bounded to 10 seconds per attempt with the existing three-attempt limit.
+
+Direct preference and manual switches have one 60-second window. This accommodates the existing
+5-second group inspection, 30-second Android negotiation, and 25-second API confirmation bound;
+discovery may consume part of the same window rather than resetting it. P2P connect timeout starts
+before the Android action callback, including a callback that never arrives. Cancelled callbacks
+are generation/channel-gated and old group release completes before a new channel negotiates.
+Terminal permission, Location, Wi-Fi, approval/negotiation, and unsupported states require a
+deliberate recovery action where appropriate; the application does not loop system approval.
+
+For `DIRECT_PREFERRED`, loss of a confirmed path starts one new 60-second recovery window, after
+releasing any unavailable manual priority. Repeated API/group-loss callbacks and retries cannot
+extend it or inherit an earlier cycle's LAN-fallback permission. With a verified usable P2P group,
+API reconnect uses the existing backoff throughout that window instead of rejecting Direct after
+two failures/15 seconds or renegotiating Android. Without the group, the existing one-negotiation
+recovery limit still applies. Window expiry permits LAN but retains a usable group until LAN is
+actually confirmed. If neither path connects, a later matching endpoint discovery or the existing
+60-second cooldown retry can start another bounded cycle; only disconnected, non-connecting state
+can do so. Transient suppression/cached endpoint rejection does not survive into that new cycle,
+whereas a terminal permission/negotiation failure still requires user action. A confirmed healthy
+LAN fallback is never automatically displaced by these cycles. Confirmation ends the old cycle and
+clears its fallback permission.
+
+Developer mode defaults off and persists independently of pairing. `ConnectionDiagnostics` emits
+the same typed event line to Logcat and, only while enabled, to a shared process-memory buffer of
+at most 100 entries. Fields are time, enum reason, transport, stage, elapsed milliseconds, and enum
+result. Its interface accepts no token, QR secret, request, address, metadata, or exception. No log
+buffer is persisted; disabling the mode clears it. Settings opens a scrollable snapshot with
+Refresh/Clear/Close; refresh keeps the reading offset and follows the end only when already there.
+The mode never changes connection selection, timers, or retries.
+
+Policy changes, manual switching, pairing, Forget, and Stop invalidate superseded socket/discovery
+work. Already queued side-effect requests check their connection generation before dispatch; an
+ambiguous failure is reported once and is never replayed by recovery. Network timeouts and rejected
+authentication retain the saved association; only explicit Forget or successful Re-pair replaces it.
 
 ## Local API v1
 

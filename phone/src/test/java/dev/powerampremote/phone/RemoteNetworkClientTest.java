@@ -213,6 +213,84 @@ public final class RemoteNetworkClientTest {
         return serverSocket;
     }
 
+    @Test
+    public void upgradedSocketWithoutInitialSnapshotClosesByDeadline() throws Exception {
+        try (ServerSocket listener = loopbackServer()) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            Future<?> server = executor.submit(() -> {
+                try (Socket socket = listener.accept()) {
+                    socket.setSoTimeout(3_000);
+                    HttpRequest request = readHttp(socket);
+                    String response = "HTTP/1.1 101 Switching Protocols\r\n"
+                            + "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                            + "Sec-WebSocket-Accept: "
+                            + RemoteWebSocket.expectedAccept(request.headers.get("sec-websocket-key"))
+                            + "\r\n\r\n";
+                    socket.getOutputStream().write(response.getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().flush();
+                    assertEquals(-1, socket.getInputStream().read());
+                } catch (Exception exception) {
+                    throw new AssertionError(exception);
+                }
+            });
+            CountDownLatch failed = new CountDownLatch(1);
+            AtomicReference<RemoteState> unexpectedSnapshot = new AtomicReference<>();
+            RemoteWebSocket client = new RemoteWebSocket(endpoint(listener), TOKEN,
+                    new RemoteWebSocket.Listener() {
+                        @Override public void onOpen() { }
+                        @Override public void onState(RemoteState state, long received) {
+                            unexpectedSnapshot.set(state);
+                        }
+                        @Override public void onFailure(RemoteWebSocket.FailureType type, Exception error) {
+                            failed.countDown();
+                        }
+                    }, System::nanoTime, 500);
+            try {
+                client.start();
+                assertTrue(failed.await(3, TimeUnit.SECONDS));
+                assertEquals(null, unexpectedSnapshot.get());
+                server.get(3, TimeUnit.SECONDS);
+            } finally {
+                client.close();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    public void ambiguousQueueAppendDisconnectIsNeverRetried() throws Exception {
+        try (ServerSocket listener = loopbackServer()) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            Future<?> server = executor.submit(() -> {
+                try {
+                    HttpRequest request = acceptHttp(listener);
+                    assertEquals(RemoteApiClient.QUEUE_ADD_PATH, request.path);
+                    assertEquals("POST", request.method);
+                    request.socket.close(); // The provider may already have applied this body.
+                    listener.setSoTimeout(250);
+                    try (Socket duplicate = listener.accept()) {
+                        throw new AssertionError("Queue add was delivered twice");
+                    } catch (java.net.SocketTimeoutException expected) {
+                        // There is no mutation retry in the transport recovery path.
+                    }
+                } catch (IOException error) {
+                    throw new AssertionError(error);
+                }
+            });
+            QueueAddRequest request = new QueueAddRequest(java.util.Collections.singletonList(
+                    LibraryPlayTarget.parse(new org.json.JSONObject("{\"type\":\"track\",\"id\":41}"))
+            ));
+            try {
+                new RemoteApiClient().addToQueue(endpoint(listener), TOKEN, request);
+                throw new AssertionError("Expected ambiguous network failure");
+            } catch (IOException expected) {
+                server.get(3, TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
     private static DiscoveredServer endpoint(ServerSocket serverSocket) {
         return new DiscoveredServer(
                 SERVER_ID,

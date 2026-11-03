@@ -236,7 +236,9 @@ final class RemoteApiClient {
         if (token != null && !PairingCredentials.isValidToken(token)) {
             throw new IOException("Invalid Bearer token");
         }
-        HttpURLConnection connection = (HttpURLConnection) server.httpUrl(path).openConnection();
+        HttpURLConnection connection = (HttpURLConnection) (server.network == null
+                ? server.httpUrl(path).openConnection()
+                : server.network.openConnection(server.httpUrl(path)));
         try {
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLISECONDS);
             connection.setReadTimeout(READ_TIMEOUT_MILLISECONDS);

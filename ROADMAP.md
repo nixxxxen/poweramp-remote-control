@@ -1,8 +1,7 @@
 # Poweramp Remote Roadmap
 
-Server and Phone Client have independent version numbers. The current public versions are Server
-`0.10.2` and Phone `0.6.0`; the fully validated release candidate is Server `0.11.0` and Phone
-`0.7.0`. Local API `v1` remains backward-compatible.
+Server and Phone Client have independent version numbers. The current published versions are Server
+`0.11.0` / code 14 and Phone `0.7.0` / code 16. Local API `v1` remains backward-compatible.
 
 Completed verification is recorded in [`STATUS.md`](STATUS.md). Durable architecture and protocol
 rules live in [`PROJECT.md`](PROJECT.md).
@@ -64,7 +63,7 @@ rules live in [`PROJECT.md`](PROJECT.md).
 
 ## Server 0.11.0 / Phone 0.7.0 — Library, Search, and Queue
 
-The release candidate is implemented and has passed the complete signed in-place device matrix.
+The release is published and passed the complete signed in-place device matrix.
 
 - Library browsing for All tracks, Artists, Albums, folder hierarchy, and Playlists;
 - lazy bounded pages with no fixed total-row ceiling, cached track/category artwork, exact current-
@@ -86,18 +85,18 @@ The release candidate is implemented and has passed the complete signed in-place
 
 ### 1. User-controlled connection policy and network hardening
 
-Add two Phone settings through one validated three-state policy:
+Implemented on `codex/connection-policy`, with the new physical-device matrix still pending:
 
 - **Allow Wi-Fi Direct connections**: off means `LAN_ONLY`; on permits Direct fallback;
 - **Prefer Wi-Fi Direct**: on means `DIRECT_PREFERRED`; off with Direct allowed means
   `LAN_PREFERRED`.
 
-`DIRECT_PREFERRED` should keep a healthy authenticated Direct connection even when LAN is
-available, while retaining LAN discovery as bounded fallback. The UI must not allow the impossible
+`DIRECT_PREFERRED` keeps a healthy authenticated Direct connection even when LAN is
+available, while retaining LAN discovery as bounded fallback. The UI does not allow the impossible
 state “prefer a disabled transport”. Pairing that explicitly needs pre-association Direct may offer
 a clearly explained temporary allowance, never silently override the saved policy.
 
-Add contextual actions:
+Contextual actions:
 
 - **Switch to Wi-Fi Direct**, disabled while already on Direct or while Direct is disallowed;
 - **Switch to LAN**, disabled while already on LAN;
@@ -105,11 +104,18 @@ Add contextual actions:
 - a confirmed manual choice is temporary and clears when that transport becomes unavailable, the
   paired device changes, or the user chooses the other transport.
 
+The saved mode is independent of pairing and Activity binding. A 60-second preference/manual window
+permits fallback without repeatedly abandoning healthy connections. Existing backoff/heartbeat,
+non-postponable recovery deadlines, generation-gated probes, Network-bound LAN identity, bounded
+P2P negotiation, and safe optional in-memory diagnostics now share the existing runtime. Developer
+mode and the connection-event viewer are implemented with a 100-entry process buffer.
+
 All policy changes stay inside the existing `PhoneConnectionService` and
 `RemoteClientController`. Connected transport is reported only after an identity-checked,
 authenticated API/WebSocket connection succeeds—not from a P2P group or discovered endpoint.
 Permissions, Location Mode, Android/OEM approval, group-owner selection, and bounded fallback must
-remain recoverable and user-visible.
+remain recoverable and user-visible. Validate the new manual matrix in `STATUS.md` before preparing
+a subsequent release; release APKs/publication are outside this implementation task.
 
 ### 2. Multi-player foundation and pairing hardening
 

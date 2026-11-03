@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="connection_settings_title">Connection</string>
+    <string name="connection_allow_direct">Allow Wi-Fi Direct connections</string>
+    <string name="connection_prefer_direct">Prefer Wi-Fi Direct</string>
+    <string name="connection_developer_mode">Developer mode</string>
+    <string name="connection_view_logs">View logs</string>
+    <string name="connection_logs_title">Connection events</string>
+    <string name="connection_logs_refresh">Refresh</string>
+    <string name="connection_logs_clear">Clear</string>
+    <string name="connection_logs_close">Close</string>
+    <string name="connection_logs_empty">No connection events yet.</string>
+    <string name="connection_settings_storage_error">Could not save connection settings.</string>
+    <string name="connection_switch_direct">Switch to Wi-Fi Direct</string>
+    <string name="connection_switch_lan">Switch to LAN</string>
+    <string name="connection_switch_lan_confirmation">Wi-Fi Direct is preferred in Settings. Switch to LAN anyway?</string>
+    <string name="connection_switching">Switching connection…</string>
+    <string name="connection_switch_timeout">The selected connection did not respond in time. Restoring an available connection.</string>
+    <string name="connection_switch_failed">Could not use the selected connection. Restoring an available connection.</string>
+    <string name="connection_waiting_approval">Waiting for system connection approval</string>
+    <string name="connection_server_unavailable">No available Server. Searching for a reachable connection.</string>
     <string name="app_name" translatable="false">Poweramp Remote</string>
     <string name="about_product_name" translatable="false">Poweramp Remote Phone Client</string>
     <string name="repository_url" translatable="false">https://github.com/nixxxxen/poweramp-remote-control</string>

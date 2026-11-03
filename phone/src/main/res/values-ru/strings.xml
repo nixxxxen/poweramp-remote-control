@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="connection_settings_title">Подключение</string>
+    <string name="connection_allow_direct">Разрешать соединения по Wi-Fi Direct</string>
+    <string name="connection_prefer_direct">Предпочитать Wi-Fi Direct</string>
+    <string name="connection_developer_mode">Режим разработчика</string>
+    <string name="connection_view_logs">Просмотреть логи</string>
+    <string name="connection_logs_title">События подключения</string>
+    <string name="connection_logs_refresh">Обновить</string>
+    <string name="connection_logs_clear">Очистить</string>
+    <string name="connection_logs_close">Закрыть</string>
+    <string name="connection_logs_empty">Событий подключения пока нет.</string>
+    <string name="connection_settings_storage_error">Не удалось сохранить настройки подключения.</string>
+    <string name="connection_switch_direct">Переключить на Wi-Fi Direct</string>
+    <string name="connection_switch_lan">Переключить на LAN</string>
+    <string name="connection_switch_lan_confirmation">В настройках включено предпочтение Wi-Fi Direct. Всё равно переключить на LAN?</string>
+    <string name="connection_switching">Переключение соединения…</string>
+    <string name="connection_switch_timeout">Выбранное соединение не ответило вовремя. Восстанавливаем доступное подключение.</string>
+    <string name="connection_switch_failed">Не удалось использовать выбранное соединение. Восстанавливаем доступное подключение.</string>
+    <string name="connection_waiting_approval">Ожидание системного подтверждения подключения</string>
+    <string name="connection_server_unavailable">Нет доступного Server. Поиск работающего подключения.</string>
     <string name="open_main_menu">Открыть главное меню</string>
     <string name="settings">Настройки</string>
     <string name="about">О приложении</string>

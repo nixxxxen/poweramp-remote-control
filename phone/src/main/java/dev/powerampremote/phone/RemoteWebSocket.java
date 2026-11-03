@@ -21,6 +21,10 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
 /** Dependency-free RFC 6455 client for the server-push-only API v1 event stream. */
@@ -38,6 +42,14 @@ final class RemoteWebSocket implements AutoCloseable {
     private static final int CONNECT_TIMEOUT_MILLISECONDS = 5_000;
     private static final int HANDSHAKE_TIMEOUT_MILLISECONDS = 10_000;
     private static final int HEARTBEAT_TIMEOUT_MILLISECONDS = 20_000;
+    static final int FIRST_SNAPSHOT_DEADLINE_MS = CONNECT_TIMEOUT_MILLISECONDS
+            + HANDSHAKE_TIMEOUT_MILLISECONDS + 10_000;
+    private static final ScheduledExecutorService DEADLINES =
+            Executors.newSingleThreadScheduledExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "remote-events-deadline");
+                thread.setDaemon(true);
+                return thread;
+            });
     private static final int MAX_HEADER_LINE_BYTES = 8 * 1024;
     private static final int MAX_HEADER_BYTES = 24 * 1024;
     private static final int MAX_PAYLOAD_BYTES = 256 * 1024;
@@ -46,6 +58,7 @@ final class RemoteWebSocket implements AutoCloseable {
     private final String token;
     private final Listener listener;
     private final LongSupplier monotonicClock;
+    private final int firstSnapshotDeadlineMs;
     private final SecureRandom random = new SecureRandom();
     private final AtomicBoolean started = new AtomicBoolean();
     private final Object writeLock = new Object();
@@ -53,6 +66,7 @@ final class RemoteWebSocket implements AutoCloseable {
     private volatile boolean userClosed;
     private volatile Socket socket;
     private OutputStream output;
+    private volatile ScheduledFuture<?> initialDeadline;
 
     RemoteWebSocket(DiscoveredServer server, String token, Listener listener) {
         this(server, token, listener, android.os.SystemClock::elapsedRealtime);
@@ -64,10 +78,18 @@ final class RemoteWebSocket implements AutoCloseable {
             Listener listener,
             LongSupplier monotonicClock
     ) {
+        this(server, token, listener, monotonicClock, FIRST_SNAPSHOT_DEADLINE_MS);
+    }
+
+    RemoteWebSocket(
+            DiscoveredServer server, String token, Listener listener,
+            LongSupplier monotonicClock, int firstSnapshotDeadlineMs
+    ) {
         this.server = server;
         this.token = token;
         this.listener = listener;
         this.monotonicClock = monotonicClock;
+        this.firstSnapshotDeadlineMs = firstSnapshotDeadlineMs;
     }
 
     void start() {
@@ -80,6 +102,8 @@ final class RemoteWebSocket implements AutoCloseable {
     private void run() {
         FailureType failureType = FailureType.NETWORK;
         Exception failure = null;
+        initialDeadline = DEADLINES.schedule(this::closeSocket,
+                firstSnapshotDeadlineMs, TimeUnit.MILLISECONDS);
         try {
             connectAndRead();
             if (!userClosed) failure = new EOFException("WebSocket closed by server");
@@ -93,14 +117,18 @@ final class RemoteWebSocket implements AutoCloseable {
             failureType = FailureType.NETWORK;
             failure = exception;
         } finally {
+            cancelInitialDeadline();
             closeSocket();
         }
         if (!userClosed && failure != null) listener.onFailure(failureType, failure);
     }
 
     private void connectAndRead() throws IOException, AuthenticationException, ProtocolException {
+        if (userClosed) return;
         Socket connected = new Socket();
         socket = connected;
+        if (userClosed) { connected.close(); return; }
+        if (server.network != null) server.network.bindSocket(connected);
         connected.connect(new InetSocketAddress(server.address, server.port),
                 CONNECT_TIMEOUT_MILLISECONDS);
         connected.setKeepAlive(true);
@@ -193,8 +221,10 @@ final class RemoteWebSocket implements AutoCloseable {
                     // by Activity transitions, artwork, or system callbacks and must not become a
                     // new position anchor.
                     long receivedRealtimeMilliseconds = monotonicClock.getAsLong();
+                    RemoteState snapshot = RemoteStateParser.parse(decodeUtf8(frame.payload));
+                    cancelInitialDeadline();
                     listener.onState(
-                            RemoteStateParser.parse(decodeUtf8(frame.payload)),
+                            snapshot,
                             receivedRealtimeMilliseconds
                     );
                     break;
@@ -330,7 +360,14 @@ final class RemoteWebSocket implements AutoCloseable {
     @Override
     public void close() {
         userClosed = true;
+        cancelInitialDeadline();
         closeSocket();
+    }
+
+    private void cancelInitialDeadline() {
+        ScheduledFuture<?> deadline = initialDeadline;
+        initialDeadline = null;
+        if (deadline != null) deadline.cancel(false);
     }
 
     private void closeSocket() {

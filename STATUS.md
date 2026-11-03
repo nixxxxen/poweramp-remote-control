@@ -2,17 +2,129 @@
 
 ## Release state
 
-- Public baseline: Server `0.10.2` / code 13 and Phone `0.6.0` / code 15.
-- Fully validated release candidate: Server `0.11.0` / code 14 and Phone `0.7.0` / code 16.
+- Published baseline: Server `0.11.0` / code 14 and Phone `0.7.0` / code 16.
 - Local API: backward-compatible `v1`.
 - Validated application-source revision: `6bb22a8`
   (`6bb22a87c77a7563e4855b460c1507b00def1ecc`).
 
-The candidate has passed its complete signed in-place device matrix. Both APKs install directly
-over the public versions with the permanent certificate and preserve Server identity, API token,
-Phone pairing, Bearer credential, language, and application data. Documentation cleanup may follow
-as a documentation-only commit; the release tag must continue to identify the exact application-
-source revision embedded in the published APKs.
+The release is already published. Its signed in-place matrix passed over Server `0.10.2` / Phone
+`0.6.0`, preserving Server identity/token and Phone pairing, credentials, language, and application
+data. The published tag and APKs identify the application-source revision above; subsequent
+connection-policy work below is not part of those binaries.
+
+## Connection policy and recovery work (2026-10-25)
+
+Branch: `codex/connection-policy`, based on current `origin/main` at `d4f8733`. Application versions
+remain Server `0.11.0` / Phone `0.7.0`; no release build or publication is included.
+
+Confirmed source-level causes and fixes:
+
+- Hard-coded LAN-first callbacks destroyed Direct before authenticating LAN. Three saved modes
+  (`LAN_ONLY`, default `LAN_PREFERRED`, `DIRECT_PREFERRED`) now govern automatic selection, manual
+  selection, pairing, and recovery. A bounded replacement probe keeps the working socket until its
+  replacement supplies a valid snapshot. Direct preference keeps a healthy LAN fallback to avoid
+  oscillation; a new explicit policy/manual action can retry the preferred path.
+- Repeated recovery callbacks reset fallback timers; same-address WebSocket failures retried
+  forever while Wi-Fi remained up. Earlier recovery deadlines now win. Confirmed LAN loss skips
+  the initial grace; two failures or 15 seconds after first failure consider alternatives and
+  quarantine the failed endpoint for 60 seconds. NSD failure/loss does not replace a healthy status.
+- NSD could report a P2P-interface address as LAN. Public NSD Network (API 33+) or a verified
+  on-link infrastructure route (26–32) identifies LAN; LAN HTTP/WebSocket traffic binds to that
+  Network. Group existence alone never confirms a connection.
+- HTTP Upgrade without a snapshot had no overall deadline, and a missing P2P action callback
+  bypassed negotiation timeout. First-snapshot deadline is now 25 seconds total (existing 5-second
+  TCP + 10-second upgrade + 10-second snapshot allowance); P2P's existing 30-second timer starts
+  before its action callback. The 20-second idle Ping plus 20-second reply timeout is unchanged.
+- Pending/confirmed socket tokens and P2P operation/channel generations reject stale callbacks.
+  Group release precedes a replacement negotiation. One dropped-group recovery is allowed, but a
+  rejected/timed-out negotiation requires explicit retry. API-only Direct failure can reuse its
+  verified group after Server restart. Queued commands check generation before dispatch, and no
+  Queue-add or other mutation is replayed after ambiguous network failure.
+- Player devices has two transport actions, confirmation for LAN under Direct preference, a
+  temporary manual priority, a 60-second attempt bound, safe failure reasons, and current-transport/
+  concurrent-operation gating. Cancelled confirmation leaves the runtime untouched. Network
+  failures retain pairing; authentication rejection requests Re-pair without deleting stored data.
+- Settings has persisted transport switches and Developer mode (off by default). One typed safe
+  event reaches both Logcat and the optional process-memory buffer (100 one-line entries). Off
+  clears/stops collection; the log dialog snapshots on Refresh, preserves reading offset, and
+  includes Clear/Close. No disk logs, secrets, raw exceptions, polling, or new runtime are added.
+
+Automated verification completed:
+
+```text
+./gradlew clean :app:testDebugUnitTest :phone:testDebugUnitTest \
+  :app:lintDebug :phone:lintDebug :app:assembleDebug :phone:assembleDebug
+```
+
+- Server **147/147**, Phone **221/221**, total **368/368**, zero failures/errors/skips. This includes
+  new policy/manual-priority/fallback/attempt-token/deadline/buffer tests and real loopback tests
+  for an upgraded socket without a snapshot and an ambiguous Queue-add disconnect without retry.
+- Both debug lint tasks pass: Server has 2 warnings and Phone 27 warnings, zero errors. Build output
+  also notes the API-26-compatible initial `getAllNetworks()` seed is deprecated, existing Gradle
+  deprecations, and the installed command-line tools' SDK XML-version advisory.
+- Both clean debug APKs build. Follow-up checks were limited to Phone test/lint/assemble after
+  review corrections for old-LAN loss during a new probe, queued pairing cancellation, P2P channel
+  release on shutdown, and interrupted negotiation without repeated approval. Safe diagnostic
+  reason/duration fields were also rechecked. All passed; no further Server run was needed.
+- APK manifests retain min API 26, target/compile 36, Server `0.11.0` / code 14, Phone `0.7.0` /
+  code 16, and the existing single runtime service in each application. Both APKs verify with
+  Signature Scheme v2 and Android Debug certificate SHA-256
+  `4d2c7c0d0f8f2b81495d62884a96f361650573d8e99635a6f8cc754e36ec6265`;
+  both pass `zipalign -c -P 16 4`.
+- `git diff --check` passes. Server source, manifests, API `v1`, version declarations, release APKs,
+  release tags, and published assets are unchanged.
+
+Physical timing measurements are not yet available; the times above are nominal source/protocol
+bounds and Android suspension can delay callback delivery. The loopback test's injected 500 ms
+first-snapshot deadline completed in about 504 ms; this is JVM evidence, not a screen-off/OEM timing
+claim. No new physical-device item below is marked complete.
+
+### Direct-preferred reconnect regression (2026-10-27)
+
+- The reported Server stop/restart regression is explained by two source paths:
+  `handleSocketFailure()` called `unavailable(DIRECT)`, immediately allowing LAN even with a usable
+  verified group; the first LAN snapshot then stopped Direct and correctly—but prematurely—held
+  that fallback. Earlier fallback permission was not cleared by confirmation, and timeout-set
+  `directSuppressed` could survive indefinitely into later automatic recovery.
+- A confirmed-path loss now starts one fresh 60-second `DIRECT_PREFERRED` recovery window. A
+  repeated socket/group callback cannot reset it or release LAN early. Confirmation ends the
+  cycle and clears its fallback state. Manual priority, `LAN_ONLY`, and `LAN_PREFERRED` remain
+  covered by targeted regressions.
+- With a usable verified group, API recovery keeps the existing 1/2/4/8/15-second backoff during
+  that window instead of applying the generic two-failure/15-second endpoint quarantine. It does
+  not renegotiate Android. Group loss uses the existing bounded P2P recovery instead. Expiry opens
+  LAN fallback; a retained group is released only after LAN supplies a valid snapshot.
+- If still disconnected after expiry, a later matching endpoint discovery or the existing
+  60-second cooldown retry starts a new bounded cycle, clearing transient suppression and old
+  rejection of the reusable Direct endpoint. No new cycle starts while connecting or healthy.
+  Terminal permission/negotiation/manual-switch failure is tracked separately and still requires
+  user retry, including a failure delivered while transient fallback suppression is active.
+  Healthy confirmed LAN fallback is not repeatedly displaced.
+- Safe diagnostic reasons now distinguish `RECOVERY_DIRECT_PRIORITY`, `RECOVERY_REUSE_GROUP`,
+  `RECOVERY_DISCOVER_DIRECT`, `RECOVERY_LAN_FALLBACK`, `RECOVERY_SELECT_DIRECT`, and
+  `RECOVERY_SELECT_LAN`. No endpoint, credential, payload, or raw exception is logged.
+- Targeted verification only (the earlier full run above was not repeated): `ConnectionPolicyTest`,
+  `DirectPreferredRecoveryTest`, `WifiDirectRecoveryPolicyTest`, and `TransportRecoveryPolicyTest`;
+  **24/24** tests, zero failures/errors/skips; `:phone:assembleDebug` and `git diff --check` pass.
+  No clean, lint, Server tasks, full suites, release tasks, API or version changes were made for
+  this correction. Existing unrelated/uncommitted connection-policy work is retained.
+- Device verification of this fix remains **unconfirmed**. Specifically recheck a short Server
+  stop/restart with the group retained, group loss/recovery, restart after the old window/cooldown,
+  and unavailable Direct falling back to LAN without subsequent oscillation or approval loops.
+
+### Manual connection-policy matrix — not yet performed
+
+- [ ] All three modes with both transports available; persistence after process restart.
+- [ ] LAN loss, immediate allowed fallback, return home/new DHCP address, and no P2P-as-LAN label.
+- [ ] Server unavailable with Wi-Fi still up; bounded alternatives; Server stop/restart.
+- [ ] Direct group loss versus API-only loss; recovery and no repeated approval prompts.
+- [ ] Both manual switches, Direct-preferred LAN confirmation/cancel, temporary priority and failure.
+- [ ] Policy changes during discovery/negotiation/probe; Forget/Stop; no stale status or callbacks.
+- [ ] Nearby permission denial, Wi-Fi/Location off, approval refusal/timeout, and explicit retry.
+- [ ] Background, screen-off/paused playback, rebind, and saved settings after restart.
+- [ ] Developer mode on/off, 100-entry eviction, safe fields, Refresh reading offset/end, Clear.
+- [ ] Queue-add interrupted after delivery: one factual result, no automatic second append; playback,
+  MediaSession, Library/Search/Queue, pairing, and Web UI regressions.
 
 ## Implemented product
 
@@ -24,9 +136,8 @@ source revision embedded in the published APKs.
   connections, reconnect, playback state, Library/Search/Queue requests, and one Media3 session.
 - Initial pairing uses an address-free QR with stable Server identity and a short-lived one-time
   secret. Manual persistent Bearer-token pairing remains available for devices without a camera.
-- LAN remains preferred. The exact paired Server is discovered through Wi-Fi Direct only as
-  fallback, with mandatory Android/OEM permissions, Location Mode, approval, and group-owner
-  behavior preserved.
+- The published release prefers LAN with verified Wi-Fi Direct fallback. The subsequent policy
+  work above makes the preference configurable while preserving Android/OEM prerequisites.
 - Pairing identity is never an IP address. Activities do not own or restart either connection
   runtime.
 
@@ -109,7 +220,7 @@ source revision embedded in the published APKs.
 
 ### Signed release automation
 
-The exact candidate revision `6bb22a87c77a7563e4855b460c1507b00def1ecc` completed:
+The published application revision `6bb22a87c77a7563e4855b460c1507b00def1ecc` completed:
 
 ```text
 clean
@@ -139,7 +250,7 @@ clean
 
 ### Real-device validation
 
-The maintainer installed the exact signed candidate APKs over public Server `0.10.2` and Phone
+The maintainer installed the exact signed published APKs over public Server `0.10.2` and Phone
 `0.6.0` and confirmed the complete [`RELEASING.md`](RELEASING.md) matrix. The established test setup
 uses a Hiby R4 on Android 12 for Server/Poweramp and a Samsung Galaxy S24 Ultra on Android 16 for
 Phone.
@@ -163,8 +274,8 @@ Confirmed areas include:
 - Local HTTP/WebSocket traffic is authenticated but not encrypted. Use only trusted networks and do
   not expose port `8765` to the internet.
 - Pairing persistence currently stores one Server; full multi-player selection is future work.
-- LAN is currently always preferred over Wi-Fi Direct. User-controlled transport policy is the
-  next planned feature.
+- The new connection policy/recovery code requires the manual matrix above; published `0.7.0`
+  still uses its original LAN-first selection.
 - Wi-Fi Direct behavior still varies by Android/OEM permissions, Location Mode, approval, and
   group-owner selection.
 - Queue removal, Clear, Reorder, and Play Next are unavailable; Scoped Search and Lyrics are
@@ -176,15 +287,11 @@ Confirmed areas include:
 - Broader Android vendor/Poweramp version coverage remains useful but is not a blocker for the
   validated release.
 
-## Release handoff
+## Published release and next validation
 
-Application code is ready. Remaining release work is procedural:
-
-1. push the final documentation-only commit to the remote feature branch;
-2. fast-forward `main` without altering the validated application-source commit;
-3. create `server-v0.11.0_phone-v0.7.0` at `6bb22a8`;
-4. publish the GitHub Release using `RELEASE_NOTES.md` and every file from the prepared
-   `outputs/release-0.11.0_phone-0.7.0/` bundle.
+Server `0.11.0` / Phone `0.7.0` are published; their binaries, source tag, and signed matrix remain
+the baseline. Complete the separate connection-policy matrix before a later release-preparation
+task. Do not rebuild or republish release APKs as part of the current work.
 
 Future implementation order is maintained in [`ROADMAP.md`](ROADMAP.md); durable architecture and
 protocol contracts are maintained in [`PROJECT.md`](PROJECT.md).

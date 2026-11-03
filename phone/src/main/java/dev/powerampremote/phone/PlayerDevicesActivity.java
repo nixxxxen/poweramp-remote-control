@@ -59,6 +59,8 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
     private Button manualPairingButton;
     private Button repairButton;
     private Button forgetButton;
+    private Button switchDirectButton;
+    private Button switchLanButton;
 
     private PhoneConnectionService.LocalBinder controller;
     private RemoteClientController.Status status = RemoteClientController.Status.SEARCHING;
@@ -216,9 +218,27 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
         manualPairingButton = findViewById(R.id.manual_pairing_button);
         repairButton = findViewById(R.id.repair_player_button);
         forgetButton = findViewById(R.id.forget_device_button);
+        switchDirectButton = findViewById(R.id.switch_direct_button);
+        switchLanButton = findViewById(R.id.switch_lan_button);
     }
 
     private void configureActions() {
+        switchDirectButton.setOnClickListener(view -> {
+            haptic(view);
+            switchTransport(DiscoveredServer.Transport.WIFI_DIRECT);
+        });
+        switchLanButton.setOnClickListener(view -> {
+            haptic(view);
+            if (controller == null) return;
+            if (controller.connectionPolicy() == ConnectionPolicy.DIRECT_PREFERRED) {
+                new AlertDialog.Builder(this)
+                        .setMessage(R.string.connection_switch_lan_confirmation)
+                        .setPositiveButton(R.string.connection_switch_lan,
+                                (dialog, which) -> switchTransport(DiscoveredServer.Transport.LAN))
+                        .setNegativeButton(R.string.cancel, null)
+                        .show();
+            } else switchTransport(DiscoveredServer.Transport.LAN);
+        });
         scanQrButton.setOnClickListener(view -> {
             haptic(view);
             launchScanner();
@@ -471,12 +491,21 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
         deviceCard.setVisibility(snapshot.saved ? View.VISIBLE : View.GONE);
         repairButton.setVisibility(snapshot.saved ? View.VISIBLE : View.GONE);
         forgetButton.setVisibility(snapshot.saved ? View.VISIBLE : View.GONE);
+        switchDirectButton.setVisibility(snapshot.saved ? View.VISIBLE : View.GONE);
+        switchLanButton.setVisibility(snapshot.saved ? View.VISIBLE : View.GONE);
+        boolean switching = controller.switchingTransport();
+        boolean canSwitch = snapshot.saved && !switching
+                && !controller.isPairingInProgress()
+                && status != RemoteClientController.Status.AUTH_REQUIRED;
+        switchDirectButton.setEnabled(canSwitch && controller.connectionPolicy().allowsDirect()
+                && snapshot.transport != PlayerDeviceSnapshot.Transport.WIFI_DIRECT);
+        switchLanButton.setEnabled(canSwitch && snapshot.transport != PlayerDeviceSnapshot.Transport.LAN);
         if (!snapshot.saved) return;
 
         deviceName.setText(snapshot.deviceName);
         boolean connected = snapshot.connection == PlayerDeviceSnapshot.Connection.CONNECTED;
-        deviceConnectionStatus.setText(connected
-                ? R.string.device_connected : R.string.device_disconnected);
+        deviceConnectionStatus.setText(switching ? R.string.connection_switching
+                : connected ? R.string.device_connected : runtimeStatusResource(status));
         deviceConnectionStatus.setTextColor(getColor(connected ? R.color.accent : R.color.warning));
         int transportText;
         switch (snapshot.transport) {
@@ -503,6 +532,28 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
                         ? getString(R.string.endpoint_not_connected) : snapshot.endpoint,
                 getString(runtimeStatusResource(snapshot.runtimeStatus))
         ));
+        int failure = switchFailureResource(controller.switchFailure());
+        if (failure != 0) showError(failure);
+    }
+
+    private void switchTransport(DiscoveredServer.Transport transport) {
+        if (controller != null && controller.switchTransport(transport)) {
+            hideError();
+            renderDevice();
+        }
+    }
+
+    private static int switchFailureResource(RemoteClientController.SwitchFailure failure) {
+        switch (failure) {
+            case TIMEOUT: return R.string.connection_switch_timeout;
+            case PERMISSION: return R.string.runtime_status_direct_permission;
+            case LOCATION: return R.string.runtime_status_direct_location;
+            case WIFI: return R.string.runtime_status_direct_wifi;
+            case UNSUPPORTED: return R.string.runtime_status_direct_unsupported;
+            case DIRECT_FAILED: return R.string.connection_switch_failed;
+            case NONE:
+            default: return 0;
+        }
     }
 
     private static int runtimeStatusResource(RemoteClientController.Status value) {
@@ -525,6 +576,12 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
                 return R.string.runtime_status_direct_wifi;
             case DIRECT_CONNECTING:
                 return R.string.runtime_status_direct_connecting;
+            case DIRECT_WAITING_APPROVAL:
+                return R.string.connection_waiting_approval;
+            case SWITCHING:
+                return R.string.connection_switching;
+            case SERVER_UNAVAILABLE:
+                return R.string.connection_server_unavailable;
             case CONNECTED_DIRECT:
                 return R.string.runtime_status_connected_direct;
             case DIRECT_UNSUPPORTED:
@@ -545,7 +602,22 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
 
     private void renderConnectionAction() {
         int textResource;
-        switch (status) {
+        RemoteClientController.Status actionStatus = status;
+        if (controller != null) {
+            switch (controller.switchFailure()) {
+                case PERMISSION:
+                    actionStatus = RemoteClientController.Status.DIRECT_PERMISSION_REQUIRED;
+                    break;
+                case LOCATION:
+                    actionStatus = RemoteClientController.Status.DIRECT_LOCATION_REQUIRED;
+                    break;
+                case WIFI:
+                    actionStatus = RemoteClientController.Status.DIRECT_WIFI_REQUIRED;
+                    break;
+                default: break;
+            }
+        }
+        switch (actionStatus) {
             case DIRECT_PERMISSION_REQUIRED:
                 connectionAction = ConnectionAction.PERMISSION;
                 textResource = R.string.direct_action_permission;
@@ -563,6 +635,7 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
                 textResource = R.string.direct_action_retry;
                 break;
             case DIRECT_UNSUPPORTED:
+            case SERVER_UNAVAILABLE:
                 connectionAction = ConnectionAction.RETRY_LAN;
                 textResource = R.string.direct_action_retry_lan;
                 break;
@@ -633,15 +706,23 @@ public final class PlayerDevicesActivity extends LocaleAwareActivity
     private static boolean isDirectRecoveryStatus(RemoteClientController.Status value) {
         return value == RemoteClientController.Status.DIRECT_PERMISSION_REQUIRED
                 || value == RemoteClientController.Status.DIRECT_LOCATION_REQUIRED
-                || value == RemoteClientController.Status.DIRECT_WIFI_REQUIRED
-                || value == RemoteClientController.Status.DIRECT_ACTION_REQUIRED;
+                || value == RemoteClientController.Status.DIRECT_WIFI_REQUIRED;
     }
 
     private void setActionsEnabled(boolean enabled) {
+        if (!enabled) {
+            switchDirectButton.setEnabled(false);
+            switchLanButton.setEnabled(false);
+        }
         boolean pairing = pairingMode != RemoteClientController.PairingMode.NONE;
         scanQrButton.setEnabled(!pairing);
         manualPairingButton.setEnabled(!pairing);
         repairButton.setEnabled(!pairing);
+        if (controller != null && controller.switchingTransport()) {
+            scanQrButton.setEnabled(false);
+            manualPairingButton.setEnabled(false);
+            repairButton.setEnabled(false);
+        }
         forgetButton.setEnabled(enabled && !pairing);
     }
 

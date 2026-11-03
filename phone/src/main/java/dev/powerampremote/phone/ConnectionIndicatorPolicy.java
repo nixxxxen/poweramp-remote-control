@@ -22,6 +22,8 @@ final class ConnectionIndicatorPolicy {
             case CONNECTING:
             case DIRECT_SEARCHING:
             case DIRECT_CONNECTING:
+            case DIRECT_WAITING_APPROVAL:
+            case SWITCHING:
             case RETRYING:
                 return PresentationState.CONNECTING;
             case DIRECT_PERMISSION_REQUIRED:
@@ -31,6 +33,7 @@ final class ConnectionIndicatorPolicy {
             case DIRECT_ACTION_REQUIRED:
             case AUTH_REQUIRED:
             case ERROR:
+            case SERVER_UNAVAILABLE:
                 return PresentationState.DISCONNECTED;
             default:
                 throw new AssertionError("Unhandled connection status: " + status);

@@ -4,6 +4,7 @@ package dev.powerampremote.phone;
 final class WifiDirectRecoveryPolicy {
     private boolean connectedBefore;
     private int discoveryFailures;
+    private boolean automaticNegotiationUsed;
 
     void onDiscoveryStarted() {
         discoveryFailures = 0;
@@ -15,10 +16,13 @@ final class WifiDirectRecoveryPolicy {
 
     void onGroupConnected() {
         connectedBefore = true;
+        automaticNegotiationUsed = false;
         discoveryFailures = 0;
     }
 
     boolean shouldAutomaticallyRetryConnection() {
-        return connectedBefore;
+        if (!connectedBefore || automaticNegotiationUsed) return false;
+        automaticNegotiationUsed = true;
+        return true;
     }
 }

@@ -1,5 +1,6 @@
 package dev.powerampremote.phone;
 
+import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -10,6 +11,9 @@ import android.os.IBinder;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.widget.RadioGroup;
+import android.widget.Switch;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 /** Presentation-only settings surface; the connection service remains its independent owner. */
@@ -19,6 +23,13 @@ public final class SettingsActivity extends LocaleAwareActivity {
     private boolean updatingSelection;
     private MiniPlayerController miniPlayer;
     private boolean bindingRequested;
+    private ConnectionPreferences connectionPreferences;
+    private Switch allowDirect;
+    private Switch preferDirect;
+    private Switch developerMode;
+    private View viewLogs;
+    private boolean updatingConnectionSettings;
+    private AlertDialog logsDialog;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -48,6 +59,25 @@ public final class SettingsActivity extends LocaleAwareActivity {
         setContentView(R.layout.activity_settings);
         SafeDrawingInsets.apply(findViewById(R.id.settings_root));
         miniPlayer = new MiniPlayerController(this);
+        connectionPreferences = new ConnectionPreferences(this);
+        allowDirect = findViewById(R.id.allow_direct_switch);
+        preferDirect = findViewById(R.id.prefer_direct_switch);
+        developerMode = findViewById(R.id.developer_mode_switch);
+        viewLogs = findViewById(R.id.view_connection_logs);
+        renderConnectionSettings();
+        allowDirect.setOnCheckedChangeListener((button, checked) -> saveConnectionPolicy());
+        preferDirect.setOnCheckedChangeListener((button, checked) -> saveConnectionPolicy());
+        developerMode.setOnCheckedChangeListener((button, checked) -> {
+            if (updatingConnectionSettings) return;
+            if (!connectionPreferences.saveDeveloperMode(checked)) {
+                Toast.makeText(this, R.string.connection_settings_storage_error, Toast.LENGTH_SHORT).show();
+            } else {
+                ConnectionDiagnostics.setEnabled(checked);
+                refreshConnectionSettings();
+            }
+            renderConnectionSettings();
+        });
+        viewLogs.setOnClickListener(view -> showConnectionLogs());
         BottomNavigation.bind(
                 this,
                 BottomNavigation.Tab.SETTINGS,
@@ -124,6 +154,7 @@ public final class SettingsActivity extends LocaleAwareActivity {
 
     @Override
     protected void onDestroy() {
+        if (logsDialog != null) logsDialog.dismiss();
         BottomNavigation.release(this);
         super.onDestroy();
     }
@@ -132,6 +163,82 @@ public final class SettingsActivity extends LocaleAwareActivity {
         updatingSelection = true;
         languageGroup.check(idForLanguage(language));
         updatingSelection = false;
+    }
+
+    private void renderConnectionSettings() {
+        updatingConnectionSettings = true;
+        ConnectionPolicy policy = connectionPreferences.policy();
+        allowDirect.setChecked(policy.allowsDirect());
+        preferDirect.setChecked(policy == ConnectionPolicy.DIRECT_PREFERRED);
+        preferDirect.setEnabled(policy.allowsDirect());
+        preferDirect.setAlpha(policy.allowsDirect() ? 1f : 0.38f);
+        boolean developer = connectionPreferences.developerMode();
+        developerMode.setChecked(developer);
+        viewLogs.setVisibility(developer ? View.VISIBLE : View.GONE);
+        if (!developer && logsDialog != null) logsDialog.dismiss();
+        updatingConnectionSettings = false;
+    }
+
+    private void saveConnectionPolicy() {
+        if (updatingConnectionSettings) return;
+        ConnectionPolicy policy = ConnectionPolicy.fromSwitches(
+                allowDirect.isChecked(), preferDirect.isChecked());
+        if (!connectionPreferences.savePolicy(policy)) {
+            Toast.makeText(this, R.string.connection_settings_storage_error, Toast.LENGTH_SHORT).show();
+        } else refreshConnectionSettings();
+        renderConnectionSettings();
+    }
+
+    private void refreshConnectionSettings() {
+        try {
+            PhoneConnectionService.refreshConnectionSettings(this);
+        } catch (RuntimeException ignored) {
+            Toast.makeText(this, R.string.connection_service_error, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showConnectionLogs() {
+        if (!connectionPreferences.developerMode()) return;
+        ScrollView scroll = new ScrollView(this);
+        TextView text = new TextView(this);
+        int inset = Math.round(16f * getResources().getDisplayMetrics().density);
+        text.setPadding(inset, inset, inset, inset);
+        text.setTextIsSelectable(true);
+        text.setTextSize(12f);
+        text.setTypeface(android.graphics.Typeface.MONOSPACE);
+        scroll.addView(text);
+        text.setText(logSnapshot());
+        logsDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.connection_logs_title)
+                .setView(scroll)
+                .setPositiveButton(R.string.connection_logs_refresh, null)
+                .setNeutralButton(R.string.connection_logs_clear, null)
+                .setNegativeButton(R.string.connection_logs_close, null)
+                .create();
+        logsDialog.setOnShowListener(ignored -> {
+            logsDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+                int oldPosition = scroll.getScrollY();
+                boolean atEnd = text.getBottom() - (oldPosition + scroll.getHeight()) <= inset;
+                text.setText(logSnapshot());
+                scroll.post(() -> {
+                    if (atEnd) scroll.fullScroll(View.FOCUS_DOWN);
+                    else scroll.scrollTo(0, oldPosition);
+                });
+            });
+            logsDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+                ConnectionDiagnostics.clear();
+                text.setText(logSnapshot());
+                scroll.scrollTo(0, 0);
+            });
+            scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+        });
+        logsDialog.show();
+    }
+
+    private String logSnapshot() {
+        java.util.List<String> events = ConnectionDiagnostics.snapshot();
+        return events.isEmpty() ? getString(R.string.connection_logs_empty)
+                : String.join("\n", events);
     }
 
     private static AppLanguage languageForId(int id) {

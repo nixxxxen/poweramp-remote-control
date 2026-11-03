@@ -1,5 +1,7 @@
 package dev.powerampremote.phone;
 
+import android.net.Network;
+
 import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -14,6 +16,7 @@ final class DiscoveredServer {
     final InetAddress address;
     final int port;
     final Transport transport;
+    final Network network;
 
     DiscoveredServer(String serverId, String serviceName, InetAddress address, int port) {
         this(serverId, serviceName, address, port, Transport.LAN);
@@ -25,6 +28,13 @@ final class DiscoveredServer {
             InetAddress address,
             int port,
             Transport transport
+    ) {
+        this(serverId, serviceName, address, port, transport, null);
+    }
+
+    DiscoveredServer(
+            String serverId, String serviceName, InetAddress address, int port,
+            Transport transport, Network network
     ) {
         if (!PairingCredentials.isValidServerId(serverId)) {
             throw new IllegalArgumentException("invalid server id");
@@ -40,6 +50,7 @@ final class DiscoveredServer {
         this.address = address;
         this.port = port;
         this.transport = transport;
+        this.network = network;
     }
 
     URL httpUrl(String path) throws MalformedURLException {
@@ -66,6 +77,7 @@ final class DiscoveredServer {
                 && port == other.port
                 && serverId.equals(other.serverId)
                 && address.equals(other.address)
+                && Objects.equals(network, other.network)
                 && transport == other.transport;
     }
 
@@ -82,11 +94,12 @@ final class DiscoveredServer {
                 && serverId.equals(other.serverId)
                 && serviceName.equals(other.serviceName)
                 && address.equals(other.address)
+                && Objects.equals(network, other.network)
                 && transport == other.transport;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(serverId, serviceName, address, port, transport);
+        return Objects.hash(serverId, serviceName, address, port, transport, network);
     }
 }
