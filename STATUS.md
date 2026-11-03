@@ -5,8 +5,10 @@
 - Published baseline: Server `0.11.0` / code 14 and Phone `0.7.0` / code 16.
 - Next candidate: Phone `0.8.0` / code 17 with the unchanged public Server `0.11.0` APK.
 - Local API: backward-compatible `v1`.
-- Validated application-source revision: `6bb22a8`
+- Published baseline application-source revision: `6bb22a8`
   (`6bb22a87c77a7563e4855b460c1507b00def1ecc`).
+- Phone `0.8.0` APK-source revision: `9616976`
+  (`9616976a16a8cdf1daf91f3515807b9c7fc6e8bc`).
 
 The release is already published. Its signed in-place matrix passed over Server `0.10.2` / Phone
 `0.6.0`, preserving Server identity/token and Phone pairing, credentials, language, and application
@@ -52,7 +54,7 @@ Confirmed source-level causes and fixes:
   clears/stops collection; the log dialog snapshots on Refresh, preserves reading offset, and
   includes Clear/Close. No disk logs, secrets, raw exceptions, polling, or new runtime are added.
 
-Automated verification completed:
+Earlier implementation verification (2026-10-25, before the release version bump):
 
 ```text
 ./gradlew clean :app:testDebugUnitTest :phone:testDebugUnitTest \
@@ -111,7 +113,7 @@ no quantitative physical timing results were supplied.
   `DirectPreferredRecoveryTest`, `WifiDirectRecoveryPolicyTest`, and `TransportRecoveryPolicyTest`;
   **24/24** tests, zero failures/errors/skips; `:phone:assembleDebug` and `git diff --check` pass.
   No clean, lint, Server tasks, full suites, release tasks, API or version changes were made for
-  this correction. Existing unrelated/uncommitted connection-policy work is retained.
+  this correction. The existing connection-policy work was preserved and is now committed.
 - Device verification is **maintainer-confirmed on 2026-11-03**, including the complete manual
   matrix and the reported Server stop/restart correction. Final signed-candidate checks remain
   separate from this implementation validation.
@@ -130,16 +132,38 @@ no quantitative physical timing results were supplied.
 - [x] Queue-add interrupted after delivery: one factual result, no automatic second append; playback,
   MediaSession, Library/Search/Queue, pairing, and Web UI regressions.
 
-### Phone 0.8.0 release-candidate preparation
+### Phone 0.8.0 release candidate — built and verified 2026-11-03
 
-- Existing implementation and the complete device matrix are confirmed.
-- Release metadata/docs are being prepared for Phone `0.8.0` / code 17.
-- The final clean debug baseline and signed Phone release pipeline must finish before the bundle
-  is handed off. Exact results, source revision, and APK hashes will be recorded here afterward.
-- The reused Server is the exact public APK, source revision `6bb22a8`, SHA-256
+The clean combined pipeline documented in `RELEASING.md` passed from application-source commit
+`9616976a16a8cdf1daf91f3515807b9c7fc6e8bc` in 30 seconds (153 tasks, 152 executed):
+
+- Server debug: **147/147** JVM tests.
+- Phone debug: **230/230** JVM tests.
+- Phone release: **230/230** JVM tests.
+- Total: **607/607** executions, zero failures, errors, or skips.
+- Both debug APKs and the release-signed Phone APK assembled successfully.
+- Server debug lint: zero errors, 2 warnings. Phone debug/release lint: zero errors, 27 warnings
+  each. Existing `getAllNetworks()`/Gradle deprecations and the installed SDK XML advisory remain.
+- Phone package `dev.r4remote.poweramp.phone`, `0.8.0` / code 17, min API 26, target/compile 36.
+  The manifest retains one `PhoneConnectionService` with `connectedDevice|mediaPlayback`.
+- Both bundle APKs verify with Signature Scheme v2 and the same permanent RSA-4096 release signer;
+  its SHA-256 fingerprint matches the public Phone `0.7.0` certificate and the historical record
+  below. Both pass `zipalign -c -P 16 4`.
+- Debug APK signatures/alignment also pass, with the existing Android Debug certificate.
+- Server source, root build files, and wrapper are identical to the public source tag. The reused
+  Server is byte-for-byte the previous public APK, embedding source `6bb22a8`.
+- Phone SHA-256:
+  `769b3c4fcaee35383df9fcccbc242a7663f2d4c62ec7b152e3bd65429131551c`.
+- Server SHA-256:
   `6a2f1341e7b9e3ae356e954f613415ff41f8189522c4c4c96a161ac357361ed7`.
-- The exact signed Phone APK still needs the short in-place check in `RELEASING.md` before
-  publication. Implementation/debug-device confirmation does not claim that later artifact passed.
+- Bundle: `outputs/release-0.11.0_phone-0.8.0/`, exactly two APKs, `SHA256SUMS.txt`, `LICENSE`,
+  `THIRD_PARTY_NOTICES.md`, and `Apache-2.0.txt`. Checksum verification and all copy comparisons pass.
+- No new screenshots were made; README explicitly identifies the retained Phone `0.7.0` screenshots.
+
+The exact signed Phone APK still needs the short in-place check in `RELEASING.md` before
+publication. The complete implementation device matrix above is confirmed; signed-candidate
+installation has not yet been confirmed. Documentation-only verification commits do not change
+the Phone APK-source revision or require another build.
 
 ## Implemented product
 
@@ -305,9 +329,12 @@ Confirmed areas include:
 ## Release handoff
 
 Server `0.11.0` / Phone `0.7.0` are published; their source tag and binaries remain unchanged.
-Prepare `outputs/release-0.11.0_phone-0.8.0/` with the new signed Phone and the exact public Server,
-then fast-forward local `main`. Do not push or publish in this task. The maintainer checks the
-exact signed Phone in place, then pushes and tags at the Phone APK-source revision recorded above.
+The verified bundle is prepared at `outputs/release-0.11.0_phone-0.8.0/`. Local integration uses a
+fast-forward from `codex/connection-policy` to `main`; nothing is pushed or published by this task.
+After the exact signed Phone passes the in-place check, the maintainer can push `main` and create
+`server-v0.11.0_phone-v0.8.0` at `9616976a16a8cdf1daf91f3515807b9c7fc6e8bc`, then publish the six
+bundle files with the description from `RELEASE_NOTES.md`. The reused Server keeps its original
+source revision `6bb22a8`; a new Server build is unnecessary.
 
 Future implementation order is maintained in [`ROADMAP.md`](ROADMAP.md); durable architecture and
 protocol contracts are maintained in [`PROJECT.md`](PROJECT.md).

@@ -45,6 +45,10 @@ The complete connection-policy device matrix and Direct-preferred reconnect corr
 confirmed by the maintainer on 2026-11-03. Exact build provenance and final signed-candidate
 validation are recorded separately in `STATUS.md` and `RELEASING.md`.
 
+The combined clean debug/release pipeline passed 607 JVM test executions with zero failures;
+lint passed with zero errors. Both APKs verify with the permanent release certificate and pass
+16 KiB-aware ZIP alignment. Phone was built from `9616976`; the unchanged Server retains `6bb22a8`.
+
 ## Release assets
 
 - `Poweramp-Remote-Phone-v0.8.0.apk`
@@ -55,5 +59,8 @@ validation are recorded separately in `STATUS.md` and `RELEASING.md`.
 - `Apache-2.0.txt`
 
 Verify the APKs against `SHA256SUMS.txt` after download.
+
+- Phone SHA-256: `769b3c4fcaee35383df9fcccbc242a7663f2d4c62ec7b152e3bd65429131551c`
+- Server SHA-256: `6a2f1341e7b9e3ae356e954f613415ff41f8189522c4c4c96a161ac357361ed7`
 
 Poweramp Remote is independent and is not affiliated with Poweramp or Max MP.

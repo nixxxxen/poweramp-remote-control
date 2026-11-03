@@ -11,9 +11,12 @@ outside the repository. Never publish backup refs or use `git push --mirror`.
 - API remains `v1`; permanent application IDs and the release signer are retained.
 - Bundle: `outputs/release-0.11.0_phone-0.8.0/` (ignored by Git).
 - Suggested tag: `server-v0.11.0_phone-v0.8.0`, at the final Phone APK's embedded source commit.
-  The reused Server embeds its original source commit `6bb22a8`.
+  The verified Phone embeds `9616976a16a8cdf1daf91f3515807b9c7fc6e8bc`; the reused Server embeds
+  its original source commit `6bb22a8`.
 - Implementation device matrix: maintainer-confirmed on 2026-11-03. Exact signed-candidate
   installation/smoke checks below remain separate.
+- Clean build, 607 JVM test executions, all scheduled lint tasks, signatures, versions, alignment,
+  copied licenses, and bundle checksums passed on 2026-11-03. Exact results are in `STATUS.md`.
 
 ## Signing and builds
 

@@ -124,6 +124,7 @@ remain recoverable and user-visible.
 - [x] Direct-preferred recovery after short/long Server stop/restart.
 - [x] Developer mode and 100-event connection-log viewer.
 - [x] Complete manual connection-policy and regression matrix confirmed by the maintainer.
+- [x] Clean debug baseline and signed Phone release build verified on 2026-11-03; bundle prepared.
 - [ ] Install and smoke-test the exact final release-signed Phone `0.8.0` over public `0.7.0`.
 - [ ] Publish Phone `0.8.0` with the unchanged Server `0.11.0` APK.
 
